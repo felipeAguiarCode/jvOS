@@ -1,0 +1,34 @@
+[
+  { "id": "window:clock", "kind": "window", "target": "clock", "label": "Relógio", "phrases": ["relógio", "clock"] },
+  { "id": "window:pomodoro", "kind": "window", "target": "pomodoro", "label": "Pomodoro", "phrases": ["pomodoro", "temporizador", "timer"] },
+  { "id": "window:battery", "kind": "window", "target": "battery", "label": "Bateria", "phrases": ["bateria", "battery"] },
+  { "id": "window:calculator", "kind": "window", "target": "calculator", "label": "Calculadora", "phrases": ["calculadora", "calculator"] },
+  { "id": "window:tape", "kind": "window", "target": "tape", "label": "Fita", "phrases": ["fita", "cassete", "fita cassete"] },
+  { "id": "window:miniplayer", "kind": "window", "target": "miniplayer", "label": "Mini player", "phrases": ["mini player", "miniplayer", "controle de música"] },
+  { "id": "window:markdown", "kind": "window", "target": "markdown", "label": "Jarvis Mark", "phrases": ["Jarvis Mark", "markdown", "editor de markdown"] },
+  { "id": "window:code", "kind": "window", "target": "code", "label": "Jarvis Code", "phrases": ["Jarvis Code", "código"] },
+  { "id": "window:music", "kind": "window", "target": "music", "label": "jv_T4p3", "phrases": ["jv tape", "tape", "player", "player de música", "tocador"] },
+  { "id": "window:shell", "kind": "window", "target": "shell", "label": "jv_sh", "phrases": ["terminal", "jv sh", "shell", "console", "prompt de comando"] },
+
+  { "id": "verbs:open", "kind": "verbs", "target": "open", "label": "Verbos de abrir", "phrases": ["abre", "abrir", "abra", "abri", "mostra", "mostrar", "mostre", "open", "show", "start"] },
+  { "id": "verbs:close", "kind": "verbs", "target": "close", "label": "Verbos de fechar", "phrases": ["fecha", "fechar", "feche", "fechem", "fecho", "encerra", "encerrar", "encerre", "esconde", "esconder", "close", "hide"] },
+
+  { "id": "group:widgets", "kind": "group", "target": "widgets", "label": "Todos os widgets", "phrases": ["widgets", "todos os widgets"] },
+  { "id": "group:apps", "kind": "group", "target": "apps", "label": "Todos os apps", "phrases": ["aplicações", "aplicativos", "apps", "todas as aplicações", "todos os aplicativos", "todos os apps"] },
+  { "id": "group:all", "kind": "group", "target": "all", "label": "Todas as janelas", "phrases": ["janelas", "todas as janelas", "tudo"] },
+
+  { "id": "music:resume", "kind": "music", "target": "resume", "label": "Tocar / continuar", "phrases": ["dá play", "da play", "dar play", "play", "continua a música", "continuar a música", "volta a tocar", "voltar a tocar", "retoma a música", "despausa", "solta o som"] },
+  { "id": "music:pause", "kind": "music", "target": "pause", "label": "Pausar", "phrases": ["pausa", "pausar", "pause", "pausa a música", "pausar a música", "para a música", "parar a música", "pare a música", "para o som", "stop music"] },
+  { "id": "music:next", "kind": "music", "target": "next", "label": "Próxima música", "phrases": ["próxima música", "próxima faixa", "próxima canção", "pula a música", "pular a música", "pula essa música", "next song"] },
+  { "id": "music:previous", "kind": "music", "target": "previous", "label": "Música anterior", "phrases": ["música anterior", "faixa anterior", "canção anterior", "volta a música", "voltar a música", "volta uma música", "volta para a música anterior", "voltar para a música anterior", "previous song"] },
+  { "id": "music:nextPlaylist", "kind": "music", "target": "nextPlaylist", "label": "Próxima playlist", "phrases": ["próxima playlist", "muda a playlist", "mudar a playlist", "muda de playlist", "troca a playlist", "trocar a playlist", "troca de playlist", "próxima rádio", "muda a rádio", "muda de rádio", "troca a rádio", "troca de rádio", "próxima estação", "muda a estação"] },
+  { "id": "music:previousPlaylist", "kind": "music", "target": "previousPlaylist", "label": "Playlist anterior", "phrases": ["playlist anterior", "rádio anterior", "estação anterior"] },
+  { "id": "music:play", "kind": "playVerbs", "target": "", "label": "Tocar uma playlist pelo nome", "phrases": ["toca", "tocar", "toque", "coloca", "colocar", "coloque", "bota", "botar", "põe", "tocando"] },
+
+  { "id": "pomodoro:start", "kind": "pomodoro", "target": "start", "label": "Iniciar / continuar", "phrases": ["inicia o pomodoro", "iniciar o pomodoro", "começa o pomodoro", "começar o pomodoro", "continua o pomodoro", "retoma o pomodoro", "inicia o timer", "inicia o foco", "começa o foco", "start pomodoro"] },
+  { "id": "pomodoro:pause", "kind": "pomodoro", "target": "pause", "label": "Pausar", "phrases": ["pausa o pomodoro", "pausar o pomodoro", "para o pomodoro", "parar o pomodoro", "pausa o timer", "para o timer", "pausa o foco"] },
+  { "id": "pomodoro:reset", "kind": "pomodoro", "target": "reset", "label": "Reiniciar a fase", "phrases": ["reinicia o pomodoro", "reiniciar o pomodoro", "recomeça o pomodoro", "zera o pomodoro", "reinicia o timer"] },
+  { "id": "pomodoro:skip", "kind": "pomodoro", "target": "skip", "label": "Pular a fase", "phrases": ["pula a fase", "pular a fase", "próxima fase", "pula o pomodoro", "pula a pausa", "pular a pausa"] },
+  { "id": "pomodoro:longer", "kind": "pomodoro", "target": "longer", "label": "Mais 5 minutos", "phrases": ["mais cinco minutos", "aumenta o pomodoro", "aumentar o pomodoro", "mais tempo no pomodoro"] },
+  { "id": "pomodoro:shorter", "kind": "pomodoro", "target": "shorter", "label": "Menos 5 minutos", "phrases": ["menos cinco minutos", "diminui o pomodoro", "diminuir o pomodoro", "menos tempo no pomodoro"] }
+]

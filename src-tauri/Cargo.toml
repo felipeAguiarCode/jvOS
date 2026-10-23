@@ -1,0 +1,46 @@
+[package]
+name = "jarvis"
+version = "0.1.0"
+description = "JARVIS OS — holographic visual core"
+authors = ["Felipe"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "jarvis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+cpal = "0.18"
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2"
+ureq = "3"
+whisper-rs = "0.16"
+
+
+# Dependencies without debug info keep dev builds several GB smaller on Windows (PDBs).
+[profile.dev.package."*"]
+debug = false
+
+# whisper.cpp is unusably slow unoptimised: optimise it even in dev builds.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

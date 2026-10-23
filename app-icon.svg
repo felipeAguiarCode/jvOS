@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0" stop-color="#021017"/>
+      <stop offset="1" stop-color="#000508"/>
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#b5faff"/>
+      <stop offset="0.35" stop-color="#00e5ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#00cafd" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <g fill="none" stroke-linecap="round">
+    <!-- outer gauge -->
+    <circle cx="512" cy="512" r="400" stroke="#087b94" stroke-width="10" stroke-dasharray="4 22"/>
+    <path d="M 229 795 A 400 400 0 1 1 795 795" stroke="#00cafd" stroke-width="12" opacity="0.8"/>
+    <!-- orbital rings -->
+    <ellipse cx="512" cy="512" rx="330" ry="120" transform="rotate(-18 512 512)" stroke="#00e5ff" stroke-width="18"/>
+    <ellipse cx="512" cy="512" rx="330" ry="150" transform="rotate(62 512 512)" stroke="#00cafd" stroke-width="12" opacity="0.75"/>
+    <!-- core sphere -->
+    <circle cx="512" cy="512" r="168" stroke="#76f3ff" stroke-width="14"/>
+    <ellipse cx="512" cy="512" rx="168" ry="58" stroke="#00cafd" stroke-width="9" opacity="0.8"/>
+    <ellipse cx="512" cy="512" rx="62" ry="168" stroke="#00cafd" stroke-width="9" opacity="0.8"/>
+  </g>
+  <circle cx="512" cy="512" r="110" fill="url(#core)"/>
+  <circle cx="812" cy="418" r="20" fill="#b5faff"/>
+</svg>
