@@ -131,12 +131,9 @@ export function QuickDock({
         }}
         onMouseMove={(event) => mouseX.set(event.clientX)}
         onMouseLeave={() => mouseX.set(Infinity)}
-        className="pointer-events-auto relative flex h-16 items-center gap-1 rounded-[22px] border border-hud-cyan/18 bg-hud-panel/45 px-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.65),inset_0_0_22px_color-mix(in_oklab,var(--color-hud-cyan)_5%,transparent)] backdrop-blur-md"
+        // No panel: the icons stand on the desktop over their reflections, Nexus-dock style.
+        className="pointer-events-auto relative flex h-16 items-center gap-2 px-2"
       >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-8 top-0 h-px bg-linear-to-r from-transparent via-hud-light/35 to-transparent"
-        />
         <AnimatePresence>{recording && visible && <RecordingBar key="recording" state={recording} slide={slide} />}</AnimatePresence>
         <DockButton
           item={voiceItem}
@@ -149,7 +146,7 @@ export function QuickDock({
           onHold={onVoiceHold}
           slide={slide}
         />
-        <span aria-hidden className="mx-1.5 h-7 w-px bg-linear-to-b from-transparent via-hud-cyan/30 to-transparent" />
+        <span aria-hidden className="mx-1.5 h-9 w-px bg-linear-to-b from-transparent via-hud-cyan/35 to-transparent" />
         {APPS.map((item) => (
           <DockButton
             key={item.id}
@@ -212,20 +209,20 @@ function DockButton({ item, mouseX, magnify, state, pressed, notice, onPress, on
     onHold(phase);
   };
 
-  // macOS-style magnification, kept discreet: the hovered icon grows, neighbours a little.
+  // macOS-style magnification, kept light: the hovered icon grows and rises, neighbours a little.
   const distance = useTransform(mouseX, (x) => {
     const box = slot.current?.getBoundingClientRect();
     return box ? x - (box.left + box.width / 2) : Infinity;
   });
-  const target = useTransform(distance, [-130, -60, 0, 60, 130], [1, 1.07, 1.22, 1.07, 1]);
+  const target = useTransform(distance, [-150, -70, 0, 70, 150], [1, 1.1, 1.32, 1.1, 1]);
   const scale = useSpring(target, { stiffness: 380, damping: 26, mass: 0.35 });
-  const lift = useTransform(scale, (value) => (1 - value) * 14);
+  const lift = useTransform(scale, (value) => (1 - value) * 20);
 
   const lit = state === "active" || state === "selected";
   const Icon = item.icon;
 
   return (
-    <div ref={slot} className="relative flex h-12 w-12 items-center justify-center">
+    <div ref={slot} className="relative flex h-14 w-14 items-center justify-center">
       {/* "wait": the label leaves before a notice replaces it, so they never overlap. */}
       <AnimatePresence>
         {popover && (
@@ -320,15 +317,13 @@ function DockButton({ item, mouseX, magnify, state, pressed, notice, onPress, on
           hold("send");
         }}
         whileTap={{ scale: 0.88 }}
-        className={`group relative flex h-12 w-12 cursor-pointer items-center justify-center rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-hud-light/50 ${
+        className={`group relative flex h-14 w-14 cursor-pointer items-center justify-center rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-hud-light/50 ${
           onHold ? "touch-none" : ""
         }`}
       >
         <span
           aria-hidden
-          className={`absolute inset-1 rounded-2xl transition-colors duration-300 ${
-            lit ? "bg-hud-cyan/[0.08]" : "bg-transparent group-hover:bg-hud-cyan/[0.05]"
-          }`}
+          className={`absolute inset-1.5 rounded-2xl transition-colors duration-300 ${lit ? "bg-hud-cyan/[0.08]" : "bg-transparent"}`}
         />
         <motion.span
           style={magnify ? { scale, y: lift, x: iconX } : { x: iconX }}
@@ -342,7 +337,14 @@ function DockButton({ item, mouseX, magnify, state, pressed, notice, onPress, on
                   : "text-hud-text/65 group-hover:text-hud-light group-hover:drop-shadow-[0_0_6px_color-mix(in_oklab,var(--color-hud-holo)_60%,transparent)]"
           }`}
         >
-          <Icon size={22} strokeWidth={1.5} />
+          <Icon size={30} strokeWidth={1.4} className="drop-shadow-[0_2px_5px_rgba(0,0,0,0.85)]" />
+          {/* Its reflection on the floor, fading away from the icon; it grows with it. */}
+          <Icon
+            aria-hidden
+            size={30}
+            strokeWidth={1.4}
+            className="absolute top-full left-0 mt-1 -scale-y-100 opacity-30 [mask-image:linear-gradient(to_bottom,transparent_40%,black)]"
+          />
         </motion.span>
         {ripples.map((key) => (
           <motion.span

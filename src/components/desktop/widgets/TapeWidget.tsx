@@ -1,8 +1,12 @@
 import type { KeyboardEvent } from "react";
 import { useMusicTime, type MusicPlayer } from "../../../hooks/useMusicPlayer";
 import { useTapeTick } from "../../../hooks/useTapeTick";
+import { useWidgetOptions } from "../../../hooks/useWidgetOptions";
 import { cassette } from "../../../lib/music/cassette";
 import { musicKeys, nowLabel } from "../musicParts";
+import { toggleItems, useWidgetMenu, WidgetMenu } from "./WidgetMenu";
+
+const OPTIONS = { label: true, track: true, side: true };
 
 /**
  * "Fita": just jv_T4p3's cassette, turning while the music plays. A click (or Space) plays or
@@ -14,7 +18,15 @@ export function TapeWidget({ music, paused }: { music: MusicPlayer; paused: bool
   const station = music.current?.station ?? music.playlists.find((item) => item.id === music.stationId);
   const { position, duration } = useMusicTime(music);
   const progress = duration > 0 ? position / duration : 0;
-  const tape = cassette({ tick, progress, label: station?.name ?? "jv_T4p3", sublabel: nowLabel(music) });
+  const [options, toggle] = useWidgetOptions("tape", OPTIONS);
+  const menu = useWidgetMenu();
+  const tape = cassette({
+    tick,
+    progress,
+    label: options.label ? (station?.name ?? "jv_T4p3") : "",
+    sublabel: options.track ? nowLabel(music) : "",
+    side: options.side ? undefined : "",
+  });
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -25,7 +37,7 @@ export function TapeWidget({ music, paused }: { music: MusicPlayer; paused: bool
   };
 
   return (
-    <div tabIndex={0} onKeyDown={onKeyDown} className="flex h-full items-center justify-center px-1 font-mono outline-none">
+    <div tabIndex={0} onKeyDown={onKeyDown} onContextMenu={menu.open} className="flex h-full items-center justify-center px-1 font-mono outline-none">
       <button type="button" aria-label={playing ? "Pausar a música" : "Tocar a música"} onClick={music.toggle} className="cursor-pointer outline-none">
         <pre
           data-testid="tape-widget"
@@ -37,6 +49,20 @@ export function TapeWidget({ music, paused }: { music: MusicPlayer; paused: bool
           {tape.join("\n")}
         </pre>
       </button>
+      <WidgetMenu
+        menu={menu}
+        label="Opções do widget Fita"
+        sections={[
+          {
+            title: "Etiqueta",
+            items: toggleItems(options, toggle, [
+              ["label", "Nome da playlist"],
+              ["track", "Música tocando"],
+              ["side", "Lado da fita"],
+            ]),
+          },
+        ]}
+      />
     </div>
   );
 }

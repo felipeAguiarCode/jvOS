@@ -87,6 +87,7 @@ test("the icon magnification can be turned off", async ({ page }) => {
   };
 
   expect(await hover()).toBeGreaterThan(1.15);
+  await page.screenshot({ path: `${SCREENS}/dock-magnified.png`, clip: DOCK_CLIP });
   await page.mouse.move(200, 200);
 
   const menu = await openDockTab(page);

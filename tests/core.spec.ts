@@ -31,30 +31,54 @@ const holdListening = (page: Page) =>
     hold();
   });
 
-/** Per orbit of the 2D core: lying on the equator (tilt ~0, flattened)? */
-const orbitsAligned = (page: Page) =>
-  page.locator("[data-orbit]").evaluateAll((orbits) =>
-    orbits.map((orbit) => {
-      const [, tilt, , squash] = (orbit as HTMLElement).style.transform.match(/rotate\((-?[\d.]+)deg\) scale\(([\d.]+), ([\d.]+)\)/)!.map(Number);
-      return Math.abs(tilt) < 3 && squash < 0.27;
-    }),
-  );
+/** The 2D core's lock-on brackets: swung in and closed on the core (turned home, at their ring, lit)? */
+const locked = (page: Page) =>
+  page.locator("[data-lock]").evaluate((lock) => {
+    const style = (lock as HTMLElement).style;
+    const [, turn, scale] = style.transform.match(/rotate\((-?[\d.]+)deg\) scale\(([\d.]+)\)/)!.map(Number);
+    return Math.abs(turn) < 3 && scale < 1.02 && Number(style.opacity) > 0.95;
+  });
+
+// The config opens the other suites on the 3D hologram; here the core starts from its default.
+test.use({
+  storageState: {
+    cookies: [],
+    origins: [
+      {
+        origin: "http://localhost:1420",
+        localStorage: [
+          { name: "jarvis.boot", value: '{"enabled":false,"sound":false}' },
+          { name: "jarvis.settings", value: PLAIN_SETTINGS },
+        ],
+      },
+    ],
+  },
+});
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
 });
 
-test("the Núcleo tab swaps the 3D hologram for the 2D rings live, and a restart never loads the 3D", async ({ page }) => {
+test("the core opens as the 2D rings, the Núcleo tab swaps the 3D hologram in and out live, and a restart never loads the 3D", async ({ page }) => {
   await start(page);
   await waitForFrames(page);
-  await expect(page.locator("canvas")).toHaveCount(1);
+  // The default: the rings, no WebGL canvas.
+  await expect(page.locator("canvas")).toHaveCount(0);
+  await expect(page.locator('[data-core="2d"]')).toBeVisible();
 
-  const menu = await openCoreTab(page);
-  await expect(menu.getByRole("radio", { name: "Holograma 3D" })).toHaveAttribute("aria-checked", "true");
+  let menu = await openCoreTab(page);
+  await expect(menu.getByRole("radio", { name: "Anéis 2D" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByText(/sem WebGL/)).toBeVisible();
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${SCREENS}/advanced-core.png` });
+  await menu.getByRole("radio", { name: "Holograma 3D" }).click();
+  await expect(page.locator("canvas")).toHaveCount(1);
+  await expect(page.locator('[data-core="2d"]')).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await coreSaved(page)).mode).toBe("3d");
+
+  menu = await openCoreTab(page);
   await menu.getByRole("radio", { name: "Anéis 2D" }).click();
-  await expect(menu.getByText(/sem WebGL/)).toBeVisible();
   // The WebGL canvas is gone; the rings take its place.
   await expect(page.locator("canvas")).toHaveCount(0);
   await expect(page.locator('[data-core="2d"]')).toBeVisible();
@@ -67,10 +91,10 @@ test("the Núcleo tab swaps the 3D hologram for the 2D rings live, and a restart
   expect(await frames(page)).toBeGreaterThan(before + 10);
   await page.screenshot({ path: `${SCREENS}/core-2d.png` });
 
-  // Listening, every orbit lies down on the equator, as the hologram's do.
-  expect(await orbitsAligned(page)).toEqual([false, false, false]);
+  // Listening, the lock-on brackets swing in and close on the core.
+  expect(await locked(page)).toBe(false);
   await holdListening(page);
-  await expect.poll(() => orbitsAligned(page)).toEqual([true, true, true]);
+  await expect.poll(() => locked(page)).toBe(true);
   await page.screenshot({ path: `${SCREENS}/core-2d-listening.png`, clip: { x: 610, y: 150, width: 700, height: 700 } });
 
   // Opened in 2D, the three.js scene is never even downloaded.
@@ -121,16 +145,17 @@ test.describe("from a fresh start", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   for (const mode of ["2d", "off"] as const) {
-    test(`with the core ${mode === "2d" ? "in 2D" : "off"}, the boot screen still plays and hands over`, async ({ page }) => {
+    test(`with the core ${mode === "2d" ? "in 2D (the default)" : "off"}, the boot screen still plays and hands over`, async ({ page }) => {
       await page.addInitScript((core) => {
         localStorage.setItem("jarvis.boot", '{"enabled":true,"sound":false}');
-        localStorage.setItem("jarvis.core", JSON.stringify({ mode: core }));
+        // 2D is what a fresh install gets: nothing to store.
+        if (core !== "2d") localStorage.setItem("jarvis.core", JSON.stringify({ mode: core }));
       }, mode);
       await page.goto("/");
       const boot = page.getByTestId("boot");
       await expect(boot).toBeVisible();
       // It types its POST: the first frame went out without any hologram.
-      await expect(boot).toContainText(/BIOS v\d+\.\d+\.\d+/);
+      await expect(boot).toContainText(/BIOS Modular v\d+\.\d+\.\d+/);
       await page.keyboard.press("Space");
       await expect(boot).toBeHidden({ timeout: 8000 });
       await expect(page.getByRole("navigation", { name: "Quick actions" })).toBeVisible();

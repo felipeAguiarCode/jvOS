@@ -15,9 +15,12 @@ interface WindowControlsOptions {
   onOpenSearch: () => void;
 }
 
-/** Shortcuts without modifiers must not fire while typing in a field. */
+/** Shortcuts without modifiers must not fire while typing in a field, or in an app that takes plain keys (jv_ide). */
 function isTyping(target: EventTarget | null) {
-  return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.closest("[data-plain-keys]") !== null)
+  );
 }
 
 /** Delay after which the window is shown even if no frame was rendered yet. */

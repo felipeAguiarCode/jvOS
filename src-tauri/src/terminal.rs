@@ -93,6 +93,8 @@ impl Terminals {
         command.cwd(&profile.cwd);
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        // MSYS2-style shells stay in the folder they start in instead of going home.
+        command.env("CHERE_INVOKING", "1");
         if let Some(tools) = &self.tools {
             let path = command.get_env("PATH").map(|value| value.to_string_lossy().into_owned());
             let wslenv = command.get_env("WSLENV").map(|value| value.to_string_lossy().into_owned());
@@ -269,6 +271,84 @@ pub fn split_commandline(line: &str) -> Vec<String> {
     args
 }
 
+/// A command line from its program and arguments (the reverse of `split_commandline`): arguments
+/// with spaces, or empty ones, in double quotes.
+pub fn join_commandline(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| if arg.is_empty() || arg.chars().any(char::is_whitespace) { format!("\"{arg}\"") } else { arg.clone() })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The folder a shell is asked to start in: absolute, existing, a directory (without `\\?\`).
+pub fn start_dir(cwd: &str) -> Result<PathBuf, String> {
+    let path = Path::new(cwd.trim());
+    if !path.is_absolute() {
+        return Err("Pasta inválida".into());
+    }
+    let dir = dunce::canonicalize(path).map_err(|_| "Pasta não encontrada".to_string())?;
+    if !dir.is_dir() {
+        return Err("Não é uma pasta".into());
+    }
+    Ok(dir)
+}
+
+/// `\\wsl.localhost\Distro\rest` (or `\\wsl$\...`): the distribution and the Linux path.
+fn wsl_share(dir: &str) -> Option<(String, String)> {
+    let lower = dir.to_lowercase();
+    let rest = [r"\\wsl.localhost\", r"\\wsl$\"].iter().find_map(|prefix| lower.starts_with(prefix).then(|| &dir[prefix.len()..]))?;
+    let (distro, path) = rest.split_once('\\').unwrap_or((rest, ""));
+    Some((distro.to_string(), format!("/{}", path.replace('\\', "/"))))
+}
+
+/// The arguments of a `wsl.exe` command line made to start in `dir`: a Windows path as is (WSL
+/// translates it), a path inside the profile's own distribution as its Linux path. An existing
+/// `--cd` (or a leading `~`) is replaced, otherwise one is added; what follows `--`, `-e` or
+/// `--exec` is the command, never touched.
+pub fn wsl_cd(argv: &[String], dir: &str) -> Vec<String> {
+    let options_end = argv.iter().position(|arg| matches!(arg.as_str(), "--" | "-e" | "--exec")).unwrap_or(argv.len());
+    let target = match wsl_share(dir) {
+        Some((distro, linux)) => {
+            let named = argv[..options_end].windows(2).find(|pair| matches!(pair[0].as_str(), "-d" | "--distribution")).map(|pair| pair[1].to_lowercase());
+            if named.as_deref() != Some(distro.to_lowercase().as_str()) {
+                // Another distribution's files (or the default one's, unknown here): home it is.
+                return argv.to_vec();
+            }
+            linux
+        }
+        None => dir.to_string(),
+    };
+    let mut args = argv.to_vec();
+    if let Some(at) = args[..options_end].iter().position(|arg| arg == "--cd") {
+        if at + 1 < options_end {
+            args[at + 1] = target;
+            return args;
+        }
+    }
+    if args.get(1).is_some_and(|arg| arg == "~") && options_end > 1 {
+        args.splice(1..2, ["--cd".to_string(), target]);
+        return args;
+    }
+    args.splice(1..1, ["--cd".to_string(), target]);
+    args
+}
+
+/// `profile` started in `dir` (from `start_dir`). WSL ignores the working folder it is given,
+/// so its command line says where to go.
+pub fn in_dir(mut profile: Profile, dir: &Path) -> Profile {
+    let text = dir.display().to_string();
+    let argv = split_commandline(&profile.commandline);
+    let wsl = argv.first().and_then(|program| Path::new(program).file_name()).is_some_and(|name| {
+        let name = name.to_string_lossy().to_lowercase();
+        name == "wsl.exe" || name == "wsl"
+    });
+    if wsl {
+        profile.commandline = join_commandline(&wsl_cd(&argv, &text));
+    }
+    profile.cwd = text;
+    profile
+}
+
 /// `%VAR%` replaced by its value (left as is when the variable does not exist).
 pub fn expand_env(text: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::new();
@@ -367,7 +447,7 @@ fn git_bash() -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-fn on_path(program: &str) -> Option<PathBuf> {
+pub(crate) fn on_path(program: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|dir| dir.join(program)).find(|candidate| candidate.is_file())
 }
@@ -537,6 +617,67 @@ mod tests {
         assert_eq!(split_commandline("  cmd.exe   /k  echo hi "), ["cmd.exe", "/k", "echo", "hi"]);
         assert_eq!(split_commandline("wsl.exe -d \"Ubuntu 22\" --cd ~"), ["wsl.exe", "-d", "Ubuntu 22", "--cd", "~"]);
         assert!(split_commandline("   ").is_empty());
+    }
+
+    fn args(line: &str) -> Vec<String> {
+        split_commandline(line)
+    }
+
+    #[test]
+    fn joins_command_lines_back() {
+        for line in ["\"C:\\Program Files\\Git\\bin\\bash.exe\" --login -i", "wsl.exe -d \"Ubuntu 22\" --cd ~", "cmd.exe /k echo hi"] {
+            assert_eq!(split_commandline(&join_commandline(&args(line))), args(line));
+        }
+        assert_eq!(join_commandline(&["a".into(), "".into(), "b c".into()]), "a \"\" \"b c\"");
+    }
+
+    #[test]
+    fn wsl_starts_in_the_project_folder() {
+        let project = r"C:\projetos\inventory";
+        assert_eq!(wsl_cd(&args("wsl.exe -d \"Ubuntu\" --cd ~"), project), args(r#"wsl.exe -d Ubuntu --cd "C:\projetos\inventory""#));
+        assert_eq!(wsl_cd(&args("wsl.exe --cd ~"), project), ["wsl.exe", "--cd", project]);
+        assert_eq!(wsl_cd(&args(r"C:\Windows\System32\wsl.exe -d Ubuntu"), project), [r"C:\Windows\System32\wsl.exe", "--cd", project, "-d", "Ubuntu"]);
+        assert_eq!(wsl_cd(&args("wsl.exe ~ -d Debian"), project), ["wsl.exe", "--cd", project, "-d", "Debian"]);
+        // What follows -- is the command: an option there is not the shell's.
+        assert_eq!(wsl_cd(&args("wsl.exe -d Ubuntu -- tmux --cd x"), project), ["wsl.exe", "--cd", project, "-d", "Ubuntu", "--", "tmux", "--cd", "x"]);
+        // Inside the profile's own distribution: its Linux path; another distribution's: home.
+        let share = r"\\wsl.localhost\Ubuntu\home\me\app";
+        assert_eq!(wsl_cd(&args("wsl.exe -d Ubuntu --cd ~"), share), ["wsl.exe", "-d", "Ubuntu", "--cd", "/home/me/app"]);
+        assert_eq!(wsl_cd(&args("wsl.exe -d ubuntu --cd ~"), r"\\wsl$\Ubuntu\srv"), ["wsl.exe", "-d", "ubuntu", "--cd", "/srv"]);
+        assert_eq!(wsl_cd(&args("wsl.exe -d Debian --cd ~"), share), args("wsl.exe -d Debian --cd ~"));
+        assert_eq!(wsl_cd(&args("wsl.exe --cd ~"), share), args("wsl.exe --cd ~"));
+    }
+
+    #[test]
+    fn profiles_move_into_a_folder() {
+        let dir = Path::new(r"C:\projetos\com espaço");
+        let wsl = in_dir(Profile { id: "u".into(), name: "Ubuntu".into(), commandline: "wsl.exe -d \"Ubuntu\" --cd ~".into(), cwd: "C:\\Users\\me".into() }, dir);
+        assert_eq!(wsl.commandline, r#"wsl.exe -d Ubuntu --cd "C:\projetos\com espaço""#);
+        assert_eq!(wsl.cwd, r"C:\projetos\com espaço");
+        let pwsh = in_dir(Profile { id: "p".into(), name: "PowerShell".into(), commandline: "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"".into(), cwd: "C:\\Users\\me".into() }, dir);
+        assert_eq!(pwsh.commandline, "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"", "other shells use the working folder");
+        assert_eq!(pwsh.cwd, r"C:\projetos\com espaço");
+        assert_eq!(start_dir("relativo").unwrap_err(), "Pasta inválida");
+        assert_eq!(start_dir(r"C:\definitely\missing").unwrap_err(), "Pasta não encontrada");
+        let file = std::env::temp_dir().join(format!("jarvis-start-dir-{}.txt", std::process::id()));
+        fs::write(&file, "x").unwrap();
+        assert_eq!(start_dir(&file.display().to_string()).unwrap_err(), "Não é uma pasta");
+        fs::remove_file(file).unwrap();
+    }
+
+    /// A shell opened in a folder runs there.
+    #[test]
+    #[cfg(windows)]
+    fn a_shell_starts_in_the_folder_it_is_given() {
+        let dir = std::env::temp_dir().join(format!("jarvis-jvsh-cwd-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let start = start_dir(&dir.display().to_string()).unwrap();
+        let profile = in_dir(Profile { id: "cmd".into(), name: "cmd".into(), commandline: "cmd.exe /d /c cd".into(), cwd: home() }, &start);
+        let terminals = Arc::new(Terminals::default());
+        let (_, code, text) = run(&terminals, &profile, &[], Duration::from_secs(15));
+        assert_eq!(code, Some(0));
+        assert!(plain(&text).contains(&start.display().to_string()), "output was {text:?}");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -7,9 +7,13 @@ const cssVar = (page: Page, kind: string, name: string) =>
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
+  // jv_ide on the in-memory demo project.
+  await page.addInitScript(() => {
+    window.__JARVIS_FS__ = true;
+  });
   await page.goto("/");
   await page.evaluate((settings) => {
-    ["jarvis.desktop", "jarvis.tui"].forEach((key) => localStorage.removeItem(key));
+    ["jarvis.desktop", "jarvis.tui", "jarvis.ide", "jarvis.ide.drafts"].forEach((key) => localStorage.removeItem(key));
     localStorage.setItem("jarvis.settings", settings);
   }, PLAIN_SETTINGS);
   await page.reload();
@@ -18,20 +22,25 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the TUI tab switches the editors' glow and aberration and sets their accent", async ({ page }) => {
-  // Jarvis Code open, with a little text to look at.
+  // jv_ide open on a Rust file, to look at.
   await page.keyboard.press("/");
-  await page.keyboard.type("jarvis code");
+  await page.keyboard.type("jv_ide");
   await page.keyboard.press("Enter");
-  const code = page.getByRole("dialog", { name: "Jarvis Code" });
-  await expect(code.locator(".cm-content")).toBeVisible({ timeout: 15_000 });
-  await code.getByLabel("Linguagem").selectOption("Rust");
-  await code.locator(".cm-content").click();
-  await page.keyboard.type('fn main() {\nprintln!("Olá, Builder");\n}');
+  const ide = page.getByRole("dialog", { name: "jv_ide" });
+  await expect(ide.getByTestId("ide-welcome")).toBeVisible({ timeout: 15_000 });
+  await ide.getByTestId("ide-welcome").click();
+  await page.keyboard.press("Control+o");
+  await expect(ide.getByRole("tree", { name: "Arquivos do projeto" })).toBeVisible();
+  await page.keyboard.press("Control+p");
+  await page.keyboard.type("main.rs");
+  await expect(ide.getByRole("option", { name: "src/main.rs" })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(ide.locator(".cm-content")).toContainText("fn main", { timeout: 15_000 });
 
   // On by default: both effects; the accent follows JARVIS.
-  await expect(windowRoot(page, "code")).toHaveClass(/tui-glow/);
-  await expect(windowRoot(page, "code")).toHaveClass(/tui-aberration/);
-  const jarvisLight = await cssVar(page, "code", "--color-hud-light");
+  await expect(windowRoot(page, "ide")).toHaveClass(/tui-glow/);
+  await expect(windowRoot(page, "ide")).toHaveClass(/tui-aberration/);
+  const jarvisLight = await cssVar(page, "ide", "--color-hud-light");
   // Widgets are not terminals.
   await page.keyboard.press("Escape");
 
@@ -43,14 +52,14 @@ test("the TUI tab switches the editors' glow and aberration and sets their accen
   await page.screenshot({ path: `${SCREENS}/advanced-tui.png` });
 
   await menu.getByRole("switch", { name: "Aberração cromática" }).click();
-  await expect(windowRoot(page, "code")).not.toHaveClass(/tui-aberration/);
+  await expect(windowRoot(page, "ide")).not.toHaveClass(/tui-aberration/);
   await menu.getByRole("switch", { name: "Brilho (glow)" }).click();
-  await expect(windowRoot(page, "code")).not.toHaveClass(/tui-glow/);
+  await expect(windowRoot(page, "ide")).not.toHaveClass(/tui-glow/);
   await menu.getByRole("switch", { name: "Brilho (glow)" }).click();
 
   await menu.getByRole("radio", { name: "Âmbar" }).click();
-  await expect.poll(() => cssVar(page, "code", "--color-hud-light")).not.toBe(jarvisLight);
-  const amber = await cssVar(page, "code", "--color-hud-light");
+  await expect.poll(() => cssVar(page, "ide", "--color-hud-light")).not.toBe(jarvisLight);
+  const amber = await cssVar(page, "ide", "--color-hud-light");
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(amber.slice(i, i + 2), 16));
   expect(r).toBeGreaterThan(b + 40); // warm
   expect(g).toBeGreaterThan(b);
@@ -67,7 +76,7 @@ test("the TUI tab switches the editors' glow and aberration and sets their accen
   // Survives a reload.
   await page.reload();
   await waitForFrames(page);
-  await expect(windowRoot(page, "code")).toHaveClass(/tui-glow/);
-  await expect(windowRoot(page, "code")).not.toHaveClass(/tui-aberration/);
-  expect(await cssVar(page, "code", "--color-hud-light")).toBe(amber);
+  await expect(windowRoot(page, "ide")).toHaveClass(/tui-glow/);
+  await expect(windowRoot(page, "ide")).not.toHaveClass(/tui-aberration/);
+  expect(await cssVar(page, "ide", "--color-hud-light")).toBe(amber);
 });

@@ -15,15 +15,22 @@ export interface TerminalProfiles {
   default: string | null;
 }
 
-/** jv_sh's link to its shells: the real ones in the desktop app, a fake echo one in dev tests. */
+/** The link to the shells: the real ones in the desktop app, a fake echo one in dev tests. */
 export interface TerminalBackend {
   profiles(): Promise<TerminalProfiles>;
-  open(profile: string, cols: number, rows: number): Promise<number>;
+  /** Starts a shell; `cwd` (absolute) replaces the profile's starting folder. */
+  open(profile: string, cols: number, rows: number, cwd?: string | null): Promise<number>;
   write(id: number, data: string): void;
   resize(id: number, cols: number, rows: number): void;
   close(id: number): void;
-  /** Output and exits of every session; returns the unsubscribe. */
-  subscribe(onOutput: (id: number, data: string) => void, onExit: (id: number, code: number | null) => void): () => void;
+  /** Output and exits of every session; only the session router (`openSession`) listens. */
+  subscribe(onOutput: (id: number, data: string) => void, onExit: (id: number, code: number | null) => void): TerminalSubscription;
+}
+
+export interface TerminalSubscription {
+  /** Resolves once events flow (Tauri registers its listeners asynchronously). */
+  ready: Promise<void>;
+  stop(): void;
 }
 
 declare global {
@@ -31,13 +38,13 @@ declare global {
     /** Development-only: a fake echo shell for the browser tests (set to true to use it). */
     __JARVIS_TERMINAL__?: boolean;
     /** …and what it was asked to do, for the tests to check. */
-    __JARVIS_TERMINAL_LOG__?: { opens: string[]; writes: string[]; resizes: [number, number, number][]; closes: number[] };
+    __JARVIS_TERMINAL_LOG__?: { opens: string[]; cwds: (string | null)[]; writes: string[]; resizes: [number, number, number][]; closes: number[] };
   }
 }
 
 const tauriBackend: TerminalBackend = {
   profiles: () => invoke<TerminalProfiles>("terminal_profiles"),
-  open: (profile, cols, rows) => invoke<number>("terminal_open", { profile, cols, rows }),
+  open: (profile, cols, rows, cwd) => invoke<number>("terminal_open", { profile, cols, rows, cwd: cwd ?? null }),
   write: (id, data) => void invoke("terminal_write", { id, data }).catch(() => {}),
   resize: (id, cols, rows) => void invoke("terminal_resize", { id, cols, rows }).catch(() => {}),
   close: (id) => void invoke("terminal_close", { id }).catch(() => {}),
@@ -46,16 +53,25 @@ const tauriBackend: TerminalBackend = {
       listen<{ id: number; data: string }>("terminal:output", ({ payload }) => onOutput(payload.id, payload.data)),
       listen<{ id: number; code: number | null }>("terminal:exit", ({ payload }) => onExit(payload.id, payload.code)),
     ];
-    return () => subscriptions.forEach((subscription) => void subscription.then((stop) => stop()));
+    return {
+      ready: Promise.all(subscriptions).then(() => undefined),
+      stop: () => subscriptions.forEach((subscription) => void subscription.then((stop) => stop())),
+    };
   },
 };
+
+/** What the profile's shell shows in `cwd` (its home when there is none). */
+function fakePrompt(profile: string, cwd?: string | null) {
+  if (profile === "fake-bash") return `builder@jarvis ${cwd ? `/${cwd[0].toLowerCase()}${cwd.slice(2).replace(/\\/g, "/")}` : "~"} $ `;
+  return `PS ${cwd ?? "C:\\Users\\builder"}> `;
+}
 
 /**
  * A pretend shell for the browser tests: a prompt, echo of what is typed, "exit [code]".
  * Not a terminal emulator — just enough to drive the UI.
  */
 function fakeBackend(): TerminalBackend {
-  const log = (window.__JARVIS_TERMINAL_LOG__ ??= { opens: [], writes: [], resizes: [], closes: [] });
+  const log = (window.__JARVIS_TERMINAL_LOG__ ??= { opens: [], cwds: [], writes: [], resizes: [], closes: [] });
   const outputs = new Set<(id: number, data: string) => void>();
   const exits = new Set<(id: number, code: number | null) => void>();
   const lines = new Map<number, string>();
@@ -75,11 +91,12 @@ function fakeBackend(): TerminalBackend {
   };
   return {
     profiles: async () => profiles,
-    async open(profile, cols, rows) {
+    async open(profile, cols, rows, cwd) {
       const id = ++next;
       log.opens.push(profile);
+      log.cwds.push(cwd ?? null);
       log.resizes.push([id, cols, rows]);
-      prompts.set(id, profile === "fake-bash" ? "builder@jarvis ~ $ " : "PS C:\\Users\\builder> ");
+      prompts.set(id, fakePrompt(profile, cwd));
       lines.set(id, "");
       emit(id, `${profiles.profiles.find((item) => item.id === profile)?.name ?? profile} (simulado)\r\n${prompts.get(id)}`);
       return id;
@@ -111,9 +128,12 @@ function fakeBackend(): TerminalBackend {
     subscribe(onOutput, onExit) {
       outputs.add(onOutput);
       exits.add(onExit);
-      return () => {
-        outputs.delete(onOutput);
-        exits.delete(onExit);
+      return {
+        ready: Promise.resolve(),
+        stop: () => {
+          outputs.delete(onOutput);
+          exits.delete(onExit);
+        },
       };
     },
   };
@@ -126,6 +146,103 @@ export function terminalBackend(): TerminalBackend | null {
   if (isTauri()) return tauriBackend;
   if (import.meta.env.DEV && window.__JARVIS_TERMINAL__) return (fake ??= fakeBackend());
   return null;
+}
+
+/** Output for a session nobody claimed yet waits this long, and keeps at most this much. */
+const HOLD_MS = 10_000;
+const HOLD_CHARS = 256 * 1024;
+
+/** Where one session's events go. */
+export interface SessionSink {
+  output(data: string): void;
+  exit(code: number | null): void;
+}
+
+export interface TerminalSession {
+  id: number;
+  /** Stops listening, then ends the shell. */
+  close(): void;
+}
+
+interface Held {
+  chunks: string[];
+  size: number;
+  exit?: { code: number | null };
+  timer: number;
+}
+
+/** One listener per backend that hands each session's events to whoever opened it. */
+function createRouter(backend: TerminalBackend) {
+  const sinks = new Map<number, SessionSink>();
+  // Output can come before `open` answers with the id: it waits a little to be claimed.
+  const held = new Map<number, Held>();
+  const hold = (id: number) => {
+    let entry = held.get(id);
+    if (!entry) held.set(id, (entry = { chunks: [], size: 0, timer: window.setTimeout(() => held.delete(id), HOLD_MS) }));
+    return entry;
+  };
+  const { ready } = backend.subscribe(
+    (id, data) => {
+      const sink = sinks.get(id);
+      if (sink) return sink.output(data);
+      const entry = hold(id);
+      entry.chunks.push(data);
+      entry.size += data.length;
+      while (entry.size > HOLD_CHARS && entry.chunks.length > 1) entry.size -= entry.chunks.shift()!.length;
+    },
+    (id, code) => {
+      const sink = sinks.get(id);
+      sinks.delete(id);
+      if (sink) sink.exit(code);
+      else hold(id).exit = { code };
+    },
+  );
+  return {
+    ready,
+    attach(id: number, sink: SessionSink) {
+      const entry = held.get(id);
+      held.delete(id);
+      if (entry) window.clearTimeout(entry.timer);
+      if (!entry?.exit) sinks.set(id, sink);
+      entry?.chunks.forEach((data) => sink.output(data));
+      if (entry?.exit) sink.exit(entry.exit.code);
+    },
+    detach: (id: number) => void sinks.delete(id),
+  };
+}
+
+const routers = new WeakMap<TerminalBackend, ReturnType<typeof createRouter>>();
+
+function routerFor(backend: TerminalBackend) {
+  let router = routers.get(backend);
+  if (!router) routers.set(backend, (router = createRouter(backend)));
+  return router;
+}
+
+/**
+ * Starts a shell whose output and exit reach `sink` only: jv_sh's tabs and jv_ide's panels
+ * share one backend without seeing each other's sessions.
+ */
+export async function openSession(
+  backend: TerminalBackend,
+  profile: string,
+  cols: number,
+  rows: number,
+  cwd: string | null | undefined,
+  sink: SessionSink,
+): Promise<TerminalSession> {
+  const router = routerFor(backend);
+  // Listening first: the shell's first words (banner, prompt) must not be lost.
+  await router.ready;
+  const id = await backend.open(profile, cols, rows, cwd);
+  router.attach(id, sink);
+  return {
+    id,
+    close() {
+      router.detach(id);
+      backend.close(id);
+    },
+  };
 }
 
 // "Nova aba: <perfil>" from the search reaches jv_sh even before its window is open.

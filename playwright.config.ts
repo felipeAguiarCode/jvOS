@@ -13,8 +13,9 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: "http://localhost:1420",
-    // Every test starts with the boot screen and the top bar turned off; boot.spec.ts plays a fresh
-    // install and taskbar.spec.ts covers the bar.
+    // Every test starts with the boot screen and the top bar turned off, and the 3D hologram instead
+    // of the default 2D rings; boot.spec.ts plays a fresh install, taskbar.spec.ts covers the bar
+    // and core.spec.ts the default core.
     storageState: {
       cookies: [],
       origins: [
@@ -23,6 +24,7 @@ export default defineConfig({
           localStorage: [
             { name: "jarvis.boot", value: '{"enabled":false,"sound":false}' },
             { name: "jarvis.settings", value: '{"taskbar":false}' },
+            { name: "jarvis.core", value: '{"mode":"3d"}' },
           ],
         },
       ],
@@ -32,7 +34,7 @@ export default defineConfig({
     headless: true,
   },
   projects: [
-    { name: "ui", testMatch: /(ui|settings|desktop|boot|search|tui|taskbar|dock|music|voicetab|shell|core)\.spec\.ts/, use: { launchOptions: { args: GPU_ARGS } } },
+    { name: "ui", testMatch: /(ui|settings|desktop|boot|search|tui|taskbar|dock|music|voicetab|shell|core|meters|widgets|outline|ide)\.spec\.ts/, use: { launchOptions: { args: GPU_ARGS } } },
     {
       name: "voice",
       testMatch: /voice\.spec\.ts/,

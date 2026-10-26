@@ -290,7 +290,7 @@ impl Session {
         let scope: &[String] = match activation {
             // Holding the button already says "I'm talking to Jarvis": no wake word needed.
             Activation::Always | Activation::PushToTalk => &tokens,
-            // The wake word itself stays in: it is part of "Jarvis Mark" and "Jarvis Code".
+            // The wake word itself stays in: it is part of "Jarvis Mark" and "Jarvis Code" (jv_ide).
             Activation::WakeWord => match wake {
                 Some(after) => &tokens[after - 1..],
                 None if self.is_awake(now) => &tokens,
@@ -492,12 +492,15 @@ mod tests {
         assert_eq!(say("timer"), window("pomodoro", true));
         assert_eq!(say("abre o editor de markdown"), window("markdown", true));
         assert_eq!(say("fecha o mark down"), window("markdown", false));
-        assert_eq!(say("abre o código"), window("code", true));
-        assert_eq!(say("o código, pode fechar"), window("code", false));
+        assert_eq!(say("abre o código"), window("ide", true));
+        assert_eq!(say("o código, pode fechar"), window("ide", false));
+        assert_eq!(say("abre a IDE"), window("ide", true));
+        assert_eq!(say("abre o jv ide"), window("ide", true));
+        assert_eq!(say("fecha a ide"), window("ide", false));
         assert_eq!(say("abre o Jarvis Mark"), window("markdown", true));
         assert_eq!(say("abre o Jarvis Marc"), window("markdown", true));
-        assert_eq!(say("fecha o Jarvis Code"), window("code", false));
-        assert_eq!(say("abre o jarvis code"), window("code", true));
+        assert_eq!(say("fecha o Jarvis Code"), window("ide", false));
+        assert_eq!(say("abre o jarvis code"), window("ide", true));
         assert_eq!(say("abre o tape"), window("music", true));
         assert_eq!(say("fecha o player"), window("music", false));
         assert_eq!(say("abre o player de música"), window("music", true));
@@ -520,7 +523,7 @@ mod tests {
         let commands = default_voice_commands();
         let mut session = Session::default();
         let now = Instant::now();
-        // "editor de código" is VS Code's keyword; the JARVIS editor answers to "código".
+        // "editor de código" is VS Code's keyword; jv_ide answers to "código".
         assert_eq!(session.decide("abre o editor de código", Activation::Always, &apps, &commands, now), launch("vscode"));
         assert_eq!(session.decide("abre o vs code", Activation::Always, &apps, &commands, now + RELAUNCH_COOLDOWN), launch("vscode"));
         // Closing an external program is not supported: it must not open it either.
@@ -546,8 +549,8 @@ mod tests {
         let commands = default_voice_commands();
         let mut session = Session::default();
         let now = Instant::now();
-        // "Jarvis Code" is both the wake word and the app's name.
-        assert_eq!(session.decide("Jarvis Code", Activation::WakeWord, &apps, &commands, now), window("code", true));
+        // "Jarvis Code" (jv_ide) starts with the wake word.
+        assert_eq!(session.decide("Jarvis Code", Activation::WakeWord, &apps, &commands, now), window("ide", true));
         assert_eq!(session.decide("Hey Jarvis, abre o Jarvis Mark.", Activation::WakeWord, &apps, &commands, now), window("markdown", true));
         assert_eq!(session.decide("Jarvis, fecha o Jarvis Mark", Activation::WakeWord, &apps, &commands, now), window("markdown", false));
         assert_eq!(session.decide("Hey Jarvis.", Activation::WakeWord, &apps, &commands, now), Decision::Wake);

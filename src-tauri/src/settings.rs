@@ -100,7 +100,9 @@ const MAX_PHRASE: usize = 60;
 const MAX_LABEL: usize = 60;
 const MAX_CUSTOM_COMMANDS: usize = 100;
 /// Mirrors `WindowKind` in src/lib/desktop.ts.
-const WINDOW_KINDS: [&str; 10] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "markdown", "code", "music", "shell"];
+const WINDOW_KINDS: [&str; 11] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell"];
+/// What Jarvis Code (the editor jv_ide replaced) answered to, untouched.
+const OLD_CODE_PHRASES: [&str; 2] = ["jarvis code", "código"];
 /// What the Windows Terminal program answered to before jv_sh took those words.
 const OLD_TERMINAL_KEYWORDS: [&str; 3] = ["terminal", "console", "prompt de comando"];
 const GROUP_TARGETS: [&str; 3] = ["widgets", "apps", "all"];
@@ -140,6 +142,19 @@ fn sanitize_voice_commands(commands: Vec<VoiceCommand>) -> Vec<VoiceCommand> {
     let mut out = Vec::new();
     for mut command in commands {
         command.id = clip_to(&command.id, MAX_LABEL);
+        // Jarvis Code became jv_ide: its command (with the user's phrases, if they chose some) and
+        // the user's own commands for that window follow it.
+        if command.id == "window:code" {
+            command.id = "window:ide".into();
+            if command.phrases.iter().map(|phrase| phrase.trim().to_lowercase()).eq(OLD_CODE_PHRASES)
+                && let Some(ide) = defaults.iter().find(|default| default.id == "window:ide")
+            {
+                command.phrases = ide.phrases.clone();
+            }
+        }
+        if command.kind == "window" && command.target.trim() == "code" {
+            command.target = "ide".into();
+        }
         if command.id.is_empty() || !seen.insert(command.id.clone()) {
             continue;
         }
@@ -379,6 +394,27 @@ mod tests {
 
         let push: Settings = serde_json::from_str(r#"{ "activation": "pushToTalk" }"#).unwrap();
         assert_eq!(push.activation, Activation::PushToTalk);
+    }
+
+    #[test]
+    fn jarvis_code_moves_to_the_ide() {
+        let commands = |json: &str| sanitize(serde_json::from_str(json).unwrap()).voice_commands;
+        let ide = |list: &[VoiceCommand]| list.iter().find(|command| command.id == "window:ide").cloned().unwrap();
+        let defaults = default_voice_commands();
+        // Untouched: the new phrases.
+        let untouched = commands(r#"{ "voiceCommands": [{ "id": "window:code", "kind": "window", "target": "code", "phrases": ["Jarvis Code", "código"] }] }"#);
+        assert_eq!(ide(&untouched), ide(&defaults));
+        assert!(!untouched.iter().any(|command| command.id == "window:code"));
+        assert_eq!(untouched.len(), defaults.len());
+        // The user's own phrases stay, now opening jv_ide.
+        let custom = ide(&commands(r#"{ "voiceCommands": [{ "id": "window:code", "kind": "window", "target": "code", "phrases": ["editorzinho"] }] }"#));
+        assert_eq!((custom.target.as_str(), custom.label.as_str(), custom.phrases), ("ide", "jv_ide", vec!["editorzinho".to_string()]));
+        // A command the user made for the old window opens the new one.
+        let mine = commands(r#"{ "voiceCommands": [{ "id": "custom-1", "kind": "window", "target": "code", "label": "Meu editor", "phrases": ["programar"] }] }"#);
+        let mine = mine.iter().find(|command| command.id == "custom-1").unwrap();
+        assert_eq!((mine.target.as_str(), mine.builtin), ("ide", false));
+        // VS Code keeps "editor de código".
+        assert!(default_apps().iter().find(|app| app.id == "vscode").unwrap().keywords.contains(&"editor de código".to_string()));
     }
 
     #[test]

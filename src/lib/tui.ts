@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useStoredState } from "./storage";
 import { paletteFromHue } from "./theme";
 
-/** The look of the terminal-style apps (Jarvis Mark, Jarvis Code), like an old phosphor terminal. */
+/** The look of the terminal-style apps (Jarvis Mark, jv_ide), like an old phosphor terminal. */
 export interface TuiPrefs {
   /** Red/blue fringes on the text, as on a misconverged CRT. */
   aberration: boolean;

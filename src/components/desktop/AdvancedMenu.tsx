@@ -222,7 +222,7 @@ export function AdvancedMenu({
                     />
                     <SwitchRow
                       label="Sons da inicialização"
-                      hint="Bipe de POST e cliques de teclado"
+                      hint="Bipe de POST e o acorde ao ligar"
                       checked={boot.sound}
                       onChange={() => onBoot((current) => ({ ...current, sound: !current.sound }))}
                     />
@@ -396,7 +396,7 @@ export function AdvancedMenu({
                   <>
                     <Section title="Efeitos dos apps de terminal">
                       <p className="text-xs leading-relaxed text-hud-text/55">
-                        Valem para o Jarvis Mark e o Jarvis Code e, no estilo de janela TUI, também para os widgets. Na hora.
+                        Valem para o Jarvis Mark e o jv_ide e, no estilo de janela TUI, também para os widgets. Na hora.
                       </p>
                       <SwitchRow
                         label="Aberração cromática"
@@ -494,7 +494,7 @@ function TuiPreview({ prefs }: { prefs: TuiPrefs }) {
     >
       <div>
         <span className="text-hud-cyan">builder@jarvis</span> <span className="text-hud-text/50">~/projetos</span>{" "}
-        <span className="text-hud-light">$</span> jarvis code main.rs
+        <span className="text-hud-light">$</span> jv_ide main.rs
       </div>
       <div>
         <span className="text-hud-light">fn</span> <span className="text-hud-cyan">main</span>() {"{"}

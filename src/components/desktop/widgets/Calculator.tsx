@@ -1,6 +1,8 @@
 import { useState, type KeyboardEvent } from "react";
 import { Delete } from "lucide-react";
+import { useWidgetOptions } from "../../../hooks/useWidgetOptions";
 import { evaluate, formatResult } from "../../../lib/calc";
+import { toggleItems, useWidgetMenu, WidgetMenu } from "./WidgetMenu";
 
 type Key =
   | { label: string; insert: string; name?: string; wide?: boolean }
@@ -33,6 +35,8 @@ const KEYS: Key[] = [
   { label: "=", action: "equals", name: "Igual" },
 ];
 
+const OPTIONS = { keypad: true, history: true, cursor: true };
+
 const OPERATORS = new Set(["+", "−", "×", "÷", "^", "%"]);
 const KEYBOARD: Record<string, string> = { "*": "×", "/": "÷", "-": "−", ".": ",", ",": "," };
 
@@ -43,6 +47,8 @@ const KEYBOARD: Record<string, string> = { "*": "×", "/": "÷", "-": "−", "."
 export function Calculator() {
   const [expression, setExpression] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const [options, toggle] = useWidgetOptions("calculator", OPTIONS);
+  const menu = useWidgetMenu();
 
   const insert = (text: string) => {
     if (result !== null) {
@@ -95,12 +101,14 @@ export function Calculator() {
   };
 
   return (
-    <div tabIndex={0} onKeyDown={onKeyDown} className="flex h-full flex-col gap-2 px-3 pt-2 pb-3 font-mono outline-none">
-      <div className="flex min-h-16 flex-col justify-end gap-0.5 select-text">
-        <div className="flex min-h-5 gap-2 text-[12px] text-hud-text/55">
-          <span className="text-hud-cyan">&gt;</span>
-          <span className="truncate">{result !== null ? expression : ""}</span>
-        </div>
+    <div tabIndex={0} onKeyDown={onKeyDown} onContextMenu={menu.open} className="flex h-full flex-col gap-2 px-3 pt-2 pb-3 font-mono outline-none">
+      <div className={`flex flex-col justify-end gap-0.5 select-text ${options.keypad ? "min-h-16" : "flex-1"}`}>
+        {options.history && (
+          <div className="flex min-h-5 gap-2 text-[12px] text-hud-text/55">
+            <span className="text-hud-cyan">&gt;</span>
+            <span className="truncate">{result !== null ? expression : ""}</span>
+          </div>
+        )}
         <div className="flex items-baseline gap-2">
           <span className="text-[12px] text-hud-cyan">{result !== null ? "=" : ">"}</span>
           <span
@@ -109,14 +117,14 @@ export function Calculator() {
           >
             {result ?? (expression || "0")}
           </span>
-          {result === null && (
+          {result === null && options.cursor && (
             <span aria-hidden className="crt-cursor text-xl text-hud-light/80">
               ▌
             </span>
           )}
         </div>
       </div>
-      <div className="grid flex-1 grid-cols-4 gap-px">
+      <div className={`grid flex-1 grid-cols-4 gap-px ${options.keypad ? "" : "hidden"}`}>
         {KEYS.map((key) => {
           const operator = "insert" in key ? OPERATORS.has(key.insert) : key.action === "equals";
           return (
@@ -138,6 +146,20 @@ export function Calculator() {
           );
         })}
       </div>
+      <WidgetMenu
+        menu={menu}
+        label="Opções do widget Calculadora"
+        sections={[
+          {
+            title: "Exibir",
+            items: toggleItems(options, toggle, [
+              ["keypad", "Teclado"],
+              ["history", "Conta anterior"],
+              ["cursor", "Cursor"],
+            ]),
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -5,8 +5,9 @@
   { "id": "window:calculator", "kind": "window", "target": "calculator", "label": "Calculadora", "phrases": ["calculadora", "calculator"] },
   { "id": "window:tape", "kind": "window", "target": "tape", "label": "Fita", "phrases": ["fita", "cassete", "fita cassete"] },
   { "id": "window:miniplayer", "kind": "window", "target": "miniplayer", "label": "Mini player", "phrases": ["mini player", "miniplayer", "controle de música"] },
+  { "id": "window:system", "kind": "window", "target": "system", "label": "Sistema", "phrases": ["sistema", "monitor do sistema", "desempenho", "uso do sistema"] },
   { "id": "window:markdown", "kind": "window", "target": "markdown", "label": "Jarvis Mark", "phrases": ["Jarvis Mark", "markdown", "editor de markdown"] },
-  { "id": "window:code", "kind": "window", "target": "code", "label": "Jarvis Code", "phrases": ["Jarvis Code", "código"] },
+  { "id": "window:ide", "kind": "window", "target": "ide", "label": "jv_ide", "phrases": ["jv ide", "IDE", "Jarvis Code", "código"] },
   { "id": "window:music", "kind": "window", "target": "music", "label": "jv_T4p3", "phrases": ["jv tape", "tape", "player", "player de música", "tocador"] },
   { "id": "window:shell", "kind": "window", "target": "shell", "label": "jv_sh", "phrases": ["terminal", "jv sh", "shell", "console", "prompt de comando"] },
 

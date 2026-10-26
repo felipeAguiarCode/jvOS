@@ -1,9 +1,22 @@
-import { AudioLines, BatteryMedium, Calculator, CassetteTape, Clock, Disc3, FileCode, FileText, SquareTerminal, Timer, type LucideIcon } from "lucide-react";
+import {
+  AudioLines,
+  BatteryMedium,
+  Calculator,
+  CassetteTape,
+  Clock,
+  Disc3,
+  FileText,
+  Gauge,
+  SquareCode,
+  SquareTerminal,
+  Timer,
+  type LucideIcon,
+} from "lucide-react";
 import { DOCK_RESERVE } from "./layout";
 
 /** Everything that can open as a window over the hologram. */
-export type WindowKind = "clock" | "pomodoro" | "battery" | "calculator" | "tape" | "miniplayer" | "markdown" | "code" | "music" | "shell";
-export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "markdown", "code", "music", "shell"];
+export type WindowKind = "clock" | "pomodoro" | "battery" | "calculator" | "tape" | "miniplayer" | "system" | "markdown" | "ide" | "music" | "shell";
+export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell"];
 
 export interface Size {
   w: number;
@@ -70,8 +83,11 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
   // jv_T4p3's widgets: the cassette alone, and the controls alone.
   tape: { title: "Fita", icon: Disc3, size: { w: 380, h: 250 }, min: { w: 260, h: 180 }, group: "widgets" },
   miniplayer: { title: "Mini player", icon: AudioLines, size: { w: 360, h: 150 }, min: { w: 300, h: 140 }, group: "widgets" },
+  // The system meters (CPU, GPU, disk, Wi-Fi, RAM, virtual memory); right click picks the bars.
+  system: { title: "Sistema", icon: Gauge, size: { w: 300, h: 290 }, min: { w: 220, h: 110 }, group: "widgets" },
   markdown: { title: "Jarvis Mark", icon: FileText, size: { w: 880, h: 560 }, min: { w: 480, h: 300 }, group: "apps" },
-  code: { title: "Jarvis Code", icon: FileCode, size: { w: 760, h: 520 }, min: { w: 420, h: 280 }, group: "apps" },
+  // The termide-style IDE (a folder, its files, git, outline and terminals); it replaced Jarvis Code.
+  ide: { title: "jv_ide", icon: SquareCode, size: { w: 1180, h: 700 }, min: { w: 640, h: 360 }, group: "apps" },
   music: { title: "jv_T4p3", icon: CassetteTape, size: { w: 920, h: 620 }, min: { w: 660, h: 480 }, group: "apps" },
   shell: { title: "jv_sh", icon: SquareTerminal, size: { w: 900, h: 540 }, min: { w: 480, h: 300 }, group: "apps" },
 };
@@ -152,6 +168,10 @@ export function isWindowKind(value: unknown): value is WindowKind {
 
 const isKind = isWindowKind;
 
+/** Kinds that were renamed: Jarvis Code became jv_ide. */
+const RENAMED: Record<string, WindowKind> = { code: "ide" };
+const migrate = (kind: unknown) => (typeof kind === "string" && kind in RENAMED ? RENAMED[kind] : kind);
+
 function isRect(value: unknown): value is Rect {
   if (!value || typeof value !== "object") return false;
   const { x, y, w, h } = value as Record<string, unknown>;
@@ -165,14 +185,16 @@ export function parseDesktop(raw: unknown): DesktopState | null {
 
   const cleanRects: DesktopState["rects"] = {};
   if (rects && typeof rects === "object") {
-    for (const [kind, rect] of Object.entries(rects)) {
-      if (isKind(kind) && isRect(rect)) cleanRects[kind] = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+    for (const [name, rect] of Object.entries(rects)) {
+      const kind = migrate(name);
+      if (isKind(kind) && isRect(rect)) cleanRects[kind] ??= { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
     }
   }
 
   const cleanOrder: WindowKind[] = [];
   if (Array.isArray(order)) {
-    for (const kind of order) {
+    for (const name of order) {
+      const kind = migrate(name);
       if (isKind(kind) && !cleanOrder.includes(kind)) cleanOrder.push(kind);
     }
   }
@@ -188,7 +210,7 @@ export function parseDesktop(raw: unknown): DesktopState | null {
     opacity: typeof p.opacity === "number" && p.opacity >= 0.6 && p.opacity <= 1 ? p.opacity : DEFAULT_PREFS.opacity,
   };
 
-  const cleanMaximized = Array.isArray(maximized) ? WINDOW_KINDS.filter((kind) => maximized.includes(kind) && canMaximize(kind)) : [];
+  const cleanMaximized = Array.isArray(maximized) ? WINDOW_KINDS.filter((kind) => maximized.map(migrate).includes(kind) && canMaximize(kind)) : [];
 
   return { version: 1, rects: cleanRects, order: cleanOrder, maximized: cleanMaximized, prefs: cleanPrefs };
 }

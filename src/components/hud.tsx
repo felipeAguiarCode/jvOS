@@ -246,11 +246,12 @@ export function CoreSwatch({ mode }: { mode: CoreMode }) {
       )}
       {mode === "2d" && (
         <g fill="none">
-          <circle cx={25} cy={16} r={12.5} className="stroke-hud-line" strokeWidth={0.5} strokeDasharray="0.6 1.2" />
-          <circle cx={25} cy={16} r={9.5} className="stroke-hud-cyan" strokeWidth={0.6} />
-          <ellipse cx={25} cy={16} rx={9} ry={3} transform="rotate(24 25 16)" className="stroke-hud-holo/80" strokeWidth={0.6} />
-          <circle cx={25} cy={16} r={4.5} className="stroke-hud-holo" strokeWidth={0.6} />
-          <circle cx={25} cy={16} r={1.2} className="fill-hud-glow" />
+          <circle cx={25} cy={16} r={12} className="stroke-hud-cyan/20" strokeWidth={3.5} />
+          <circle cx={25} cy={16} r={12} className="stroke-hud-holo" strokeWidth={1.4} strokeDasharray="0.45 1.6" />
+          <circle cx={25} cy={16} r={14} className="stroke-hud-holo/80" strokeWidth={0.5} strokeDasharray="9 2" />
+          <path d="M16.07 19.25 A9.5 9.5 0 0 1 16.07 12.75" className="stroke-hud-amber" strokeWidth={0.9} />
+          <circle cx={25} cy={16} r={7} className="stroke-hud-light" strokeWidth={0.6} />
+          <polygon points="21.1,14.25 28.9,14.25 25,21" className="stroke-hud-glow" strokeWidth={0.9} />
         </g>
       )}
       {mode === "off" && (

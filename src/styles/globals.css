@@ -12,10 +12,14 @@
   --color-hud-glow: #b5faff;
   --color-hud-text: #a8dbe5;
   --color-hud-alert: #ff5c6c;
+  /* The 2D reactor's bracket: the same amber in every theme. */
+  --color-hud-amber: #ffb02e;
 
   --font-hud: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   /* Local fonts only: the production CSP allows no remote ones. */
   --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  /* The boot screen's text-mode font, bundled from @fontsource/vt323. */
+  --font-bios: "VT323", var(--font-mono);
 }
 
 html,

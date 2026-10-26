@@ -72,4 +72,23 @@ export const hudHighlight = HighlightStyle.define([
   { tag: t.monospace, color: "var(--color-hud-holo)" },
   { tag: t.quote, color: text(70), fontStyle: "italic" },
   { tag: [t.list, t.contentSeparator], color: "var(--color-hud-cyan)" },
+  // Diffs (git)
+  { tag: t.inserted, color: "var(--color-hud-light)" },
+  { tag: t.deleted, color: "var(--color-hud-alert)" },
+  { tag: t.changed, color: "var(--color-hud-amber)" },
 ]);
+
+/**
+ * jv_ide on top of `hudTheme`: denser lines like a terminal, the scrollbar as a thin accent bar
+ * (termide's), the cursor line a little brighter.
+ */
+export const ideTheme = EditorView.theme(
+  {
+    ".cm-scroller": { lineHeight: "1.45", scrollbarColor: "var(--color-hud-light) transparent" },
+    ".cm-content": { padding: "2px 0" },
+    ".cm-line": { padding: "0 8px 0 4px" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 6px 0 8px", minWidth: "36px" },
+    ".cm-activeLine": { backgroundColor: cyan(9) },
+  },
+  { dark: true },
+);

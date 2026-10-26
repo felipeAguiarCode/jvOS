@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import { BatteryCharging, BatteryMedium, BatteryWarning, Gauge, Mic, MicOff, Plug, Search, Settings, Timer } from "lucide-react";
 import { isPlugged, LOW_BATTERY, useBattery } from "../hooks/useBattery";
+import { useMinuteClock } from "../hooks/useMinuteClock";
 import type { DesktopWindow } from "../hooks/useDesktop";
 import type { MusicPlayer } from "../hooks/useMusicPlayer";
 import { PHASE_LABEL, usePomodoroRemaining, type Pomodoro } from "../hooks/usePomodoro";
@@ -227,21 +228,4 @@ function BarButton({
       {children}
     </button>
   );
-}
-
-/** The current time, refreshed on the minute (and on the second while starting up). */
-function useMinuteClock(paused: boolean) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (paused) return;
-    let timer = 0;
-    const tick = () => {
-      const date = new Date();
-      setNow(date);
-      timer = window.setTimeout(tick, 60_000 - (date.getTime() % 60_000) + 50);
-    };
-    tick();
-    return () => window.clearTimeout(timer);
-  }, [paused]);
-  return now;
 }

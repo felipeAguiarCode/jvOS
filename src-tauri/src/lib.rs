@@ -1,23 +1,31 @@
 mod download;
 mod files;
+mod git;
 mod launcher;
 mod models;
 mod music;
 mod settings;
+mod system;
 mod terminal;
 mod voice;
+mod workspace;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde::Serialize;
+use tauri::ipc::Channel;
 use tauri::webview::{PermissionKind, PermissionResponse};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use settings::Settings;
 use voice::{VoiceEngine, VoiceStatus};
+use workspace::paths::Root;
+use workspace::text::{Encoding, Eol};
+use workspace::Stamp;
 
 /// The frontend reveals the window after its first rendered frame. This is only a
 /// safety net in case that signal never arrives (e.g. rAF throttled while hidden).
@@ -32,6 +40,7 @@ const EVENT_MUSIC_INSTALL_PROGRESS: &str = "music:install-progress";
 const EVENT_MUSIC_INSTALL_DONE: &str = "music:install-done";
 const EVENT_TERMINAL_OUTPUT: &str = "terminal:output";
 const EVENT_TERMINAL_EXIT: &str = "terminal:exit";
+const EVENT_WORKSPACE_CHANGED: &str = "workspace:changed";
 
 struct AppState {
     settings: Arc<RwLock<Settings>>,
@@ -43,6 +52,10 @@ struct AppState {
     music: Arc<music::Music>,
     /// jv_sh's shells.
     terminals: Arc<terminal::Terminals>,
+    /// The system meters' widgets (shared with blocking tasks).
+    system: Arc<Mutex<system::Sampler>>,
+    /// jv_ide's open folders (watchers) and its running search.
+    workspaces: Arc<workspace::Workspaces>,
 }
 
 impl AppState {
@@ -119,6 +132,207 @@ fn read_text_file(path: String) -> Result<String, String> {
 #[tauri::command]
 fn write_text_file(path: String, contents: String) -> Result<(), String> {
     files::write(Path::new(&path), &contents)
+}
+
+/// Runs `job` off the main thread (file system, git and searches can take a while).
+async fn blocking<T: Send + 'static>(job: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(job).await.map_err(|e| e.to_string())?
+}
+
+/// Opens a folder in jv_ide: follows its changes (`workspace:changed`) and finds its repository.
+#[tauri::command]
+async fn workspace_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<workspace::WorkspaceInfo, String> {
+    let workspaces = state.workspaces.clone();
+    blocking(move || {
+        workspaces.open(&path, move |changed| {
+            let _ = app.emit(EVENT_WORKSPACE_CHANGED, changed);
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn workspace_close(state: State<'_, AppState>, root: String) -> Result<(), String> {
+    state.workspaces.close(&root);
+    Ok(())
+}
+
+#[tauri::command]
+async fn workspace_list(root: String, path: String) -> Result<workspace::Listing, String> {
+    blocking(move || workspace::list(&Root::new(&root)?, &path)).await
+}
+
+#[tauri::command]
+async fn workspace_read(root: String, path: String) -> Result<workspace::FileContent, String> {
+    blocking(move || workspace::read(&Root::new(&root)?, &path)).await
+}
+
+/// Saves a file in its encoding and line endings; `expected` (the stamp read) guards against
+/// overwriting someone else's change ("file-changed").
+#[tauri::command]
+async fn workspace_write(root: String, path: String, contents: String, encoding: Encoding, eol: Eol, expected: Option<Stamp>) -> Result<Stamp, String> {
+    blocking(move || workspace::write(&Root::new(&root)?, &path, &contents, encoding, eol, expected)).await
+}
+
+#[tauri::command]
+async fn workspace_stat(root: String, paths: Vec<String>) -> Result<Vec<Option<Stamp>>, String> {
+    blocking(move || Ok(workspace::stat(&Root::new(&root)?, &paths))).await
+}
+
+#[tauri::command]
+async fn workspace_create(root: String, path: String, dir: bool) -> Result<(), String> {
+    blocking(move || workspace::create(&Root::new(&root)?, &path, dir)).await
+}
+
+#[tauri::command]
+async fn workspace_rename(root: String, from: String, to: String) -> Result<(), String> {
+    blocking(move || workspace::rename(&Root::new(&root)?, &from, &to)).await
+}
+
+#[tauri::command]
+async fn workspace_copy(root: String, from: String, to: String) -> Result<String, String> {
+    blocking(move || workspace::copy(&Root::new(&root)?, &from, &to)).await
+}
+
+/// To the Recycle Bin, unless `permanent`.
+#[tauri::command]
+async fn workspace_delete(root: String, paths: Vec<String>, permanent: bool) -> Result<(), String> {
+    blocking(move || workspace::delete(&Root::new(&root)?, &paths, permanent)).await
+}
+
+#[tauri::command]
+async fn workspace_reveal(root: String, path: String) -> Result<(), String> {
+    blocking(move || workspace::reveal(&Root::new(&root)?, &path)).await
+}
+
+#[tauri::command]
+async fn workspace_disk(root: String) -> Result<Option<system::Disk>, String> {
+    blocking(move || Ok(workspace::disk(&Root::new(&root)?))).await
+}
+
+/// Every file of the project, for quick open.
+#[tauri::command]
+async fn workspace_files(root: String) -> Result<workspace::search::FileList, String> {
+    blocking(move || Ok(workspace::search::files(&Root::new(&root)?))).await
+}
+
+/// Starts a search across the project and returns its id; matches, then a "done", arrive on
+/// `on_event`. A newer search (or `workspace_search_cancel`) stops it.
+#[tauri::command]
+async fn workspace_search(state: State<'_, AppState>, root: String, query: workspace::search::Query, on_event: Channel<workspace::search::SearchEvent>) -> Result<u64, String> {
+    let workspaces = state.workspaces.clone();
+    let prepared = blocking(move || workspace::search::prepare(&Root::new(&root)?, &query)).await?;
+    let id = workspaces.search.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || workspace::search::run(prepared, id, &workspaces.search, |event| on_event.send(event).is_ok()));
+    Ok(id)
+}
+
+#[tauri::command]
+fn workspace_search_cancel(state: State<AppState>) {
+    state.workspaces.search.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The repository's state (None outside a repository).
+#[tauri::command]
+async fn git_status(root: String) -> Result<Option<git::GitStatus>, String> {
+    blocking(move || git::git_status(&root)).await
+}
+
+#[tauri::command]
+async fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
+    blocking(move || git::stage(&root, &paths)).await
+}
+
+#[tauri::command]
+async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
+    blocking(move || git::unstage(&root, &paths)).await
+}
+
+/// Work-tree changes thrown away (untracked files to the Recycle Bin).
+#[tauri::command]
+async fn git_discard(root: String, paths: Vec<String>) -> Result<(), String> {
+    blocking(move || git::discard(&root, &paths)).await
+}
+
+#[tauri::command]
+async fn git_stage_all(root: String) -> Result<(), String> {
+    blocking(move || git::stage_all(&root)).await
+}
+
+#[tauri::command]
+async fn git_unstage_all(root: String) -> Result<(), String> {
+    blocking(move || git::unstage_all(&root)).await
+}
+
+#[tauri::command]
+async fn git_discard_all(root: String, untracked: bool) -> Result<(), String> {
+    blocking(move || git::discard_all(&root, untracked)).await
+}
+
+#[tauri::command]
+async fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
+    blocking(move || git::commit(&root, &message, amend)).await
+}
+
+#[tauri::command]
+async fn git_push(root: String) -> Result<String, String> {
+    blocking(move || git::push(&root)).await
+}
+
+#[tauri::command]
+async fn git_pull(root: String) -> Result<String, String> {
+    blocking(move || git::pull(&root)).await
+}
+
+#[tauri::command]
+async fn git_fetch(root: String) -> Result<String, String> {
+    blocking(move || git::fetch(&root)).await
+}
+
+#[tauri::command]
+async fn git_log(root: String, limit: u32, skip: u32) -> Result<Vec<git::Commit>, String> {
+    blocking(move || git::log(&root, limit, skip)).await
+}
+
+#[tauri::command]
+async fn git_diff(root: String, path: String, staged: bool) -> Result<git::Diff, String> {
+    blocking(move || git::diff(&root, &path, staged)).await
+}
+
+/// A file as it is in "HEAD" or the "INDEX".
+#[tauri::command]
+async fn git_show_file(root: String, path: String, rev: String) -> Result<Option<String>, String> {
+    blocking(move || git::show_file(&root, &path, &rev)).await
+}
+
+#[tauri::command]
+async fn git_stash_list(root: String) -> Result<Vec<git::Stash>, String> {
+    blocking(move || git::stash_list(&root)).await
+}
+
+#[tauri::command]
+async fn git_stash_push(root: String, message: Option<String>, untracked: bool) -> Result<(), String> {
+    blocking(move || git::stash_push(&root, message.as_deref(), untracked)).await
+}
+
+#[tauri::command]
+async fn git_stash_pop(root: String, index: u32) -> Result<(), String> {
+    blocking(move || git::stash_pop(&root, index)).await
+}
+
+#[tauri::command]
+async fn git_stash_drop(root: String, index: u32) -> Result<(), String> {
+    blocking(move || git::stash_drop(&root, index)).await
+}
+
+#[tauri::command]
+async fn git_branches(root: String) -> Result<Vec<git::Branch>, String> {
+    blocking(move || git::branches(&root)).await
+}
+
+#[tauri::command]
+async fn git_checkout(root: String, branch: String, create: bool) -> Result<(), String> {
+    blocking(move || git::checkout(&root, &branch, create)).await
 }
 
 #[tauri::command]
@@ -226,6 +440,14 @@ fn download_model(app: AppHandle, state: State<AppState>, id: String) -> Result<
     Ok(())
 }
 
+/// The system meters (CPU, GPU, RAM, virtual memory, disks, Wi-Fi), read now; rates cover the
+/// time since the previous call.
+#[tauri::command]
+async fn system_stats(state: State<'_, AppState>) -> Result<system::SystemStats, String> {
+    let sampler = state.system.clone();
+    tauri::async_runtime::spawn_blocking(move || sampler.lock().unwrap().read()).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn music_status(state: State<'_, AppState>) -> Result<music::MusicStatus, String> {
     let music = state.music.clone();
@@ -289,10 +511,14 @@ struct TerminalExit {
     code: Option<u32>,
 }
 
-/// Starts one of the profiles (only those: the UI cannot run an arbitrary command line).
+/// Starts one of the profiles (only those: the UI cannot run an arbitrary command line), in
+/// `cwd` when given (jv_ide's terminals open in the project).
 #[tauri::command]
-fn terminal_open(app: AppHandle, state: State<AppState>, profile: String, cols: u16, rows: u16) -> Result<u32, String> {
-    let profile = terminal::profiles().profiles.into_iter().find(|item| item.id == profile).ok_or("Perfil não encontrado")?;
+fn terminal_open(app: AppHandle, state: State<AppState>, profile: String, cols: u16, rows: u16, cwd: Option<String>) -> Result<u32, String> {
+    let mut profile = terminal::profiles().profiles.into_iter().find(|item| item.id == profile).ok_or("Perfil não encontrado")?;
+    if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
+        profile = terminal::in_dir(profile, &terminal::start_dir(&cwd)?);
+    }
     let output = app.clone();
     state.terminals.open(
         &profile,
@@ -355,6 +581,42 @@ pub fn run() {
             terminal_write,
             terminal_resize,
             terminal_close,
+            system_stats,
+            workspace_open,
+            workspace_close,
+            workspace_list,
+            workspace_read,
+            workspace_write,
+            workspace_stat,
+            workspace_create,
+            workspace_rename,
+            workspace_copy,
+            workspace_delete,
+            workspace_reveal,
+            workspace_disk,
+            workspace_files,
+            workspace_search,
+            workspace_search_cancel,
+            git_status,
+            git_stage,
+            git_unstage,
+            git_discard,
+            git_stage_all,
+            git_unstage_all,
+            git_discard_all,
+            git_commit,
+            git_push,
+            git_pull,
+            git_fetch,
+            git_log,
+            git_diff,
+            git_show_file,
+            git_stash_list,
+            git_stash_push,
+            git_stash_pop,
+            git_stash_drop,
+            git_branches,
+            git_checkout,
         ])
         .setup(|app| {
             let settings_path = app.path().app_config_dir()?.join("settings.json");
@@ -374,6 +636,8 @@ pub fn run() {
                 downloading: Mutex::new(HashSet::new()),
                 music: Arc::new(music::Music::new(bin_dir)),
                 terminals: Arc::new(terminal::Terminals::new(tools)),
+                system: Arc::new(Mutex::new(system::Sampler::default())),
+                workspaces: Arc::new(workspace::Workspaces::default()),
             };
             // Restore listening if it was on when the app was last closed.
             if state.snapshot().voice_enabled {
@@ -397,11 +661,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // No shell outlives JARVIS.
+            // No shell, watcher or search outlives JARVIS.
             if let tauri::RunEvent::Exit = event
                 && let Some(state) = app.try_state::<AppState>()
             {
                 state.terminals.close_all();
+                state.workspaces.close_all();
             }
         });
 }

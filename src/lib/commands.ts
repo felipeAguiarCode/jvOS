@@ -80,16 +80,17 @@ const WINDOW_KEYWORDS: Record<WindowKind, string[]> = {
   battery: ["bateria", "battery", "energia", "carga"],
   calculator: ["calculator", "conta", "contas", "matematica"],
   markdown: ["markdown", "md", "editor", "texto", "notas", "documento", "ditado"],
-  code: ["codigo", "code", "editor", "programacao", "syntax", "ide"],
+  ide: ["ide", "jv ide", "codigo", "code", "editor", "programacao", "syntax", "projeto", "pasta", "git", "termide"],
   music: ["musica", "music", "player", "tocador", "tape", "radio", "radios", "playlist", "vice city", "gta", "youtube"],
   shell: ["terminal", "shell", "console", "powershell", "bash", "cmd", "prompt", "wsl", "linha de comando"],
   tape: ["fita", "cassete", "tape", "musica", "widget"],
   miniplayer: ["mini", "player", "musica", "controles", "widget"],
+  system: ["sistema", "monitor", "desempenho", "cpu", "processador", "gpu", "ram", "memoria", "hdd", "disco", "wlan", "wifi", "rede", "widget"],
 };
 
 const APP_SUBTITLES: Partial<Record<WindowKind, string>> = {
   markdown: "App · editor de Markdown",
-  code: "App · editor de código",
+  ide: "App · IDE: pasta, git e terminal",
   music: "App · rádios do GTA Vice City",
   shell: "App · seus perfis do Windows Terminal",
 };

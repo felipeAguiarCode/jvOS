@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion, type TargetAndTransition } from "motion/react";
+import "@fontsource/vt323/latin.css";
 import { probeSystem, type BootInfo, type BootStatus, type SystemProbe } from "../lib/boot";
 import { createBootSound, type BootSound } from "../lib/bootSound";
 
-/** Pause between the prompt appearing and the typing starting. */
-const TYPE_DELAY = 180;
-const CHAR_MS = 24;
-const LINE_MS = 85;
+const LINE_MS = 70;
+/** A device being probed: its name shows, and what answered comes a moment later. */
+const DETECT_MS = 240;
 const GLITCH_MS = 140;
 /** After the POST, the screen calms down and the machine comes to life: chord, emblem, welcome. */
 const STARTUP_MS = 2100;
@@ -18,86 +18,131 @@ const REDUCED_HOLD = 1100;
 const START_FALLBACK_MS = 1500;
 /** A stalled frame advances the timeline this much at most: it slows down instead of skipping a phase. */
 const MAX_STEP_MS = 100;
-const PROMPT = "C:\\>";
+/** The text-mode font, preloaded so the POST never starts in the fallback. */
+const BIOS_FONT = '1em "VT323"';
+/** Where the colons line up, on the first screen and in the summary box. */
 const LABEL_WIDTH = 22;
-const BAR_CELLS = 24;
+const SUMMARY_LABEL_WIDTH = 15;
+const DMI_DOTS = 12;
+/** Bus, device, function, vendor, device ID, class, description, IRQ. */
+const PCI_COLUMNS = [6, 6, 6, 8, 6, 7, 30, 3];
+/** PCI vendor IDs of the usual graphics makers; anything else shows as Microsoft's basic display. */
+const PCI_VENDORS: [RegExp, string][] = [
+  [/nvidia|geforce|quadro/i, "10DE"],
+  [/amd|radeon/i, "1002"],
+  [/intel/i, "8086"],
+  [/apple/i, "106B"],
+  [/qualcomm|adreno/i, "5143"],
+  [/swiftshader|google/i, "1AE0"],
+];
+
+interface Field {
+  label: string;
+  value: string;
+  status: BootStatus;
+}
 
 type Line =
-  | { kind: "text"; at: number; text: string; tone: "title" | "dim" }
+  | { kind: "text"; at: number; text: string; tone: "title" | "plain" | "dim" }
   | { kind: "memory"; at: number; until: number; kilobytes: number }
-  | { kind: "command"; at: number; text: string }
-  | {
-      kind: "check";
-      at: number;
-      label: string;
-      value: string;
-      status: BootStatus;
-    }
-  | { kind: "progress"; at: number; until: number }
+  /** `found`: when the value shows (a device answering the probe). */
+  | ({ kind: "field"; at: number; found: number } & Field)
+  /** The summary box, row by row: left column, right column. */
+  | { kind: "summary"; at: number; fields: Field[] }
+  | { kind: "dots"; at: number; until: number; text: string }
   | { kind: "gap"; at: number };
 
 interface Script {
   lines: Line[];
   /** Everything is on screen. */
   printed: number;
-  beepAt: number;
+  /** The POST passed: one short beep, and the summary screen replaces the first. */
+  clearAt: number;
   glitches: number[];
-  keystrokes: number[];
+  /** The BIOS ID string in the corner of the first screen. */
+  biosId: string;
 }
 
-/** The whole POST as a timeline (ms from the start); the screen is a function of the elapsed time. */
+/** A stable, made-up PCI device ID for a device name. */
+function deviceId(name: string) {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) & 0xffff;
+  return hash.toString(16).toUpperCase().padStart(4, "0");
+}
+
+const pciRow = (cells: string[]) =>
+  cells.map((cell, index) => (index === cells.length - 1 ? cell.padStart(PCI_COLUMNS[index]) : cell.padEnd(PCI_COLUMNS[index]))).join("");
+
+/**
+ * The whole POST as a timeline (ms from the start); the screen is a function of the elapsed time.
+ * Laid out like an Award BIOS: the banner, the CPU, the memory count and the devices answering
+ * one by one; then the beep, the summary box, the PCI listing and the hand-over.
+ */
 function buildScript(info: BootInfo, probe: SystemProbe): Script {
   const lines: Line[] = [];
-  const glitches: number[] = [];
-  const keystrokes: number[] = [];
   let t = 0;
   const push = (line: Line, advance: number) => {
     lines.push(line);
     t += advance;
   };
-  const command = (text: string) => {
-    for (let i = 0; i < text.length; i++) keystrokes.push(t + TYPE_DELAY + i * CHAR_MS);
-    push({ kind: "command", at: t, text }, TYPE_DELAY + text.length * CHAR_MS + 140);
-  };
-  const check = (label: string, value: string, status: BootStatus = "ok") => push({ kind: "check", at: t, label, value, status }, LINE_MS);
+  const text = (value: string, tone: "title" | "plain" | "dim" = "plain") => push({ kind: "text", at: t, text: value, tone }, LINE_MS);
+  const gap = () => push({ kind: "gap", at: t }, 40);
+  const detect = (label: string, value: string, status: BootStatus = "ok") =>
+    push({ kind: "field", at: t, found: t + DETECT_MS, label: `  ${label}`, value, status }, DETECT_MS + LINE_MS);
 
   // A plain BIOS: no logo, no name.
-  push({ kind: "text", at: t, text: `BIOS v${info.version} · Núcleo holográfico`, tone: "title" }, LINE_MS);
-  push({ kind: "text", at: t, text: "Assistente local · nenhum dado sai desta máquina.", tone: "dim" }, LINE_MS);
-  push({ kind: "gap", at: t }, 60);
-  const memoryAt = t;
-  push({ kind: "memory", at: t, until: t + 650, kilobytes: probe.memoryKb }, 720);
-  const beepAt = memoryAt + 650;
-  glitches.push(beepAt + 30);
-  push({ kind: "gap", at: t }, 60);
+  text(`BIOS Modular v${info.version}, Núcleo Holográfico`, "title");
+  text(`Copyright (C) ${new Date().getFullYear()}, Assistente Local. Nenhum dado sai desta máquina.`, "dim");
+  gap();
+  push({ kind: "field", at: t, found: t, label: "Processador principal", value: probe.cpu, status: "ok" }, LINE_MS);
+  push({ kind: "memory", at: t, until: t + 700, kilobytes: probe.memoryKb }, 760);
+  gap();
+  text("Detectando dispositivos...");
+  detect("Vídeo primário", probe.gpu);
+  detect("Tela", probe.screen);
+  detect("Áudio", probe.audio ? "Web Audio API" : "Nenhum", probe.audio ? "ok" : "warn");
+  detect("Motor de voz", info.voice.value, info.voice.status);
+  t += 450;
 
-  command("post --completo");
-  check("Processador", probe.cpu);
-  check("Vídeo", probe.gpu);
-  check("Tela", probe.screen);
-  check("Áudio", probe.audio ? "Web Audio API" : "indisponível", probe.audio ? "ok" : "warn");
-  check("Perfil gráfico", info.quality);
-  push({ kind: "gap", at: t }, 60);
+  // The monitor resyncs as the summary screen is drawn.
+  const clearAt = t;
+  const field = (label: string, value: string, status: BootStatus = "ok"): Field => ({ label, value, status });
+  const session = info.windows ? `${info.windows} ${info.windows === 1 ? "janela restaurada" : "janelas restauradas"}` : "área de trabalho limpa";
+  const fields = [
+    [field("Processador", probe.cpu), field("Motor de voz", info.voice.value, info.voice.status)],
+    [field("Memória", `${probe.memoryKb}K`), field("Ativação", info.activation)],
+    [field("Vídeo", probe.gpu), field("Tema e fundo", info.matrix)],
+    [field("Tela", probe.screen), field("Widgets e apps", `${info.modules} módulos`)],
+    [field("Perfil gráfico", info.quality), field("Sessão", session)],
+  ].flat();
+  push({ kind: "summary", at: t, fields }, 380);
+  gap();
 
-  command("carregar modulos");
-  check("Motor de voz", info.voice.value, info.voice.status);
-  check("Ativação", info.activation);
-  check("Matriz holográfica", info.matrix);
-  check("Widgets e apps", `${info.modules} módulos`);
-  check("Sessão", info.windows ? `${info.windows} ${info.windows === 1 ? "janela restaurada" : "janelas restauradas"}` : "área de trabalho limpa");
-  push({ kind: "gap", at: t }, 60);
+  const vendor = PCI_VENDORS.find(([pattern]) => pattern.test(probe.gpu))?.[1] ?? "1414";
+  text("Listagem de dispositivos PCI...");
+  text(pciRow(["Barr.", "Disp.", "Func.", "Fornec.", "Disp.", "Classe", "Descrição do dispositivo", "IRQ"]));
+  text("-".repeat(PCI_COLUMNS.reduce((sum, width) => sum + width, 0)));
+  text(pciRow(["  0", "  2", "  0", vendor, deviceId(probe.gpu), "0300", "Controlador de vídeo", "16"]));
+  if (probe.audio) text(pciRow(["  0", " 31", "  3", vendor === "1002" ? "1022" : "8086", deviceId("audio"), "0403", "Controlador de áudio", "11"]));
+  text(pciRow(["", "", "", "", "", "", "Controlador ACPI", "9"]));
+  gap();
+  push({ kind: "dots", at: t, until: t + 600, text: "Verificando dados do pool DMI " }, 700);
+  text("Iniciando o núcleo holográfico...");
+  t += 500;
 
-  glitches.push(t - 30);
-  command("iniciar nucleo --holografico");
-  push({ kind: "progress", at: t, until: t + 750 }, 850);
-
-  return { lines, printed: t, beepAt, glitches, keystrokes };
+  return {
+    lines,
+    printed: t,
+    clearAt,
+    glitches: [clearAt],
+    biosId: `JV-HOLO-${info.version.replace(/\D/g, "")}-${deviceId(probe.gpu)}${vendor}-00`,
+  };
 }
 
-const STATUS: Record<BootStatus, { text: string; className: string }> = {
-  ok: { text: "[  OK  ]", className: "text-hud-holo" },
-  warn: { text: "[ AVISO]", className: "text-hud-alert" },
-  skip: { text: "[  --  ]", className: "text-hud-text/45" },
+const VALUE_TONE: Record<BootStatus, string> = {
+  ok: "text-hud-light",
+  warn: "text-hud-alert",
+  skip: "text-hud-text/45",
 };
 
 /** CRT switching on: a dot, a line, then the whole tube. */
@@ -129,16 +174,18 @@ interface BootSequenceProps {
 }
 
 /**
- * Startup screen: an old BIOS POST on a CRT (scanlines, phosphor glow, flicker), in the
- * SUPERHOT terminal manner — typed commands and glitches. Then, like a computer coming to life,
- * the screen calms down: a warm chord, the JARVIS emblem and a welcome, fading into the desktop.
- * Any key or click skips it; DEL skips to the settings.
+ * Startup screen: an old BIOS POST on a CRT (scanlines, phosphor glow, flicker), in a text-mode
+ * font — the banner, the memory count, the devices answering, then the beep, the summary box and
+ * the PCI listing. Then, like a computer coming to life, the screen calms down: a warm chord, the
+ * JARVIS emblem and a welcome, fading into the desktop. Any key or click skips it; DEL skips to
+ * the settings.
  */
 export function BootSequence({ started, sound, info, onDone }: BootSequenceProps) {
   const reduced = useReducedMotion() ?? false;
   const probe = useMemo(probeSystem, []);
   const script = useMemo(() => buildScript(info, probe), [info, probe]);
-  const [go, setGo] = useState(started);
+  const [fontReady, setFontReady] = useState(() => document.fonts.check(BIOS_FONT));
+  const [go, setGo] = useState(started && fontReady);
   const [elapsed, setElapsed] = useState(0);
   const [exit, setExit] = useState<{ settings: boolean } | null>(null);
   // The startup screen follows the POST (held a moment first with reduced motion).
@@ -149,8 +196,16 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
   const audio = useRef<BootSound | null>(null);
 
   useEffect(() => {
-    if (started) setGo(true);
-  }, [started]);
+    let live = true;
+    const ready = () => live && setFontReady(true);
+    document.fonts.load(BIOS_FONT).then(ready, ready);
+    return () => {
+      live = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (started && fontReady) setGo(true);
+  }, [started, fontReady]);
   useEffect(() => {
     const timer = window.setTimeout(() => setGo(true), START_FALLBACK_MS);
     return () => window.clearTimeout(timer);
@@ -177,8 +232,7 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
       lastFrame = time;
       const { script, startupAt, end } = latest.current;
       const passed = (at: number) => at > last && at <= now;
-      if (script.keystrokes.some(passed)) audio.current?.click();
-      if (passed(script.beepAt)) audio.current?.beep();
+      if (passed(script.clearAt)) audio.current?.beep();
       if (passed(startupAt + CHIME_DELAY)) audio.current?.chime();
       last = now;
       setElapsed(now);
@@ -206,7 +260,8 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
   // A skip goes straight to the fade; the startup screen follows a POST that ran its course.
   const startup = elapsed >= startupAt;
   const glitching = !reduced && !exit && !startup && script.glitches.some((at) => elapsed >= at && elapsed < at + GLITCH_MS);
-  const visible = script.lines.filter((line) => elapsed >= line.at);
+  const firstScreen = elapsed < script.clearAt;
+  const visible = script.lines.filter((line) => elapsed >= line.at && firstScreen === line.at < script.clearAt);
   const lastLine = visible[visible.length - 1];
 
   return (
@@ -231,17 +286,21 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
         {/* The fade lives on a wrapper: crt-flicker animates the text's own opacity. */}
         <div className={`absolute inset-0 transition-opacity duration-300 ${startup ? "opacity-0" : ""}`}>
           <div
-            className={`crt-text crt-flicker absolute inset-0 px-[5vw] pt-[5.5vh] pb-[9vh] font-mono text-[clamp(11px,1.55vh,18px)] leading-[1.5] text-hud-text ${
+            className={`crt-text crt-flicker absolute inset-0 px-[5vw] pt-[5.5vh] pb-[9vh] font-bios text-[clamp(15px,2.8vh,34px)] leading-[1.2] text-hud-text ${
               glitching ? "crt-glitch" : ""
             }`}
           >
             {visible.map((line, index) => (
               <TerminalLine key={index} line={line} elapsed={elapsed} cursor={line === lastLine && !startup} />
             ))}
-            <div className="absolute right-[5vw] bottom-[4vh] left-[5vw] text-hud-text/50">
-              <span className="text-hud-light">DEL</span> configurações <span className="mx-3 text-hud-text/25">·</span>
-              <span className="text-hud-light">qualquer tecla</span> pular
-            </div>
+            {firstScreen && (
+              <div className="absolute right-[5vw] bottom-[4vh] left-[5vw] text-hud-text/70">
+                <div>
+                  Pressione <span className="text-hud-light">DEL</span> para entrar no SETUP, qualquer tecla para pular
+                </div>
+                <div className="text-hud-text/55">{script.biosId}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -260,62 +319,70 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
   );
 }
 
+const TEXT_TONE = { title: "text-hud-light", plain: "", dim: "text-hud-text/55" };
+
 function TerminalLine({ line, elapsed, cursor }: { line: Line; elapsed: number; cursor: boolean }) {
   const since = elapsed - line.at;
   switch (line.kind) {
     case "text":
-      return <div className={line.tone === "title" ? "text-hud-light" : "text-hud-text/55"}>{line.text}</div>;
+      return (
+        <div className={`whitespace-pre-wrap ${TEXT_TONE[line.tone]}`}>
+          {line.text}
+          {cursor && <Cursor />}
+        </div>
+      );
     case "gap":
-      return <div className="h-[0.75em]" />;
+      return <div className="h-[0.6em]" />;
     case "memory": {
       const share = Math.min(1, since / (line.until - line.at));
       const kilobytes = Math.floor(line.kilobytes * share);
       return (
-        <div>
-          Teste de memória : <span className="text-hud-light tabular-nums">{String(kilobytes).padStart(String(line.kilobytes).length, " ")}K</span>
-          {share >= 1 && <span className="ml-3 text-hud-holo">OK</span>}
-        </div>
-      );
-    }
-    case "command": {
-      const typed = line.text.slice(0, Math.max(0, Math.floor((since - TYPE_DELAY) / CHAR_MS) + 1));
-      return (
-        <div>
-          <span className="text-hud-light">{PROMPT}</span> {since >= TYPE_DELAY ? typed : ""}
+        <div className="whitespace-pre">
+          {`${"Teste de memória".padEnd(LABEL_WIDTH)}: `}
+          <span className="text-hud-light">{String(kilobytes).padStart(String(line.kilobytes).length, " ")}K</span>
+          {share >= 1 && <span className="text-hud-light"> OK</span>}
           {cursor && <Cursor />}
         </div>
       );
     }
-    case "check": {
-      const status = since >= 60 ? STATUS[line.status] : { text: "[  ..  ]", className: "text-hud-text/35" };
+    case "field":
       return (
-        <div className="grid max-w-[78ch] grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] gap-x-3 pl-[2ch]">
-          <span className="whitespace-pre text-hud-text/80">{`${line.label} `.padEnd(LABEL_WIDTH, ".")}</span>
-          <span className="truncate text-hud-light">{line.value}</span>
-          <span className={`whitespace-pre ${status.className}`}>{status.text}</span>
+        <div className="flex min-w-0 whitespace-pre">
+          {`${line.label.padEnd(LABEL_WIDTH)}: `}
+          {elapsed >= line.found && <span className={`truncate ${VALUE_TONE[line.status]}`}>{line.value}</span>}
+          {cursor && <Cursor />}
         </div>
       );
-    }
-    case "progress": {
-      const share = Math.max(0, Math.min(1, since / (line.until - line.at)));
-      const filled = Math.round(share * BAR_CELLS);
+    case "summary":
       return (
-        <div className="pl-[2ch]">
-          Ativando núcleo holográfico{" "}
-          <span className="text-hud-light">
-            [{"█".repeat(filled)}
-            <span className="text-hud-text/25">{"░".repeat(BAR_CELLS - filled)}</span>]
-          </span>{" "}
-          <span className="tabular-nums">{String(Math.round(share * 100)).padStart(3, " ")}%</span>
-          {cursor && share >= 1 && <Cursor />}
+        <fieldset className="m-0 mb-[0.3em] max-w-[100ch] border-[3px] border-double border-hud-text/70 px-0 pt-0 pb-[0.2em]">
+          <legend className="mx-auto px-[1ch] text-hud-light">Configuração do sistema</legend>
+          <div className="grid grid-cols-2">
+            {line.fields.map((field, index) => (
+              <div key={index} className={`flex min-w-0 px-[1ch] whitespace-pre ${index % 2 ? "border-l-[3px] border-double border-hud-text/70" : ""}`}>
+                {`${field.label.padEnd(SUMMARY_LABEL_WIDTH)}: `}
+                <span className={`truncate ${VALUE_TONE[field.status]}`}>{field.value}</span>
+              </div>
+            ))}
+          </div>
+        </fieldset>
+      );
+    case "dots": {
+      const share = Math.max(0, Math.min(1, since / (line.until - line.at)));
+      return (
+        <div className="whitespace-pre">
+          {line.text}
+          {".".repeat(Math.round(share * DMI_DOTS))}
+          {cursor && <Cursor />}
         </div>
       );
     }
   }
 }
 
+/** The text-mode cursor: a blinking underscore. */
 function Cursor() {
-  return <span className="crt-cursor ml-[0.15em] text-hud-light">█</span>;
+  return <span className="crt-cursor text-hud-light">_</span>;
 }
 
 /**

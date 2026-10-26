@@ -17,6 +17,26 @@ import {
 } from "@codemirror/view";
 import { hudHighlight, hudTheme } from "../../../lib/editorTheme";
 
+/** What both editors share: gutter, history, brackets, search and the HUD look. */
+export function editorBasics(): Extension[] {
+  return [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightSpecialChars(),
+    history(),
+    drawSelection(),
+    dropCursor(),
+    indentOnInput(),
+    bracketMatching(),
+    closeBrackets(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
+    hudTheme,
+    syntaxHighlighting(hudHighlight),
+  ];
+}
+
 export interface CursorInfo {
   line: number;
   col: number;
@@ -61,20 +81,7 @@ export function CodeMirror({ doc, onChange, onCursor, language, wrap = false, pl
     const state = EditorState.create({
       doc: lastDoc.current,
       extensions: [
-        lineNumbers(),
-        highlightActiveLineGutter(),
-        highlightSpecialChars(),
-        history(),
-        drawSelection(),
-        dropCursor(),
-        indentOnInput(),
-        bracketMatching(),
-        closeBrackets(),
-        highlightActiveLine(),
-        highlightSelectionMatches(),
-        keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
-        hudTheme,
-        syntaxHighlighting(hudHighlight),
+        editorBasics(),
         languageCompartment.of(language ?? []),
         wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
         placeholder ? placeholderExtension(placeholder) : [],

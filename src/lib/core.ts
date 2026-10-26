@@ -10,7 +10,7 @@ export interface CorePrefs {
   mode: CoreMode;
 }
 
-const DEFAULT_CORE: CorePrefs = { mode: "3d" };
+const DEFAULT_CORE: CorePrefs = { mode: "2d" };
 
 export const CORE_MODES: { value: CoreMode; label: string; hint: string }[] = [
   {
@@ -21,7 +21,7 @@ export const CORE_MODES: { value: CoreMode; label: string; hint: string }[] = [
   {
     value: "2d",
     label: "Anéis 2D",
-    hint: "Os anéis do holograma em vetor, girando e reagindo à voz, sem WebGL: bem menos memória e processamento.",
+    hint: "Um reator do HUD do JARVIS em vetor (anéis, marcas e o triângulo), girando e reagindo à voz, sem WebGL: bem menos memória e processamento.",
   },
   {
     value: "off",

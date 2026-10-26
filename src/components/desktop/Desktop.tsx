@@ -7,6 +7,7 @@ import { canMaximize, workArea, type Rect, type WindowKind } from "../../lib/des
 import type { TuiSurface } from "../../lib/tui";
 import { snapRect, snapTargets, type Guide, type ResizeEdges } from "../../lib/snap";
 import { Battery } from "./widgets/Battery";
+import { SystemMeters } from "./widgets/SystemMeters";
 import { Calculator } from "./widgets/Calculator";
 import { Clock } from "./widgets/Clock";
 import { MiniPlayer } from "./widgets/MiniPlayer";
@@ -16,7 +17,7 @@ import { Window } from "./Window";
 
 // The editors (CodeMirror, Markdown) load on first use, not with the hologram.
 const MarkdownEditor = lazy(() => import("./apps/MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
-const CodeEditor = lazy(() => import("./apps/CodeEditor").then((module) => ({ default: module.CodeEditor })));
+const IdeApp = lazy(() => import("./apps/ide/IdeApp").then((module) => ({ default: module.IdeApp })));
 const TapePlayer = lazy(() => import("./apps/TapePlayer").then((module) => ({ default: module.TapePlayer })));
 const ShellApp = lazy(() => import("./apps/ShellApp").then((module) => ({ default: module.ShellApp })));
 
@@ -130,16 +131,18 @@ function WindowContent({ kind, paused, timer, music, onClose }: ContentProps) {
       return <TapeWidget music={music} paused={paused} />;
     case "miniplayer":
       return <MiniPlayer music={music} />;
+    case "system":
+      return <SystemMeters paused={paused} />;
     case "markdown":
       return (
         <Suspense fallback={<Loading />}>
           <MarkdownEditor />
         </Suspense>
       );
-    case "code":
+    case "ide":
       return (
         <Suspense fallback={<Loading />}>
-          <CodeEditor />
+          <IdeApp paused={paused} />
         </Suspense>
       );
     case "music":

@@ -52,10 +52,10 @@ test("the top bar is on by default, turns off and on in the settings and drives 
   await expect(page.getByRole("dialog", { name: "Relógio" })).toBeVisible();
 
   // A maximised app stops below the bar, which stays usable.
-  await page.evaluate(() => window.__JARVIS__!.voiceWindow({ kind: "code", open: true }));
-  await expect(bar.getByRole("button", { name: "Jarvis Code" })).toBeVisible();
-  const code = page.getByRole("dialog", { name: "Jarvis Code" });
-  await code.getByRole("button", { name: "Maximizar Jarvis Code" }).click();
+  await page.evaluate(() => window.__JARVIS__!.voiceWindow({ kind: "ide", open: true }));
+  await expect(bar.getByRole("button", { name: "jv_ide" })).toBeVisible();
+  const code = page.getByRole("dialog", { name: "jv_ide" });
+  await code.getByRole("button", { name: "Maximizar jv_ide" }).click();
   await page.waitForTimeout(450);
   const max = (await code.boundingBox())!;
   expect(max.y).toBe(28);

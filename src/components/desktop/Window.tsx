@@ -1,7 +1,7 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
-import { usePointerDrag } from "../../hooks/usePointerDrag";
+import { usePointerDrag, type PointerDragHandlers } from "../../hooks/usePointerDrag";
 import { WINDOW_SPECS, type Rect, type WindowKind, type WindowStyle } from "../../lib/desktop";
 import type { ResizeEdges } from "../../lib/snap";
 
@@ -35,6 +35,8 @@ export interface WindowProps {
 
 /** A maximised window stays put until the pointer really moves (a double click must not restore it). */
 const DETACH_DISTANCE = 6;
+/** How far a press on a widget's body travels before it drags (Windows' own drag threshold). */
+const GRAB_DISTANCE = 4;
 
 interface MoveGesture {
   rect: Rect;
@@ -64,7 +66,7 @@ const HANDLES: Handle[] = [
 ];
 
 /**
- * A desktop window: title bar that drags, edges that resize, Ctrl+W closes. Positioned with
+ * A desktop window: title bar that drags (a widget's whole body too), edges that resize, Ctrl+W closes. Positioned with
  * left/top (motion owns the transform for the enter/exit animation); while nobody is dragging,
  * geometry changes (snap release, arranging) ease into place.
  */
@@ -97,7 +99,8 @@ export function Window({
 
   const begin = () => {
     onFocus();
-    root.current?.focus({ preventScroll: true });
+    // A widget grabbed by its body keeps the focus it just got there (its keys keep working).
+    if (!root.current?.contains(document.activeElement)) root.current?.focus({ preventScroll: true });
     setInteracting(true);
     return rect;
   };
@@ -106,7 +109,7 @@ export function Window({
     onDragEnd();
   };
 
-  const move = usePointerDrag<MoveGesture>({
+  const moveGesture: PointerDragHandlers<MoveGesture> = {
     onStart: (event) => {
       begin();
       return { rect, pointerX: event.clientX, grab: (event.clientX - rect.x) / rect.w, docked: maximized };
@@ -122,7 +125,11 @@ export function Window({
       onDrag({ ...start.rect, x: start.rect.x + dx, y: start.rect.y + dy }, "move");
     },
     onEnd: end,
-  });
+  };
+  const move = usePointerDrag<MoveGesture>(moveGesture);
+  // Widgets also move from anywhere on them, like a Rainmeter skin: a press that travels a few
+  // pixels drags, one that stays put is still a click.
+  const grab = usePointerDrag<MoveGesture>({ ...moveGesture, threshold: GRAB_DISTANCE });
 
   const toggleFromTitle = (event: MouseEvent) => {
     if (!maximizable || event.button !== 0) return;
@@ -146,7 +153,7 @@ export function Window({
 
   const onKeyDown = (event: KeyboardEvent) => {
     // In a terminal Ctrl+W belongs to the shell (bash deletes a word); the × closes.
-    if ((event.target as Element).closest("[data-terminal]")) return;
+    if (event.defaultPrevented || (event.target as Element).closest("[data-terminal]")) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
       event.preventDefault();
       onClose();
@@ -248,7 +255,12 @@ export function Window({
             </TitleButton>
           </header>
         )}
-        <div className="relative min-h-0 flex-1 overflow-hidden @container">{children}</div>
+        <div
+          {...(named ? {} : grab)}
+          className={`relative min-h-0 flex-1 overflow-hidden @container ${named ? "" : "cursor-grab touch-none active:cursor-grabbing"}`}
+        >
+          {children}
+        </div>
       </div>
       {!maximized && HANDLES.map((handle) => <ResizeHandle key={handle.id} handle={handle} onStart={begin} onMove={resize} onEnd={end} />)}
     </motion.section>

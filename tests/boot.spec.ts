@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
 });
 
-test("the BIOS boot types its POST, comes to life with the emblem and a welcome, and reveals the hologram", async ({ page }) => {
+test("the BIOS runs its POST over two screens, comes to life with the emblem and a welcome, and reveals the hologram", async ({ page }) => {
   // Watched from the very start: when the startup screen appears, whether the old JARVIS / ONLINE
   // flash ever does, and how far the CRT screen shrinks (switching a tube off collapses it).
   await page.addInitScript(() => {
@@ -32,19 +32,27 @@ test("the BIOS boot types its POST, comes to life with the emblem and a welcome,
   await page.goto("/");
   const boot = page.getByTestId("boot");
   await expect(boot).toBeVisible();
-  await expect(boot).toContainText(/BIOS v\d+\.\d+\.\d+/);
+  await expect(boot).toContainText(/BIOS Modular v\d+\.\d+\.\d+/);
   await expect(boot).toContainText("Teste de memória");
-  await expect(boot).toContainText("C:\\> post --completo", { timeout: 6000 });
+  // The devices answer one by one, with the DEL hint and the BIOS ID string at the bottom.
   await expect(boot).toContainText("Motor de voz", { timeout: 6000 });
   await expect(boot).toContainText("modo navegador");
+  await expect(boot).toContainText("Pressione DEL para entrar no SETUP");
+  await expect(boot).toContainText(/JV-HOLO-\d+-[0-9A-F]{8}-00/);
   // A plain BIOS: no JARVIS logo or name, no date and time in the corner.
   await expect(boot).not.toContainText(/jarvis|j\.a\.r\.v\.i\.s/i);
   await expect(boot).not.toContainText(/\d{2}\/\d{2}\/\d{4}/);
   await expect(boot.locator("svg")).toHaveCount(0);
   // The top bar waits for the boot to finish, like the dock.
   await expect(page.getByRole("navigation", { name: "Barra superior" })).toHaveCount(0);
-  await page.waitForTimeout(500);
   await page.screenshot({ path: `${SCREENS}/boot-post.png` });
+
+  // After the beep the summary screen replaces the first one: the box, then the PCI listing.
+  await expect(boot).toContainText("Configuração do sistema", { timeout: 6000 });
+  await expect(boot).not.toContainText("Pressione DEL");
+  await expect(boot).toContainText("Listagem de dispositivos PCI");
+  await expect(boot).toContainText("Verificando dados do pool DMI ............", { timeout: 6000 });
+  await page.screenshot({ path: `${SCREENS}/boot-summary.png` });
 
   const startup = page.getByTestId("boot-startup");
   await expect(startup).toBeVisible({ timeout: 20_000 });

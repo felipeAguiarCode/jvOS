@@ -4,7 +4,7 @@ import { DOCK_RESERVE, frames, PLAIN_SETTINGS, SCREENS, voiceStatus, waitForFram
 /** The drag strip at the top of the frameless window: windows never go under it. */
 const TOP_SAFE = 28;
 
-const APPS = ["Jarvis Mark", "Jarvis Code", "jv_T4p3", "jv_sh"];
+const APPS = ["Jarvis Mark", "jv_ide", "jv_T4p3", "jv_sh"];
 
 /** Widgets and apps each have a dock item with its own launcher. */
 async function openLauncher(page: Page, item: "Widgets" | "Apps" = "Widgets") {
@@ -63,7 +63,7 @@ test("Widgets and Apps open their own launchers, which close with Escape or a cl
   expect(Math.abs(l.x + l.width / 2 - (w.x + w.width / 2))).toBeLessThan(2);
   expect(l.y + l.height).toBeLessThan((await box(page.getByRole("navigation", { name: "Quick actions" }))).y);
   for (const name of ["Relógio", "Pomodoro", "Bateria", "Calculadora"]) await expect(launcher.getByRole("button", { name })).toBeVisible();
-  await expect(launcher.getByRole("button", { name: "Jarvis Code" })).toHaveCount(0);
+  await expect(launcher.getByRole("button", { name: "jv_ide" })).toHaveCount(0);
   await page.screenshot({ path: `${SCREENS}/launcher.png`, clip: { x: 560, y: 600, width: 800, height: 480 } });
 
   // Apps swaps it for the apps' own menu, above the Apps item.
@@ -266,30 +266,6 @@ test("the markdown editor previews what is typed, formats with Ctrl+B and keeps 
   await expect(reopened.getByRole("status")).toContainText("●");
 });
 
-test("the code editor highlights the chosen language and remembers it", async ({ page }) => {
-  const editor = await openWindow(page, "Jarvis Code");
-  const content = editor.locator(".cm-content");
-  await expect(content).toBeVisible({ timeout: 15_000 });
-  await editor.getByLabel("Linguagem").selectOption("Python");
-  const status = editor.getByRole("status");
-  await expect(status).toContainText("Python");
-
-  await content.click();
-  await page.keyboard.type("def soma(a, b):");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("return a + b  # ok");
-  await expect.poll(() => editor.locator(".cm-line span").count()).toBeGreaterThan(2); // highlighted tokens
-  await expect(status).toContainText("Ln 2");
-  await page.screenshot({ path: `${SCREENS}/app-code.png` });
-
-  await page.waitForTimeout(600); // debounced drafts
-  await page.reload();
-  await waitForFrames(page);
-  const reopened = page.getByRole("dialog", { name: "Jarvis Code" });
-  await expect(reopened.getByRole("status")).toContainText("Python", { timeout: 15_000 });
-  await expect(reopened.locator(".cm-content")).toContainText("def soma");
-});
-
 test("the advanced menu tunes snapping, arranges windows and sets a custom hue", async ({ page }) => {
   const clock = await openWindow(page, "Relógio");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -382,12 +358,12 @@ test("voice closes every widget, every app or everything (engine event stand-in)
   const notice = page.getByRole("status").filter({ hasText: /Fechando|Nenhum/ });
   const open = async () => ((await stored(page)) ?? { order: [] }).order as string[];
 
-  for (const kind of ["clock", "calculator", "battery", "markdown", "code"]) await voiceWindow(kind);
+  for (const kind of ["clock", "calculator", "battery", "markdown", "ide"]) await voiceWindow(kind);
   await expect.poll(open).toHaveLength(5);
 
   await closeGroup("widgets");
   await expect(notice).toHaveText("Fechando 3 widgets");
-  await expect.poll(open).toEqual(["markdown", "code"]);
+  await expect.poll(open).toEqual(["markdown", "ide"]);
   await expect(page.getByRole("dialog", { name: "Jarvis Mark" })).toBeVisible();
 
   await closeGroup("widgets");
@@ -403,7 +379,7 @@ test("voice closes every widget, every app or everything (engine event stand-in)
   await expect.poll(open).toEqual([]);
 
   await voiceWindow("clock");
-  await voiceWindow("code");
+  await voiceWindow("ide");
   await expect.poll(open).toHaveLength(2); // spoken commands are seconds apart
   await closeGroup("all");
   await expect(page.getByRole("status").filter({ hasText: "Fechando 2 janelas" })).toBeVisible();
@@ -463,9 +439,9 @@ test("apps maximise from their button or a double click on the title bar; widget
   expect(dragged.x + dragged.width).toBeGreaterThan(980);
   await expect.poll(async () => (await stored(page)).maximized).toEqual([]); // debounced save
 
-  // Jarvis Code has the button too; the clock has neither.
-  const code = await openWindow(page, "Jarvis Code");
-  await expect(code.getByRole("button", { name: "Maximizar Jarvis Code" })).toBeVisible();
+  // jv_ide has the button too; the clock has neither.
+  const ide = await openWindow(page, "jv_ide");
+  await expect(ide.getByRole("button", { name: "Maximizar jv_ide" })).toBeVisible();
   const clock = await openWindow(page, "Relógio");
   await expect(clock.getByRole("button", { name: /Maximizar/ })).toHaveCount(0);
   const clockBox = await box(clock);

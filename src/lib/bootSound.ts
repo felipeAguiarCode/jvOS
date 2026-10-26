@@ -1,10 +1,9 @@
 /**
- * Boot screen sounds, synthesised (no audio assets): keyboard clicks while typing, the POST
- * beep, the power-on chord as the POST gives way to the desktop, and the punchy digital hit of
- * each greeting word (after the SUPERHOT word cut-ins).
+ * Boot screen sounds, synthesised (no audio assets): the POST beep, the power-on chord as the
+ * POST gives way to the desktop, and the punchy digital hit of each greeting word (after the
+ * SUPERHOT word cut-ins).
  */
 export interface BootSound {
-  click: () => void;
   beep: () => void;
   /** The machine coming to life: a warm, open chord that swells and rings out. */
   chime: () => void;
@@ -15,7 +14,7 @@ export interface BootSound {
   close: () => void;
 }
 
-const SILENT: BootSound = { click: () => undefined, beep: () => undefined, chime: () => undefined, hit: () => undefined, glitch: () => undefined, close: () => undefined };
+const SILENT: BootSound = { beep: () => undefined, chime: () => undefined, hit: () => undefined, glitch: () => undefined, close: () => undefined };
 
 /** The power-on chord: A, E, B, C#, E (an open A with the ninth), each voice at its own level. */
 const CHIME_VOICES: [number, number][] = [
@@ -43,7 +42,7 @@ export function createBootSound(enabled: boolean): BootSound {
     const context = new AudioContext();
     void context.resume().catch(() => undefined);
 
-    // A 25 ms burst of decaying noise, high-passed: a mechanical key.
+    // A 25 ms burst of decaying noise: the grain of the crunch and of the glitch zaps.
     const length = Math.round(context.sampleRate * 0.025);
     const noise = context.createBuffer(1, length, context.sampleRate);
     const data = noise.getChannelData(0);
@@ -79,19 +78,6 @@ export function createBootSound(enabled: boolean): BootSound {
     };
 
     return {
-      click() {
-        if (!live()) return;
-        const source = context.createBufferSource();
-        source.buffer = noise;
-        source.playbackRate.value = 0.85 + Math.random() * 0.3;
-        const filter = context.createBiquadFilter();
-        filter.type = "highpass";
-        filter.frequency.value = 1600;
-        const gain = context.createGain();
-        gain.gain.value = 0.07;
-        source.connect(filter).connect(gain).connect(context.destination);
-        source.start();
-      },
       beep() {
         if (!live()) return;
         const start = context.currentTime + 0.01;

@@ -4,24 +4,19 @@ import { COMPOSITION_CSS, CORE_CENTER_Y_CSS } from "../lib/layout";
 import type { HoloSignals } from "../lib/signals";
 import type { Ignition } from "./JarvisScene";
 
-/** An orbit: radius (of 100), tilt and squash at rest (a circle seen at an angle), turn time. */
-interface Orbit {
-  radius: number;
-  tilt: number;
-  squash: number;
-  spin: number;
-  reverse?: boolean;
-  dash?: string;
-}
-
-const ORBITS: Orbit[] = [
-  { radius: 54, tilt: -22, squash: 0.34, spin: 17 },
-  { radius: 62, tilt: 31, squash: 0.44, spin: 24, reverse: true, dash: "5 2.2" },
-  { radius: 71, tilt: 66, squash: 0.24, spin: 33, dash: "0.8 2.6" },
+/** Listening for a command, the lock-on brackets swing in from this turn and scale, closing on the core. */
+const LOCK_TURN = 45;
+const LOCK_SCALE = 1.25;
+/** The outer rim: bright segments (degrees, clockwise from 3 o'clock) and their radius. */
+const RIM: [number, number, number][] = [
+  [196, 254, 97],
+  [262, 300, 99.5],
+  [306, 336, 97],
+  [344, 392, 97],
+  [400, 448, 99.5],
+  [456, 486, 97],
+  [494, 548, 97],
 ];
-/** Listening for a command, every orbit lies down on the core's equator (as in the 3D hologram). */
-const ALIGNED_SQUASH = 0.22;
-const ALIGNED_SCALE = 1.12;
 
 interface FlatCoreProps {
   ignition: Ignition;
@@ -32,15 +27,17 @@ interface FlatCoreProps {
 }
 
 /**
- * The light core: the hologram's rings as vector layers, no WebGL. Each ring is its own layer
- * spun by the compositor (no repaint per frame); the voice only moves a few transforms and
- * opacities. Paused (hidden, or behind a maximised app), nothing runs.
+ * The light core: a JARVIS HUD reactor drawn as vector layers, no WebGL — a dark band of ticks
+ * inside a segmented rim, an amber bracket, a bright inner ring over a faint globe and the
+ * glowing triangle at the heart. Each ring is its own layer spun by the compositor (no repaint per
+ * frame); the voice only moves a few transforms and opacities. Paused (hidden, or behind a
+ * maximised app), nothing runs.
  */
 export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: FlatCoreProps) {
   const halo = useRef<HTMLDivElement>(null);
   const voice = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLDivElement>(null);
-  const orbits = useRef<(HTMLDivElement | null)[]>([]);
+  const lock = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const id = requestAnimationFrame(onFirstFrame);
@@ -67,15 +64,11 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
       const round = (value: number) => value.toFixed(3);
       set(halo.current, "opacity", round(Math.min(1, 0.4 + level * 0.35 + speaking * 0.15 + pulse * 0.5)));
       set(halo.current, "transform", `scale(${round(1 + bass * 0.12 + pulse * 0.1)})`);
-      set(voice.current, "opacity", round(Math.min(1, 0.12 + active * 0.18 + speaking * 0.6 + pulse * 0.4)));
-      set(voice.current, "transform", `scale(${round(1 + level * 0.22)})`);
-      set(hud.current, "opacity", round(Math.min(1, 0.6 + active * 0.25 + pulse * 0.3)));
-      ORBITS.forEach((orbit, i) => {
-        const tilt = orbit.tilt * (1 - align);
-        const squash = orbit.squash + (ALIGNED_SQUASH - orbit.squash) * align;
-        const scale = 1 + (ALIGNED_SCALE - 1) * align;
-        set(orbits.current[i], "transform", `rotate(${tilt.toFixed(2)}deg) scale(${round(scale)}, ${round(scale * squash)})`);
-      });
+      set(voice.current, "opacity", round(Math.min(1, 0.15 + active * 0.2 + speaking * 0.6 + pulse * 0.4)));
+      set(voice.current, "transform", `scale(${round(1 + level * 0.18)})`);
+      set(hud.current, "opacity", round(Math.min(1, 0.7 + active * 0.2 + pulse * 0.3)));
+      set(lock.current, "opacity", round(align));
+      set(lock.current, "transform", `rotate(${(LOCK_TURN * (1 - align)).toFixed(2)}deg) scale(${round(1 + (LOCK_SCALE - 1) * (1 - align))})`);
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
@@ -97,53 +90,55 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
           height: COMPOSITION_CSS,
         }}
       >
-        {/* The glow behind the core, breathing with the voice. */}
+        <Layer>
+          <Disc />
+        </Layer>
+        {/* The glow behind the heart, breathing with the voice. */}
         <div
           ref={halo}
-          className="absolute inset-[22%] rounded-full opacity-40"
-          style={{ background: "radial-gradient(circle, color-mix(in oklab, var(--color-hud-holo) 30%, transparent), transparent 68%)" }}
+          className="absolute inset-[24%] rounded-full opacity-40"
+          style={{ background: "radial-gradient(circle, color-mix(in oklab, var(--color-hud-holo) 34%, transparent), transparent 68%)" }}
         />
-        <Layer spin={140} ref={hud}>
-          <HudRing />
+        <Layer spin={150}>
+          <Rim />
         </Layer>
-        <Layer spin={90} reverse>
-          <circle r={84} className="fill-none stroke-hud-light/60" strokeWidth={0.7} strokeDasharray="0.1 2.6" strokeLinecap="round" />
+        <Layer spin={220} reverse ref={hud}>
+          <Ticks />
+        </Layer>
+        <Layer spin={70} reverse>
+          <circle r={70} className="fill-none stroke-hud-cyan/55" strokeWidth={1.3} pathLength={360} strokeDasharray="5 2.5" />
+          <path d={arc(46, 100, 168)} className="fill-none stroke-hud-cyan/50" strokeWidth={1.1} />
+          <path d={arc(46, 282, 326)} className="fill-none stroke-hud-cyan/50" strokeWidth={1.1} />
+        </Layer>
+        <Layer spin={40}>
+          <InnerBand />
         </Layer>
         <Layer>
-          <circle r={64} className="fill-none stroke-hud-cyan/30" strokeWidth={0.45} />
-          <Globe />
+          <AmberBracket />
+          <circle r={52} className="fill-none stroke-hud-light" strokeWidth={1.6} filter="url(#flat-core-glow)" />
+          <rect x={-9} y={-62} width={18} height={2.6} rx={1} transform="rotate(-8)" className="fill-hud-light/80" />
+          <Plate />
         </Layer>
-        {ORBITS.map((orbit, i) => (
-          <div
-            key={orbit.radius}
-            ref={(element) => {
-              orbits.current[i] = element;
-            }}
-            data-orbit
-            className="absolute inset-0 will-change-transform"
-            style={{ transform: `rotate(${orbit.tilt}deg) scale(1, ${orbit.squash})` }}
-          >
-            <Layer spin={orbit.spin} reverse={orbit.reverse}>
-              <circle r={orbit.radius} className="fill-none stroke-hud-holo/70" strokeWidth={1.1} strokeDasharray={orbit.dash} />
-              {/* A brighter stretch and a satellite riding the orbit. */}
-              <circle
-                r={orbit.radius}
-                className="fill-none stroke-hud-glow"
-                strokeWidth={1.4}
-                strokeLinecap="round"
-                pathLength={100}
-                strokeDasharray="9 91"
-                filter="url(#flat-core-glow)"
-              />
-              <circle cx={orbit.radius} r={2} className="fill-hud-glow" filter="url(#flat-core-glow)" />
-            </Layer>
-          </div>
-        ))}
-        <div ref={voice} className="absolute inset-0 opacity-10 will-change-transform">
+        <div
+          ref={lock}
+          data-lock
+          className="absolute inset-0 opacity-0 will-change-transform"
+          style={{ transform: `rotate(${LOCK_TURN}deg) scale(${LOCK_SCALE})` }}
+        >
           <Svg>
-            <circle r={41} className="fill-none stroke-hud-light" strokeWidth={0.9} filter="url(#flat-core-glow)" />
+            <LockBrackets />
           </Svg>
         </div>
+        {/* The heart: the triangle, and its glow swelling with the voice. */}
+        <div ref={voice} className="absolute inset-0 opacity-15 will-change-transform">
+          <Svg>
+            <polygon points={triangle(25, 3)} className="fill-none stroke-hud-holo" strokeWidth={7} strokeLinejoin="miter" filter="url(#flat-core-bloom)" />
+          </Svg>
+        </div>
+        <Layer>
+          <polygon points={triangle(25, 3)} className="fill-hud-cyan/10 stroke-hud-glow" strokeWidth={3.6} strokeLinejoin="miter" filter="url(#flat-core-glow)" />
+          <polygon points={triangle(15, 3)} className="fill-none stroke-hud-light/35" strokeWidth={0.6} />
+        </Layer>
         <svg aria-hidden className="absolute size-0">
           <defs>
             <filter id="flat-core-glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -153,6 +148,14 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
+            <filter id="flat-core-bloom" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" />
+            </filter>
+            <radialGradient id="flat-core-disc">
+              <stop offset="0%" style={{ stopColor: "var(--color-hud-cyan)", stopOpacity: 0.3 }} />
+              <stop offset="45%" style={{ stopColor: "var(--color-hud-cyan)", stopOpacity: 0.1 }} />
+              <stop offset="100%" style={{ stopColor: "var(--color-hud-cyan)", stopOpacity: 0.03 }} />
+            </radialGradient>
           </defs>
         </svg>
       </motion.div>
@@ -187,57 +190,109 @@ function Layer({ spin, reverse, children, ref }: { spin?: number; reverse?: bool
   );
 }
 
-/** The outer HUD: a scale of ticks, four brackets and markers, like the hologram's outer arcs. */
-function HudRing() {
-  const ticks = Array.from({ length: 120 }, (_, i) => i * 3);
+/** The reactor's body: a dark disc, the navy band and the lit globe behind the heart. */
+function Disc() {
   return (
-    <g filter="url(#flat-core-glow)">
-      <circle r={92} className="fill-none stroke-hud-line" strokeWidth={0.4} />
-      {ticks.map((angle) => {
-        const long = angle % 15 === 0;
-        return (
-          <line
-            key={angle}
-            x1={long ? 86 : 89}
-            x2={92}
-            transform={`rotate(${angle})`}
-            className={long ? "stroke-hud-cyan/80" : "stroke-hud-line"}
-            strokeWidth={long ? 0.55 : 0.35}
-          />
-        );
-      })}
-      {[38, 128, 218, 308].map((angle) => (
-        <path key={angle} d={arc(97, angle, angle + 22)} className="fill-none stroke-hud-cyan" strokeWidth={1.3} />
-      ))}
-      {[12, 75, 164, 251, 333].map((angle) => (
-        <path key={angle} d={arc(90, angle, angle + 3)} className="fill-none stroke-hud-holo" strokeWidth={2} strokeLinecap="round" />
-      ))}
-      {[0, 90, 180, 270].map((angle) => (
-        <rect key={angle} x={94} y={-1.6} width={2.4} height={3.2} transform={`rotate(${angle})`} className="fill-none stroke-hud-cyan" strokeWidth={0.5} />
+    <g>
+      <circle r={95} className="fill-hud-abyss/85" />
+      <circle r={84} className="fill-none stroke-hud-cyan/15" strokeWidth={20} />
+      <circle r={94} className="fill-none stroke-hud-cyan/45" strokeWidth={0.6} />
+      <circle r={74} className="fill-none stroke-hud-cyan/70" strokeWidth={0.9} />
+      <circle r={50} fill="url(#flat-core-disc)" />
+      <Globe radius={42} />
+    </g>
+  );
+}
+
+/** Bright segments around the edge, two of them stepped out. */
+function Rim() {
+  return (
+    <g className="fill-none stroke-hud-holo" filter="url(#flat-core-glow)">
+      {RIM.map(([from, to, radius]) => (
+        <path key={from} d={arc(radius, from, to)} strokeWidth={radius > 98 ? 1.2 : 2.6} />
       ))}
     </g>
   );
 }
 
-/** The wireframe planet: meridians, parallels and the crystal at its heart. */
-function Globe() {
-  const radius = 31;
+/** The scale on the band: short bright dashes all the way round, a few left out. */
+function Ticks() {
+  const angles = Array.from({ length: 60 }, (_, i) => i * 6).filter((angle) => ![24, 30, 162, 246].includes(angle));
   return (
-    <g className="fill-none stroke-hud-holo" strokeWidth={0.5}>
-      <circle r={radius} className="stroke-hud-cyan" strokeWidth={0.8} />
-      {[18, 42, 66].map((angle) => (
-        <ellipse key={angle} rx={radius * Math.cos((angle * Math.PI) / 180)} ry={radius} opacity={0.65} />
+    <g filter="url(#flat-core-glow)">
+      {angles.map((angle) => (
+        <line key={angle} x1={81} x2={88} transform={`rotate(${angle})`} className="stroke-hud-holo/90" strokeWidth={1.6} />
       ))}
-      <line y1={-radius} y2={radius} opacity={0.65} />
-      {[-60, -30, 0, 30, 60].map((latitude) => {
+      {[24, 162].map((angle) => (
+        <path key={angle} d={arc(84.5, angle, angle + 8)} className="fill-none stroke-hud-cyan/80" strokeWidth={6} />
+      ))}
+    </g>
+  );
+}
+
+/** The band right outside the inner ring, with its brighter stretches. */
+function InnerBand() {
+  return (
+    <g className="fill-none">
+      <circle r={57.5} className="stroke-hud-cyan/15" strokeWidth={5} />
+      <path d={arc(57.5, -42, 38)} className="stroke-hud-holo/55" strokeWidth={5} />
+      <path d={arc(57.5, 112, 140)} className="stroke-hud-holo/40" strokeWidth={5} />
+      <path d={arc(60.5, 200, 232)} className="stroke-hud-cyan/60" strokeWidth={0.8} />
+    </g>
+  );
+}
+
+/** The amber bracket on the left, with its notches. */
+function AmberBracket() {
+  return (
+    <g className="fill-none stroke-hud-amber" filter="url(#flat-core-glow)">
+      <path d={arc(65, 152, 206)} strokeWidth={2.2} />
+      <path d={arc(62, 163, 195)} strokeWidth={0.8} opacity={0.75} />
+      {[152, 179, 206].map((angle) => (
+        <line key={angle} x1={65} x2={angle === 179 ? 61 : 60} transform={`rotate(${angle})`} strokeWidth={1.4} />
+      ))}
+    </g>
+  );
+}
+
+/** The little plate under the heart: two crossed boxes. */
+function Plate() {
+  return (
+    <g className="fill-none stroke-hud-light/70" strokeWidth={0.6} transform="translate(0 37)">
+      <rect x={-9} y={-2.5} width={18} height={5} />
+      <line x1={0} y1={-2.5} x2={0} y2={2.5} />
+      <path d="M-9 -2.5 L0 2.5 M-9 2.5 L0 -2.5 M0 -2.5 L9 2.5 M0 2.5 L9 -2.5" opacity={0.6} />
+    </g>
+  );
+}
+
+/** Four brackets on the diagonals: out of sight at rest, closing on the core while it listens. */
+function LockBrackets() {
+  return (
+    <g className="fill-none stroke-hud-glow" strokeWidth={1.8} filter="url(#flat-core-glow)">
+      {[45, 135, 225, 315].map((angle) => (
+        <g key={angle} transform={`rotate(${angle})`}>
+          <path d={arc(66, -11, 11)} />
+          <line x1={66} x2={61.5} transform="rotate(-11)" />
+          <line x1={66} x2={61.5} transform="rotate(11)" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** A faint wireframe globe: meridians and parallels. */
+function Globe({ radius }: { radius: number }) {
+  return (
+    <g className="fill-none stroke-hud-holo" strokeWidth={0.45} opacity={0.3}>
+      {[25, 50, 72].map((angle) => (
+        <ellipse key={angle} rx={radius * Math.cos((angle * Math.PI) / 180)} ry={radius} />
+      ))}
+      <line y1={-radius} y2={radius} />
+      {[-55, -28, 0, 28, 55].map((latitude) => {
         const rx = radius * Math.cos((latitude * Math.PI) / 180);
-        return <ellipse key={latitude} cy={radius * Math.sin((latitude * Math.PI) / 180)} rx={rx} ry={rx * 0.22} opacity={0.55} />;
+        return <ellipse key={latitude} cy={radius * Math.sin((latitude * Math.PI) / 180)} rx={rx} ry={rx * 0.24} />;
       })}
-      <g filter="url(#flat-core-glow)" className="stroke-hud-glow" strokeWidth={0.7}>
-        <polygon points={hexagon(9)} />
-        <polygon points={hexagon(9, 2)} opacity={0.6} />
-        <circle r={2.4} className="fill-hud-glow" />
-      </g>
     </g>
   );
 }
@@ -248,13 +303,15 @@ function arc(radius: number, from: number, to: number) {
     const radians = (angle * Math.PI) / 180;
     return `${(radius * Math.cos(radians)).toFixed(2)} ${(radius * Math.sin(radians)).toFixed(2)}`;
   };
-  return `M ${point(from)} A ${radius} ${radius} 0 0 1 ${point(to)}`;
+  return `M ${point(from)} A ${radius} ${radius} 0 ${to - from > 180 ? 1 : 0} 1 ${point(to)}`;
 }
 
-/** A hexagon of `radius`; with `step` 2, the triangle on every other vertex. */
-function hexagon(radius: number, step = 1) {
-  return Array.from({ length: 6 / step }, (_, i) => {
-    const angle = ((i * step * 60 - 90) * Math.PI) / 180;
-    return `${(radius * Math.cos(angle)).toFixed(2)},${(radius * Math.sin(angle)).toFixed(2)}`;
-  }).join(" ");
+/** An equilateral triangle pointing down, of circumradius `radius`, its centre at `cy`. */
+function triangle(radius: number, cy: number) {
+  return [90, 210, 330]
+    .map((angle) => {
+      const radians = (angle * Math.PI) / 180;
+      return `${(radius * Math.cos(radians)).toFixed(2)},${(cy + radius * Math.sin(radians)).toFixed(2)}`;
+    })
+    .join(" ");
 }

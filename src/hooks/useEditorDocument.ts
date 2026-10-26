@@ -60,7 +60,7 @@ export interface EditorDocument {
  * An editor's document: autosaved draft, dirty state and the file operations (desktop only).
  * Closing the window never discards anything — the draft is what reopens.
  */
-export function useEditorDocument(key: "markdown" | "code", filters: FileFilter[], defaultName: string): EditorDocument {
+export function useEditorDocument(key: "markdown", filters: FileFilter[], defaultName: string): EditorDocument {
   const [draft, setDraft, { quotaExceeded }] = useStoredState(`jarvis.editor.${key}`, EMPTY, parseDraft, 400);
   const [status, setStatus] = useState<EditorStatus | null>(null);
   const [pending, setPending] = useState<"new" | "open" | null>(null);
