@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { ChevronDown, Plus, X } from "lucide-react";
-import { onTabRequest, takePendingProfile, terminalBackend, type TerminalProfile, type TerminalProfiles } from "../../../lib/terminal";
+import { onTabRequest, takePendingProfile, terminalBackend, type TabRequest, type TerminalProfile, type TerminalProfiles } from "../../../lib/terminal";
 import { copySelection, pasteClipboard, TerminalView } from "./terminal/TerminalView";
 
 interface Tab {
@@ -32,9 +32,13 @@ export function ShellApp({ onClose }: { onClose: () => void }) {
   const latest = useRef({ tabs, active, profiles });
   latest.current = { tabs, active, profiles };
 
-  const newTab = useCallback((profileId?: string | null) => {
+  /** A tab with one of the profiles (by id, or the default), or a whole profile (an agent JARVIS runs). */
+  const newTab = useCallback((request?: TabRequest | null) => {
     const list = latest.current.profiles;
-    const profile = list?.profiles.find((item) => item.id === (profileId ?? list.default)) ?? list?.profiles[0];
+    const profile =
+      typeof request === "object" && request !== null
+        ? request
+        : (list?.profiles.find((item) => item.id === (request ?? list.default)) ?? list?.profiles[0]);
     if (!profile) return;
     const key = `tab-${++nextKey}`;
     setTabs((current) => [...current, { key, profile, title: profile.name, failed: null }]);

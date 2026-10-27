@@ -7,6 +7,8 @@ export interface TerminalProfile {
   name: string;
   commandline: string;
   cwd: string;
+  /** Not a shell: one of the user's Claude Code agents run once (`claude --agent <name> "<task>"` in `cwd`). */
+  agent?: { name: string; task: string };
 }
 
 export interface TerminalProfiles {
@@ -18,8 +20,8 @@ export interface TerminalProfiles {
 /** The link to the shells: the real ones in the desktop app, a fake echo one in dev tests. */
 export interface TerminalBackend {
   profiles(): Promise<TerminalProfiles>;
-  /** Starts a shell; `cwd` (absolute) replaces the profile's starting folder. */
-  open(profile: string, cols: number, rows: number, cwd?: string | null): Promise<number>;
+  /** Starts a shell; `cwd` (absolute) replaces the profile's starting folder. With `agent`, runs that agent in `cwd` instead. */
+  open(profile: string, cols: number, rows: number, cwd?: string | null, agent?: TerminalProfile["agent"]): Promise<number>;
   write(id: number, data: string): void;
   resize(id: number, cols: number, rows: number): void;
   close(id: number): void;
@@ -44,7 +46,10 @@ declare global {
 
 const tauriBackend: TerminalBackend = {
   profiles: () => invoke<TerminalProfiles>("terminal_profiles"),
-  open: (profile, cols, rows, cwd) => invoke<number>("terminal_open", { profile, cols, rows, cwd: cwd ?? null }),
+  open: (profile, cols, rows, cwd, agent) =>
+    agent
+      ? invoke<number>("terminal_open_agent", { name: agent.name, task: agent.task, cwd: cwd ?? "", cols, rows })
+      : invoke<number>("terminal_open", { profile, cols, rows, cwd: cwd ?? null }),
   write: (id, data) => void invoke("terminal_write", { id, data }).catch(() => {}),
   resize: (id, cols, rows) => void invoke("terminal_resize", { id, cols, rows }).catch(() => {}),
   close: (id) => void invoke("terminal_close", { id }).catch(() => {}),
@@ -91,14 +96,15 @@ function fakeBackend(): TerminalBackend {
   };
   return {
     profiles: async () => profiles,
-    async open(profile, cols, rows, cwd) {
+    async open(profile, cols, rows, cwd, agent) {
       const id = ++next;
-      log.opens.push(profile);
+      log.opens.push(agent ? `agent:${agent.name}` : profile);
       log.cwds.push(cwd ?? null);
       log.resizes.push([id, cols, rows]);
-      prompts.set(id, fakePrompt(profile, cwd));
+      prompts.set(id, agent ? "> " : fakePrompt(profile, cwd));
       lines.set(id, "");
-      emit(id, `${profiles.profiles.find((item) => item.id === profile)?.name ?? profile} (simulado)\r\n${prompts.get(id)}`);
+      const banner = agent ? `claude --agent ${agent.name} "${agent.task}"` : (profiles.profiles.find((item) => item.id === profile)?.name ?? profile);
+      emit(id, `${banner} (simulado)\r\n${prompts.get(id)}`);
       return id;
     },
     write(id, data) {
@@ -230,11 +236,12 @@ export async function openSession(
   rows: number,
   cwd: string | null | undefined,
   sink: SessionSink,
+  agent?: TerminalProfile["agent"],
 ): Promise<TerminalSession> {
   const router = routerFor(backend);
   // Listening first: the shell's first words (banner, prompt) must not be lost.
   await router.ready;
-  const id = await backend.open(profile, cols, rows, cwd);
+  const id = await backend.open(profile, cols, rows, cwd, agent);
   router.attach(id, sink);
   return {
     id,
@@ -245,23 +252,26 @@ export async function openSession(
   };
 }
 
+/** A tab to open: a profile id, or a whole profile (an agent run by JARVIS). */
+export type TabRequest = string | TerminalProfile;
+
 // "Nova aba: <perfil>" from the search reaches jv_sh even before its window is open.
-let pendingProfile: string | null = null;
-const tabRequests = new Set<(profile: string) => void>();
+let pendingProfile: TabRequest | null = null;
+const tabRequests = new Set<(profile: TabRequest) => void>();
 
 /** Asks jv_sh for a new tab with `profile` (taken by the window when it opens, if it is closed). */
-export function requestTab(profile: string) {
+export function requestTab(profile: TabRequest) {
   if (tabRequests.size) tabRequests.forEach((listener) => listener(profile));
   else pendingProfile = profile;
 }
 
-export function onTabRequest(listener: (profile: string) => void): () => void {
+export function onTabRequest(listener: (profile: TabRequest) => void): () => void {
   tabRequests.add(listener);
   return () => tabRequests.delete(listener);
 }
 
 /** A tab asked for while the window was closed, once. */
-export function takePendingProfile(): string | null {
+export function takePendingProfile(): TabRequest | null {
   const profile = pendingProfile;
   pendingProfile = null;
   return profile;

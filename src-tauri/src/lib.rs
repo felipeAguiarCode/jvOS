@@ -1,10 +1,14 @@
+mod agents;
+mod assistant;
 mod download;
 mod files;
 mod git;
 mod launcher;
+mod mcp;
 mod models;
 mod music;
 mod settings;
+mod speech;
 mod system;
 mod terminal;
 mod voice;
@@ -41,6 +45,10 @@ const EVENT_MUSIC_INSTALL_DONE: &str = "music:install-done";
 const EVENT_TERMINAL_OUTPUT: &str = "terminal:output";
 const EVENT_TERMINAL_EXIT: &str = "terminal:exit";
 const EVENT_WORKSPACE_CHANGED: &str = "workspace:changed";
+/// A tool call from JARVIS (Claude Code) for the UI to carry out (`assistant_action_result` answers).
+const EVENT_ASSISTANT_ACTION: &str = "assistant:action";
+const EVENT_SPEECH_PROGRESS: &str = "speech:progress";
+const EVENT_SPEECH_DONE: &str = "speech:done";
 
 struct AppState {
     settings: Arc<RwLock<Settings>>,
@@ -56,6 +64,14 @@ struct AppState {
     system: Arc<Mutex<system::Sampler>>,
     /// jv_ide's open folders (watchers) and its running search.
     workspaces: Arc<workspace::Workspaces>,
+    /// The core's conversation with Claude Code.
+    assistant: Arc<assistant::Assistant>,
+    /// JARVIS's tool calls waiting for the UI.
+    actions: Arc<mcp::Bridge>,
+    /// JARVIS's voice: the loaded text-to-speech model, and where the models live.
+    speaker: Arc<speech::Speaker>,
+    speech_dir: PathBuf,
+    speech_downloading: Mutex<HashSet<&'static str>>,
 }
 
 impl AppState {
@@ -377,6 +393,23 @@ async fn voice_dictate(app: AppHandle, state: State<'_, AppState>, down: bool) -
     Ok(state.voice.status())
 }
 
+/// The core's microphone: records while `down`, whatever the activation mode, and the text goes
+/// to the conversation with Claude Code, never to the keyword commands; `cancel` throws the
+/// recording away. Like dictation, an engine that is off starts just for this.
+#[tauri::command]
+async fn voice_ask(app: AppHandle, state: State<'_, AppState>, down: bool, cancel: bool) -> Result<VoiceStatus, String> {
+    state.voice.set_asking(down, cancel);
+    if down && !state.voice.is_running() {
+        state.voice.set_exit_after_dictation(true);
+        if let Err(error) = state.start_voice(&app) {
+            state.voice.set_asking(false, true);
+            state.voice.set_exit_after_dictation(false);
+            return Err(error);
+        }
+    }
+    Ok(state.voice.status())
+}
+
 #[tauri::command]
 async fn voice_stop(state: State<'_, AppState>) -> Result<VoiceStatus, String> {
     state.voice.set_talking(false, true);
@@ -389,6 +422,131 @@ async fn voice_stop(state: State<'_, AppState>) -> Result<VoiceStatus, String> {
 #[tauri::command]
 fn voice_status(state: State<AppState>) -> VoiceStatus {
     state.voice.status()
+}
+
+/// Asks JARVIS (Claude Code); the answer streams on `on_event` and ends with a "done".
+/// `session_id` continues an earlier conversation (the UI keeps it with the history).
+#[tauri::command]
+async fn assistant_ask(state: State<'_, AppState>, text: String, session_id: Option<String>, on_event: Channel<assistant::AssistantEvent>) -> Result<(), String> {
+    let assistant = state.assistant.clone();
+    blocking(move || assistant.ask(&text, session_id, on_event)).await
+}
+
+/// Starts Claude Code while the user is still talking, so the answer comes sooner.
+#[tauri::command]
+async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>) -> Result<(), String> {
+    let assistant = state.assistant.clone();
+    blocking(move || assistant.warm(session_id)).await
+}
+
+#[tauri::command]
+async fn assistant_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    let assistant = state.assistant.clone();
+    blocking(move || {
+        assistant.cancel();
+        Ok(())
+    })
+    .await
+}
+
+/// "Nova conversa": the next question starts a new Claude Code session.
+#[tauri::command]
+async fn assistant_reset(state: State<'_, AppState>) -> Result<(), String> {
+    let assistant = state.assistant.clone();
+    blocking(move || {
+        assistant.reset();
+        Ok(())
+    })
+    .await
+}
+
+/// JARVIS's folder (notes, agent drafts), for the UI to tell which editor a file belongs to.
+#[tauri::command]
+fn assistant_folder(state: State<AppState>) -> assistant::Folder {
+    state.assistant.folder().clone()
+}
+
+/// The agent drafts in Documentos\JARVIS\Agentes, by name.
+#[tauri::command]
+fn agent_drafts(state: State<AppState>) -> Vec<String> {
+    agents::drafts(state.assistant.folder())
+}
+
+/// What keeps an agent draft from running (empty: ready), for jv_agent's review card.
+#[tauri::command]
+fn agent_problems(name: String, text: String) -> Vec<String> {
+    agents::problems(&name, &text)
+}
+
+/// Installs `Agentes\<name>.md` as one of the user's Claude Code subagents.
+#[tauri::command]
+async fn agent_install(state: State<'_, AppState>, name: String) -> Result<String, String> {
+    let assistant = state.assistant.clone();
+    blocking(move || agents::install(assistant.folder(), &name).map(|path| path.display().to_string())).await
+}
+
+/// A jv_sh tab running an installed agent once: `claude --agent <name> "<task>"` in `cwd`. Only
+/// that command line: the UI still cannot run an arbitrary one (see `terminal_open`).
+#[tauri::command]
+fn terminal_open_agent(app: AppHandle, state: State<AppState>, name: String, task: String, cwd: String, cols: u16, rows: u16) -> Result<u32, String> {
+    if !agents::installed(&name) {
+        return Err(format!("O agente \"{name}\" não está instalado"));
+    }
+    let dir = PathBuf::from(cwd.trim());
+    // Its own folder under Agentes is made on first run; any other has to exist.
+    if dir.starts_with(&state.assistant.folder().agents) {
+        std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    }
+    let cwd = terminal::start_dir(&dir.display().to_string())?.display().to_string();
+    let exe = assistant::claude_exe().ok_or("Claude Code não encontrado")?;
+    let mut argv = vec![exe.display().to_string(), "--agent".to_string(), name.clone()];
+    // One argument on the command line: no quotes or line breaks of its own.
+    let task = task.replace(['"', '\r', '\n'], " ").trim().to_string();
+    if !task.is_empty() {
+        argv.push(task);
+    }
+    let profile = terminal::Profile { id: format!("agent:{name}"), name: format!("Agente {name}"), commandline: terminal::join_commandline(&argv), cwd };
+    let output = app.clone();
+    state.terminals.open(
+        &profile,
+        cols,
+        rows,
+        move |id, data| {
+            let _ = output.emit(EVENT_TERMINAL_OUTPUT, TerminalOutput { id, data });
+        },
+        move |id, code| {
+            let _ = app.emit(EVENT_TERMINAL_EXIT, TerminalExit { id, code });
+        },
+    )
+}
+
+/// The UI's answer to a tool call (`assistant:action`).
+#[tauri::command]
+fn assistant_action_result(state: State<AppState>, id: u64, ok: bool, text: String) {
+    state.actions.resolve(id, if ok { Ok(text) } else { Err(text) });
+}
+
+/// JARVIS's tools: opening a site happens here, everything else in the UI, which owns the desktop.
+fn run_tool(app: &AppHandle, actions: &mcp::Bridge, tool: &str, args: serde_json::Value) -> mcp::ToolResult {
+    if tool == "open_url" {
+        let url = args["url"].as_str().unwrap_or_default().trim();
+        if !(url.starts_with("https://") || url.starts_with("http://")) || url.chars().any(char::is_whitespace) {
+            return Err("Só abro endereços http ou https".into());
+        }
+        return launcher::launch(url).map(|()| format!("Aberto {url}"));
+    }
+    actions.call(tool, args, |request| app.emit(EVENT_ASSISTANT_ACTION, request).is_ok())
+}
+
+/// Starts JARVIS's MCP server and writes the `--mcp-config` file Claude Code is given.
+fn start_mcp(app: &AppHandle, actions: Arc<mcp::Bridge>, config: &Path) -> Result<PathBuf, String> {
+    let handle = app.clone();
+    let server = mcp::start(move |tool, args| run_tool(&handle, &actions, tool, args))?;
+    if let Some(dir) = config.parent() {
+        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(config, server.config().to_string()).map_err(|error| error.to_string())?;
+    Ok(config.to_path_buf())
 }
 
 #[tauri::command]
@@ -438,6 +596,62 @@ fn download_model(app: AppHandle, state: State<AppState>, id: String) -> Result<
         let _ = app.emit(EVENT_MODEL_DONE, ModelDone { id: model.id, error: result.err() });
     });
     Ok(())
+}
+
+/// JARVIS's voices: the models (downloaded or not) and the voices they offer.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeechStatus {
+    models: Vec<speech::ModelStatus>,
+    voices: &'static [speech::Voice],
+}
+
+#[tauri::command]
+fn speech_status(state: State<AppState>) -> SpeechStatus {
+    let downloading = state.speech_downloading.lock().unwrap();
+    let models = speech::MODELS
+        .iter()
+        .map(|model| speech::ModelStatus {
+            id: model.id,
+            label: model.label,
+            description: model.description,
+            size: model.size,
+            downloaded: speech::is_downloaded(&state.speech_dir, model),
+            downloading: downloading.contains(model.id),
+        })
+        .collect();
+    SpeechStatus { models, voices: speech::VOICES }
+}
+
+/// Downloads a voice model in the background (`speech:progress`, then `speech:done`).
+#[tauri::command]
+fn speech_download(app: AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    let model = speech::find_model(&id).ok_or("Voz desconhecida")?;
+    if !state.speech_downloading.lock().unwrap().insert(model.id) {
+        return Ok(());
+    }
+    let dir = state.speech_dir.clone();
+    std::thread::spawn(move || {
+        let result = speech::download(model, &dir, |received, total| {
+            let _ = app.emit(EVENT_SPEECH_PROGRESS, ModelProgress { id: model.id, received, total });
+        });
+        app.state::<AppState>().speech_downloading.lock().unwrap().remove(model.id);
+        let _ = app.emit(EVENT_SPEECH_DONE, ModelDone { id: model.id, error: result.err() });
+    });
+    Ok(())
+}
+
+/// `text` in JARVIS's voice, as a WAV file (the UI plays it and follows its length).
+#[tauri::command]
+async fn speech_synthesize(state: State<'_, AppState>, text: String, voice: String, speed: f32) -> Result<tauri::ipc::Response, String> {
+    let (speaker, dir) = (state.speaker.clone(), state.speech_dir.clone());
+    blocking(move || speaker.synthesize(&dir, &voice, &text, speed)).await.map(tauri::ipc::Response::new)
+}
+
+/// While JARVIS speaks, the listening modes do not take his words for commands.
+#[tauri::command]
+fn voice_deafen(state: State<AppState>, on: bool) {
+    state.voice.set_deaf(on);
 }
 
 /// The system meters (CPU, GPU, RAM, virtual memory, disks, Wi-Fi), read now; rates cover the
@@ -569,8 +783,23 @@ pub fn run() {
             voice_start,
             voice_push,
             voice_dictate,
+            voice_ask,
             voice_stop,
             voice_status,
+            assistant_ask,
+            assistant_warm,
+            assistant_cancel,
+            assistant_reset,
+            assistant_folder,
+            assistant_action_result,
+            speech_status,
+            speech_download,
+            speech_synthesize,
+            voice_deafen,
+            agent_drafts,
+            agent_problems,
+            agent_install,
+            terminal_open_agent,
             models_status,
             download_model,
             music_status,
@@ -628,6 +857,12 @@ pub fn run() {
                 .map(|bin| terminal::Tools { bin, settings: settings_path.clone() })
                 .inspect_err(|error| eprintln!("[jarvis] jv_sh commands not installed: {error}"))
                 .ok();
+            // JARVIS (Claude Code) works in Documentos\JARVIS and acts on the jvOS through its MCP server.
+            let jarvis_folder = app.path().document_dir().or_else(|_| app.path().home_dir())?.join("JARVIS");
+            let actions = Arc::new(mcp::Bridge::default());
+            let mcp_config = start_mcp(app.handle(), actions.clone(), &app.path().app_local_data_dir()?.join("assistant").join("mcp.json"))
+                .inspect_err(|error| eprintln!("[jarvis] JARVIS's tools unavailable: {error}"))
+                .ok();
             let state = AppState {
                 settings: Arc::new(RwLock::new(settings::load(&settings_path))),
                 settings_path,
@@ -638,6 +873,11 @@ pub fn run() {
                 terminals: Arc::new(terminal::Terminals::new(tools)),
                 system: Arc::new(Mutex::new(system::Sampler::default())),
                 workspaces: Arc::new(workspace::Workspaces::default()),
+                assistant: Arc::new(assistant::Assistant::new(assistant::Folder::new(jarvis_folder), mcp_config)),
+                actions,
+                speaker: Arc::new(speech::Speaker::default()),
+                speech_dir: app.path().app_local_data_dir()?.join("tts"),
+                speech_downloading: Mutex::new(HashSet::new()),
             };
             // Restore listening if it was on when the app was last closed.
             if state.snapshot().voice_enabled {
@@ -661,12 +901,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // No shell, watcher or search outlives JARVIS.
+            // No shell, watcher, search or Claude Code outlives JARVIS.
             if let tauri::RunEvent::Exit = event
                 && let Some(state) = app.try_state::<AppState>()
             {
                 state.terminals.close_all();
                 state.workspaces.close_all();
+                state.assistant.close();
             }
         });
 }

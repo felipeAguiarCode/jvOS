@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 /** Mirrors `VoiceState` in `src-tauri/src/voice/mod.rs`. */
-export type EngineState = "off" | "loading" | "standby" | "awake" | "listening" | "ready" | "talking" | "dictating" | "error";
+export type EngineState = "off" | "loading" | "standby" | "awake" | "listening" | "ready" | "talking" | "dictating" | "asking" | "error";
 
 export interface EngineStatus {
   state: EngineState;
@@ -56,9 +56,9 @@ interface Handlers {
 /** Returned by `start()` when the selected Whisper model has not been downloaded yet. */
 export const MODEL_MISSING = "model-missing";
 
-const ACTIVE: EngineState[] = ["loading", "standby", "awake", "listening", "ready", "talking", "dictating"];
+const ACTIVE: EngineState[] = ["loading", "standby", "awake", "listening", "ready", "talking", "dictating", "asking"];
 /** The engine's microphone is open (push-to-talk "ready" keeps it closed). */
-const MIC_OPEN: EngineState[] = ["standby", "awake", "listening", "talking", "dictating"];
+const MIC_OPEN: EngineState[] = ["standby", "awake", "listening", "talking", "dictating", "asking"];
 
 export const isEngineActive = (state: EngineState) => ACTIVE.includes(state);
 export const isMicOpen = (state: EngineState) => MIC_OPEN.includes(state);
@@ -76,6 +76,9 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
   /** Markdown dictation: the last text transcribed, and whether Whisper is still working on one. */
   const [dictation, setDictation] = useState<Heard | null>(null);
   const [dictationPending, setDictationPending] = useState(false);
+  /** The core's microphone: the last question transcribed (empty when nothing was said). */
+  const [asked, setAsked] = useState<Heard | null>(null);
+  const [askPending, setAskPending] = useState(false);
   const handlers = useRef({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro });
   handlers.current = { onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro };
 
@@ -97,7 +100,12 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
       listen<{ group: WindowGroup }>("voice:windows", ({ payload }) => handlers.current.onCloseGroup?.(payload.group)),
       listen<MusicCommandEvent>("voice:music", ({ payload }) => handlers.current.onMusic?.(payload)),
       listen<{ action: PomodoroAction }>("voice:pomodoro", ({ payload }) => handlers.current.onPomodoro?.(payload.action)),
-      listen<{ text: string; pending: boolean }>("voice:dictation", ({ payload }) => {
+      listen<{ text: string; pending: boolean; target: "editor" | "assistant" }>("voice:dictation", ({ payload }) => {
+        if (payload.target === "assistant") {
+          setAskPending(payload.pending);
+          if (!payload.pending) setAsked((current) => ({ id: (current?.id ?? 0) + 1, text: payload.text }));
+          return;
+        }
         setDictationPending(payload.pending);
         if (!payload.pending && payload.text) setDictation((current) => ({ id: (current?.id ?? 0) + 1, text: payload.text }));
       }),
@@ -158,6 +166,21 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
     return pushQueue.current;
   }, []);
 
+  /** The core's microphone on/off (`cancel` discards the question); same queue as `push`. */
+  const ask = useCallback((down: boolean, cancel = false) => {
+    pushQueue.current = pushQueue.current.then(() =>
+      invoke("voice_ask", { down, cancel }).then(
+        () => null,
+        (error) => {
+          const message = String(error);
+          if (message !== MODEL_MISSING) setStatus({ state: "error", message });
+          return message;
+        },
+      ),
+    );
+    return pushQueue.current;
+  }, []);
+
   return {
     available,
     status,
@@ -171,5 +194,8 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
     dictate,
     dictation,
     dictationPending,
+    ask,
+    asked,
+    askPending,
   };
 }

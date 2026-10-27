@@ -87,6 +87,29 @@ function describeError(error: unknown) {
   }
 }
 
+/** JARVIS's own voice, played by the speech player: the hologram follows it like a microphone. */
+interface VoiceSource {
+  analyser: AnalyserNode;
+  timeData: Float32Array<ArrayBuffer>;
+  freqData: Uint8Array<ArrayBuffer>;
+  bins: Record<Band, [number, number]>;
+  spectrumBins: [number, number][];
+}
+
+/** The analyser's FFT bins of each band and spectrum band. */
+function binsFor(analyser: AnalyserNode) {
+  const hzPerBin = analyser.context.sampleRate / analyser.fftSize;
+  const lastBin = analyser.frequencyBinCount - 1;
+  const toBins = ([lo, hi]: [number, number]): [number, number] => {
+    const from = Math.min(lastBin, Math.max(1, Math.floor(lo / hzPerBin)));
+    return [from, Math.min(lastBin, Math.max(from, Math.ceil(hi / hzPerBin)))];
+  };
+  return {
+    bins: { bass: toBins(BAND_RANGES.bass), mid: toBins(BAND_RANGES.mid), treble: toBins(BAND_RANGES.treble) },
+    spectrumBins: spectrumRanges().map(toBins),
+  };
+}
+
 function releaseGraph(graph: AudioGraph) {
   graph.stream.getTracks().forEach((track) => track.stop());
   graph.source.disconnect();
@@ -172,13 +195,6 @@ export function useAudioAnalyzer() {
       analyser.maxDecibels = -22;
       source.connect(analyser); // not connected to the destination: no echo
 
-      const hzPerBin = context.sampleRate / analyser.fftSize;
-      const lastBin = analyser.frequencyBinCount - 1;
-      const toBins = ([lo, hi]: [number, number]): [number, number] => {
-        const from = Math.min(lastBin, Math.max(1, Math.floor(lo / hzPerBin)));
-        return [from, Math.min(lastBin, Math.max(from, Math.ceil(hi / hzPerBin)))];
-      };
-
       const graph: AudioGraph = {
         stream,
         context,
@@ -186,8 +202,7 @@ export function useAudioAnalyzer() {
         analyser,
         timeData: new Float32Array(analyser.fftSize),
         freqData: new Uint8Array(analyser.frequencyBinCount),
-        bins: { bass: toBins(BAND_RANGES.bass), mid: toBins(BAND_RANGES.mid), treble: toBins(BAND_RANGES.treble) },
-        spectrumBins: spectrumRanges().map(toBins),
+        ...binsFor(analyser),
       };
       // The noise floor is re-learned from the first quiet moments of every capture.
       noise.current = 0;
@@ -228,6 +243,14 @@ export function useAudioAnalyzer() {
   const pulse = useCallback(() => {
     signals.pulse = 1;
   }, [signals]);
+
+  /** JARVIS's voice as it plays (null when he is silent): the hologram follows it too. */
+  const voiceSource = useRef<VoiceSource | null>(null);
+  const setVoiceSource = useCallback((analyser: AnalyserNode | null) => {
+    voiceSource.current = analyser
+      ? { analyser, timeData: new Float32Array(analyser.fftSize), freqData: new Uint8Array(analyser.frequencyBinCount), ...binsFor(analyser) }
+      : null;
+  }, []);
 
   /** Suspends audio processing while the window is hidden / minimised. */
   const setSuspended = useCallback((suspended: boolean) => {
@@ -280,6 +303,24 @@ export function useAudioAnalyzer() {
         for (let i = 0; i < SPECTRUM_BANDS; i++) spectrumTarget[i] = bandEnergy(graph.freqData, graph.spectrumBins[i]);
       }
 
+      // JARVIS speaking: a clean signal, so a fixed scale does (no noise floor to learn).
+      const own = voiceSource.current;
+      if (own && own.analyser.context.state === "running") {
+        own.analyser.getFloatTimeDomainData(own.timeData);
+        let sum = 0;
+        for (let i = 0; i < own.timeData.length; i++) sum += own.timeData[i] * own.timeData[i];
+        const ownLevel = clamp01((20 * Math.log10(Math.sqrt(sum / own.timeData.length) + 1e-9) + 50) / 36);
+        own.analyser.getByteFrequencyData(own.freqData);
+        const raw = (["bass", "mid", "treble"] as const).map((band) => bandEnergy(own.freqData, own.bins[band]));
+        const dominant = Math.max(...raw, 1e-3);
+        level = Math.max(level, ownLevel);
+        speaking = Math.max(speaking, smoothstep(0.08, 0.4, ownLevel));
+        bass = Math.max(bass, ownLevel * Math.pow(raw[0] / dominant, BAND_CONTRAST));
+        mid = Math.max(mid, ownLevel * Math.pow(raw[1] / dominant, BAND_CONTRAST));
+        treble = Math.max(treble, ownLevel * Math.pow(raw[2] / dominant, BAND_CONTRAST));
+        for (let i = 0; i < SPECTRUM_BANDS; i++) spectrumTarget[i] = Math.max(spectrumTarget[i], bandEnergy(own.freqData, own.spectrumBins[i]));
+      }
+
       signals.attention = approach(signals.attention, attentionTarget.current, dt, 0.35);
       signals.pulse *= Math.exp(-dt / 0.6);
       const align = alignTarget.current === "voice" ? signals.voice : alignTarget.current;
@@ -292,7 +333,7 @@ export function useAudioAnalyzer() {
       signals.bass = envelope(signals.bass, bass);
       signals.mid = envelope(signals.mid, mid);
       signals.treble = envelope(signals.treble, treble);
-      signals.active = approach(signals.active, graph ? 1 : 0, dt, 0.6);
+      signals.active = approach(signals.active, graph || own ? 1 : 0, dt, 0.6);
 
       const voice = speaking * gain;
       signals.voice = approach(signals.voice, voice, dt, voice > signals.voice ? VOICE_ATTACK : VOICE_RELEASE);
@@ -316,5 +357,5 @@ export function useAudioAnalyzer() {
     [],
   );
 
-  return { status, error, start, stop, toggle, setSuspended, setAttention, setAlign, pulse, signals, sample };
+  return { status, error, start, stop, toggle, setSuspended, setAttention, setAlign, pulse, setVoiceSource, signals, sample };
 }

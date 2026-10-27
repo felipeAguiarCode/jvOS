@@ -2,8 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AnimatePresence, MotionConfig } from "motion/react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AssistantDrawer } from "./components/AssistantDrawer";
 import { BootSequence } from "./components/BootSequence";
+import { CoreButton } from "./components/CoreButton";
 import { Greeting } from "./components/Greeting";
+import { JarvisReply } from "./components/JarvisReply";
 import { AdvancedMenu } from "./components/desktop/AdvancedMenu";
 import { Desktop } from "./components/desktop/Desktop";
 import { Launcher } from "./components/desktop/Launcher";
@@ -13,6 +16,8 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { Spotlight } from "./components/Spotlight";
 import { Taskbar } from "./components/Taskbar";
 import { VoiceCaption } from "./components/VoiceCaption";
+import { useAssistant } from "./hooks/useAssistant";
+import { useAssistantActions } from "./hooks/useAssistantActions";
 import { useAudioAnalyzer, type VoiceStatus } from "./hooks/useAudioAnalyzer";
 import { useDesktop } from "./hooks/useDesktop";
 import { useDockNotice } from "./hooks/useDockNotice";
@@ -31,14 +36,19 @@ import {
   type WindowGroup,
 } from "./hooks/useVoiceAssistant";
 import { useWindowControls } from "./hooks/useWindowControls";
+import { agentProfile, setAgentLauncher, type ToolReply } from "./lib/agents";
+import { assistantFolder, type AssistantFolder } from "./lib/assistant";
 import { beep } from "./lib/beep";
 import { describeBoot, useBootPrefs } from "./lib/boot";
-import { buildCommands, type AdvancedTab, type SettingsSection } from "./lib/commands";
+import { buildCommands, type AdvancedTab, type CommandContext, type SettingsSection } from "./lib/commands";
 import { useCorePrefs } from "./lib/core";
 import { isWindowKind, WINDOW_KINDS, WINDOW_SPECS, type DesktopGroup } from "./lib/desktop";
 import { DictationContext, type DictationApi } from "./lib/dictation";
 import { useDockPrefs } from "./lib/dock";
+import { isInside } from "./lib/files";
 import { useQuality, type QualityLevel } from "./lib/quality";
+import { draftRequests, noteRequests, type FileRequest } from "./lib/requests";
+import { createSpeechPlayer, useSpeechPrefs, useSpeechStatus, voiceReady } from "./lib/speech";
 import { readJson, writeJson } from "./lib/storage";
 import { useTaskbarModules } from "./lib/taskbar";
 import { loadProfiles, requestTab } from "./lib/terminal";
@@ -65,6 +75,10 @@ declare global {
       voiceMusic: (event: MusicCommandEvent) => void;
       /** …and for `voice:pomodoro`. */
       voicePomodoro: (action: PomodoroAction) => void;
+      /** A question for JARVIS, as if it had been said to the core. */
+      ask: (text: string) => void;
+      /** One of JARVIS's tool calls (`jvos_run`, `agent_review`…), as its MCP server hands it over. */
+      action: (tool: string, args: Record<string, unknown>) => Promise<ToolReply>;
     };
   }
 }
@@ -84,6 +98,7 @@ const ENGINE_INDICATOR: Record<EngineState, VoiceIndicator> = {
   ready: "armed",
   talking: "active",
   dictating: "active",
+  asking: "active",
   error: "error",
 };
 
@@ -96,6 +111,7 @@ const ENGINE_LABEL: Record<EngineState, string> = {
   ready: "Segure Voice ou M para falar",
   talking: "Ouvindo · solte para enviar",
   dictating: "Ditando no editor de Markdown",
+  asking: "Ouvindo para o JARVIS · clique no núcleo para enviar",
   error: "Erro",
 };
 
@@ -108,6 +124,7 @@ const DOCK_LABEL: Record<EngineState, string> = {
   ready: "Voice · segure para falar",
   talking: "Voice · solte para enviar",
   dictating: "Voice · ditando no Markdown",
+  asking: "Voice · ouvindo para o JARVIS",
   error: "Voice",
 };
 
@@ -295,6 +312,52 @@ export default function App() {
     dock.show("voice", "Baixe um modelo de voz", "error");
   }, [dock]);
 
+  // The core: click, talk, and JARVIS (Claude Code) answers inside it.
+  const coreVoice = useMemo(
+    () => (desktop ? { state: engineState, asked: engine.asked, record: engine.ask } : null),
+    [desktop, engineState, engine.asked, engine.ask],
+  );
+  const notifyVoice = useCallback((text: string, tone?: "info" | "error") => showDockNotice("voice", text, tone), [showDockNotice]);
+  // What JARVIS writes in its folder opens where it belongs: notes in Jarvis Mark, agents in jv_agent.
+  const [jarvisFolder, setJarvisFolder] = useState<AssistantFolder | null>(null);
+  useEffect(() => void assistantFolder().then(setJarvisFolder), []);
+  const openKinds = useRef(openWindows);
+  openKinds.current = openWindows;
+  // The last text streamed for each file goes along with its "done": a window that opens late
+  // only gets the latest request.
+  const written = useRef(new Map<string, string>());
+  const onAssistantFile = useCallback(
+    ({ path, content, done }: FileRequest) => {
+      if (!jarvisFolder) return;
+      const kind = isInside(path, jarvisFolder.notes) ? "markdown" : isInside(path, jarvisFolder.agents) && /\.md$/i.test(path) ? "agent" : null;
+      if (!kind) return;
+      if (content !== null) written.current.set(path, content);
+      const file = { path, content: content ?? written.current.get(path) ?? null, done };
+      if (done) written.current.delete(path);
+      if (!openKinds.current.some((item) => item.kind === kind)) openWindow(kind);
+      (kind === "markdown" ? noteRequests : draftRequests).send(file);
+    },
+    [jarvisFolder, openWindow],
+  );
+  const assistant = useAssistant({ voice: coreVoice, notify: notifyVoice, onModelMissing: showModelMissing, onFile: onAssistantFile });
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // JARVIS's voice (Settings → Voz do JARVIS): his answers spoken, the hologram following it.
+  const [speechPrefs, setSpeechPrefs] = useSpeechPrefs();
+  const speech = useSpeechStatus();
+  const replyVoice = speechPrefs.enabled && voiceReady(speech.status, speechPrefs.voice) ? { voice: speechPrefs.voice, speed: speechPrefs.speed } : null;
+  const { setVoiceSource } = audio;
+  const previewVoice = useCallback(async () => {
+    const player = createSpeechPlayer({ voice: speechPrefs.voice, speed: speechPrefs.speed }, setVoiceSource);
+    if (!player) return;
+    player.prepare(0, "Às suas ordens. É assim que eu soo agora.");
+    const buffer = await player.ready(0);
+    const playback = buffer && (await player.play(buffer));
+    if (!playback) notifyVoice("Não consegui falar com esta voz", "error");
+    else await playback.ended;
+    player.close();
+  }, [speechPrefs.voice, speechPrefs.speed, setVoiceSource, notifyVoice]);
+
   const toggleVoice = useCallback(async () => {
     if (!desktop) return audio.toggle();
     if (engineActive) return engine.stop();
@@ -445,7 +508,9 @@ export default function App() {
   // Waiting for "Hey Jarvis", the hologram follows the voice more softly; awake, it follows fully.
   useEffect(() => {
     setAttention(
-      !desktop || engineState === "awake" || engineState === "listening" || engineState === "talking" || engineState === "dictating" ? 1 : 0.6,
+      !desktop || engineState === "awake" || engineState === "listening" || engineState === "talking" || engineState === "dictating" || engineState === "asking"
+        ? 1
+        : 0.6,
     );
   }, [desktop, engineState, setAttention]);
 
@@ -455,7 +520,9 @@ export default function App() {
   // ouvindo" listens all the time, so there they align while someone speaks.
   useEffect(() => {
     if (!desktop) return setAlign(audioStatus === "listening" ? 1 : 0);
-    setAlign(engineState === "talking" || engineState === "awake" || engineState === "dictating" ? 1 : engineState === "listening" ? "voice" : 0);
+    setAlign(
+      engineState === "talking" || engineState === "awake" || engineState === "dictating" || engineState === "asking" ? 1 : engineState === "listening" ? "voice" : 0,
+    );
   }, [desktop, engineState, audioStatus, setAlign]);
 
   // The top bar became the default; an existing desktop install still has it saved as off, so
@@ -485,7 +552,71 @@ export default function App() {
     else clearNotice("voice", "error");
   }, [engine.status.message, audio.status, audio.error, showNotice, clearNotice]);
 
+  // What the search bar (`/`) and JARVIS can run.
+  const commandContext: CommandContext = {
+    windows: workspace.windows,
+    openWindow: workspace.open,
+    closeWindow: workspace.close,
+    arrange: workspace.arrange,
+    closeAll: workspace.closeAll,
+    closeGroup: workspace.closeGroup,
+    music,
+    terminalProfiles,
+    openTerminalTab: requestTab,
+    settings,
+    updateSettings: update,
+    launchProgram: (id) => {
+      // Programs without a dock icon report on the Voice item.
+      const target = LAUNCHABLE.includes(id as DockItemId) ? (id as DockItemId) : "voice";
+      if (!desktop) return dock.show(target, "Disponível no app desktop");
+      void launchApp(id).then((error) => dock.show(target, error ?? "Abrindo…", error ? "error" : "info"));
+    },
+    openSettings: openSettingsAt,
+    openAdvanced: openAdvancedAt,
+    openLauncher: dockPrefs.visible ? setLauncher : null,
+    dockVisible: dockPrefs.visible,
+    toggleDock: () => setDockPrefs((current) => ({ ...current, visible: !current.visible })),
+    core: corePrefs.mode,
+    setCore: (mode) => setCorePrefs((current) => ({ ...current, mode })),
+    listening,
+    toggleListening: () => void toggleVoice(),
+    speaking: speechPrefs.enabled,
+    toggleSpeaking: () => setSpeechPrefs((current) => ({ ...current, enabled: !current.enabled })),
+    quality: preset.level,
+    cycleQuality: cycle,
+    bootEnabled: bootPrefs.enabled,
+    toggleBoot: () => setBootPrefs((current) => ({ ...current, enabled: !current.enabled })),
+    replayBoot,
+    system: desktop
+      ? {
+          fullscreen: () => {
+            const appWindow = getCurrentWindow();
+            void appWindow.isFullscreen().then((fullscreen) => appWindow.setFullscreen(!fullscreen));
+          },
+          minimize: () => void getCurrentWindow().minimize(),
+          quit: () => void getCurrentWindow().close(),
+        }
+      : null,
+  };
+  const latestCommands = useRef(commandContext);
+  latestCommands.current = commandContext;
+  const actionCommands = useCallback(() => buildCommands(latestCommands.current), []);
+
+  // JARVIS's hands: the jvOS actions, and the agents it writes, reviews and runs.
+  const runAction = useAssistantActions({ commands: actionCommands, openAgents: () => openWindow("agent"), notify: notifyVoice });
+  useEffect(
+    () =>
+      setAgentLauncher(async (launch) => {
+        if (desktop) await invoke("agent_install", { name: launch.name });
+        openWindow("shell");
+        requestTab(agentProfile(launch));
+        return `Rodando o agente ${launch.name} numa aba do jv_sh, em ${launch.folder}`;
+      }),
+    [desktop, openWindow],
+  );
+
   const { hear } = engine;
+  const { ask } = assistant;
   useEffect(() => {
     if (import.meta.env.DEV) {
       window.__JARVIS__ = {
@@ -497,9 +628,11 @@ export default function App() {
         voiceCloseGroup: onCloseGroup,
         voiceMusic: onMusic,
         voicePomodoro: onPomodoro,
+        ask,
+        action: runAction,
       };
     }
-  }, [audio.signals, audio.status, preset.level, hear, onWindowCommand, onCloseGroup, onMusic, onPomodoro]);
+  }, [audio.signals, audio.status, preset.level, hear, onWindowCommand, onCloseGroup, onMusic, onPomodoro, ask, runAction]);
 
   const onDockSelect = (id: DockItemId) => {
     if (id === "voice") return void toggleVoice();
@@ -511,51 +644,7 @@ export default function App() {
   };
 
   // Everything the search bar can find; only built while it is open.
-  const commands = searchOpen
-    ? buildCommands({
-        windows: workspace.windows,
-        openWindow: workspace.open,
-        closeWindow: workspace.close,
-        arrange: workspace.arrange,
-        closeAll: workspace.closeAll,
-        closeGroup: workspace.closeGroup,
-        music,
-        terminalProfiles,
-        openTerminalTab: requestTab,
-        settings,
-        updateSettings: update,
-        launchProgram: (id) => {
-          // Programs without a dock icon report on the Voice item.
-          const target = LAUNCHABLE.includes(id as DockItemId) ? (id as DockItemId) : "voice";
-          if (!desktop) return dock.show(target, "Disponível no app desktop");
-          void launchApp(id).then((error) => dock.show(target, error ?? "Abrindo…", error ? "error" : "info"));
-        },
-        openSettings: openSettingsAt,
-        openAdvanced: openAdvancedAt,
-        openLauncher: dockPrefs.visible ? setLauncher : null,
-        dockVisible: dockPrefs.visible,
-        toggleDock: () => setDockPrefs((current) => ({ ...current, visible: !current.visible })),
-        core: corePrefs.mode,
-        setCore: (mode) => setCorePrefs((current) => ({ ...current, mode })),
-        listening,
-        toggleListening: () => void toggleVoice(),
-        quality: preset.level,
-        cycleQuality: cycle,
-        bootEnabled: bootPrefs.enabled,
-        toggleBoot: () => setBootPrefs((current) => ({ ...current, enabled: !current.enabled })),
-        replayBoot,
-        system: desktop
-          ? {
-              fullscreen: () => {
-                const appWindow = getCurrentWindow();
-                void appWindow.isFullscreen().then((fullscreen) => appWindow.setFullscreen(!fullscreen));
-              },
-              minimize: () => void getCurrentWindow().minimize(),
-              quit: () => void getCurrentWindow().close(),
-            }
-          : null,
-      })
-    : [];
+  const commands = searchOpen ? buildCommands(commandContext) : [];
 
   const voiceIndicator: VoiceIndicator = desktop
     ? ENGINE_INDICATOR[engineState]
@@ -605,8 +694,14 @@ export default function App() {
         ) : (
           <HiddenCore onFirstFrame={onFirstFrame} />
         )}
-        <VoiceCaption heard={engine.heard} transcribing={engine.transcribing} />
+        <VoiceCaption heard={engine.heard} transcribing={engine.transcribing || assistant.phase === "transcribing"} />
         {greeting !== null && <Greeting key={greeting} sound={bootPrefs.sound} onDone={endGreeting} />}
+        {corePrefs.mode !== "off" && !booting && greeting === null && (
+          <CoreButton phase={assistant.phase} onPress={assistant.press} onRelease={assistant.release} />
+        )}
+        {assistant.turn && greeting === null && (
+          <JarvisReply key={assistant.turn.id} turn={assistant.turn} sound={bootPrefs.sound} speech={replyVoice} onVoice={setVoiceSource} onFinished={assistant.dismiss} />
+        )}
         <DictationContext.Provider value={dictation}>
           <Desktop desktop={workspace} paused={paused} timer={pomodoro} tui={tuiLook} music={music} />
         </DictationContext.Provider>
@@ -671,6 +766,17 @@ export default function App() {
               : undefined
           }
         />
+        <AssistantDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          showToggle={corePrefs.mode !== "off" && !booting}
+          items={assistant.items}
+          turn={assistant.turn}
+          busy={assistant.busy}
+          coreActive={assistant.phase !== "idle"}
+          onNewConversation={assistant.reset}
+          onClear={assistant.clear}
+        />
         <SettingsPanel
           open={settingsOpen}
           onClose={closeSettings}
@@ -695,6 +801,7 @@ export default function App() {
           onOpenAdvanced={openAdvanced}
           section={settingsSection}
           core={corePrefs.mode}
+          speech={{ ...speech, prefs: speechPrefs, onPrefs: setSpeechPrefs, onDownload: speech.download, onPreview: () => void previewVoice() }}
         />
         <AdvancedMenu
           open={advancedOpen}

@@ -18,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+bzip2 = "0.6"
 cpal = "0.18"
 dunce = "1.0.5"
 ignore = "0.4.33"
@@ -27,8 +28,13 @@ regex = "1.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+# JARVIS's voice. 1.x still phonemises Portuguese with espeak-ng (2.x dropped it). Shared: a
+# small DLL download at build time instead of a large static archive.
+sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["shared"] }
+tar = "0.4"
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2"
+tiny_http = "0.12"
 trash = "5.2.9"
 ureq = "3"
 whisper-rs = "0.16"

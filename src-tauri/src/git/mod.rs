@@ -70,7 +70,7 @@ impl Output {
 }
 
 /// Ends a process and everything it started (ssh, credential helpers keep the pipes open).
-fn kill_tree(child: &mut std::process::Child) {
+pub(crate) fn kill_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

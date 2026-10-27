@@ -4,7 +4,7 @@ import { DOCK_RESERVE, frames, PLAIN_SETTINGS, SCREENS, voiceStatus, waitForFram
 /** The drag strip at the top of the frameless window: windows never go under it. */
 const TOP_SAFE = 28;
 
-const APPS = ["Jarvis Mark", "jv_ide", "jv_T4p3", "jv_sh"];
+const APPS = ["Jarvis Mark", "jv_ide", "jv_T4p3", "jv_sh", "jv_lab", "jv_agent"];
 
 /** Widgets and apps each have a dock item with its own launcher. */
 async function openLauncher(page: Page, item: "Widgets" | "Apps" = "Widgets") {

@@ -34,3 +34,29 @@ export async function pickAndWrite(
 }
 
 export const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
+
+/** A file's text through the backend (absolute path, UTF-8, ≤ 2 MB). */
+export const readText = (path: string) => invoke<string>("read_text_file", { path });
+
+/** Writes a file through the backend (atomically). */
+export const writeText = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
+
+/** Native "choose a folder" dialog. */
+export async function pickFolder(title: string): Promise<string | null> {
+  const path = await open({ multiple: false, directory: true, title });
+  return typeof path === "string" ? path : null;
+}
+
+/** Native "choose a file" dialog (any file). */
+export async function pickAnyFile(title: string): Promise<string | null> {
+  const path = await open({ multiple: false, directory: false, title });
+  return typeof path === "string" ? path : null;
+}
+
+const windowsPath = (path: string) => path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+
+/** The same file on Windows, whatever the slashes and the letter case. */
+export const samePath = (a: string, b: string) => windowsPath(a) === windowsPath(b);
+
+/** Whether `path` lies inside `folder` (Windows rules). */
+export const isInside = (path: string, folder: string) => windowsPath(path).startsWith(`${windowsPath(folder)}\\`);

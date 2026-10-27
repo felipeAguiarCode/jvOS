@@ -10,6 +10,8 @@
   { "id": "window:ide", "kind": "window", "target": "ide", "label": "jv_ide", "phrases": ["jv ide", "IDE", "Jarvis Code", "código"] },
   { "id": "window:music", "kind": "window", "target": "music", "label": "jv_T4p3", "phrases": ["jv tape", "tape", "player", "player de música", "tocador"] },
   { "id": "window:shell", "kind": "window", "target": "shell", "label": "jv_sh", "phrases": ["terminal", "jv sh", "shell", "console", "prompt de comando"] },
+  { "id": "window:lab", "kind": "window", "target": "lab", "label": "jv_lab", "phrases": ["jv lab", "laboratório", "lições", "aulas"] },
+  { "id": "window:agent", "kind": "window", "target": "agent", "label": "jv_agent", "phrases": ["jv agent", "agentes", "criador de agentes"] },
 
   { "id": "verbs:open", "kind": "verbs", "target": "open", "label": "Verbos de abrir", "phrases": ["abre", "abrir", "abra", "abri", "mostra", "mostrar", "mostre", "open", "show", "start"] },
   { "id": "verbs:close", "kind": "verbs", "target": "close", "label": "Verbos de fechar", "phrases": ["fecha", "fechar", "feche", "fechem", "fecho", "encerra", "encerrar", "encerre", "esconde", "esconder", "close", "hide"] },

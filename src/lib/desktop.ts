@@ -1,12 +1,14 @@
 import {
   AudioLines,
   BatteryMedium,
+  Bot,
   Calculator,
   CassetteTape,
   Clock,
   Disc3,
   FileText,
   Gauge,
+  GraduationCap,
   SquareCode,
   SquareTerminal,
   Timer,
@@ -15,8 +17,8 @@ import {
 import { DOCK_RESERVE } from "./layout";
 
 /** Everything that can open as a window over the hologram. */
-export type WindowKind = "clock" | "pomodoro" | "battery" | "calculator" | "tape" | "miniplayer" | "system" | "markdown" | "ide" | "music" | "shell";
-export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell"];
+export type WindowKind = "clock" | "pomodoro" | "battery" | "calculator" | "tape" | "miniplayer" | "system" | "markdown" | "ide" | "music" | "shell" | "lab" | "agent";
+export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell", "lab", "agent"];
 
 export interface Size {
   w: number;
@@ -90,6 +92,10 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
   ide: { title: "jv_ide", icon: SquareCode, size: { w: 1180, h: 700 }, min: { w: 640, h: 360 }, group: "apps" },
   music: { title: "jv_T4p3", icon: CassetteTape, size: { w: 920, h: 620 }, min: { w: 660, h: 480 }, group: "apps" },
   shell: { title: "jv_sh", icon: SquareTerminal, size: { w: 900, h: 540 }, min: { w: 480, h: 300 }, group: "apps" },
+  // Lessons on AI with a lab: the text on the left, a simulated terminal on the right.
+  lab: { title: "jv_lab", icon: GraduationCap, size: { w: 1180, h: 700 }, min: { w: 720, h: 420 }, group: "apps" },
+  // The Claude Code agents JARVIS writes with the user: the draft as a terminal, the review beside it.
+  agent: { title: "jv_agent", icon: Bot, size: { w: 1000, h: 600 }, min: { w: 640, h: 380 }, group: "apps" },
 };
 
 /** Apps maximise (button, double click on the title bar); widgets keep their size. */

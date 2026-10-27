@@ -197,3 +197,23 @@ test("custom programs can be added, edited and removed", async ({ page }) => {
   saved = await page.evaluate(() => JSON.parse(localStorage.getItem("jarvis.settings") ?? "{}"));
   expect(saved.apps).toHaveLength(4);
 });
+
+test("shortcuts: sites, folders and files open by voice like programs", async ({ page }) => {
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Adicionar site" }).click();
+  await expect(panel.getByLabel("Nome do programa")).toHaveValue("Novo site");
+  const row = panel.locator("[data-testid^='app-app-']");
+  const kind = row.getByTestId("shortcut-kind");
+  await expect(kind).toHaveText("Site");
+  // The kind follows the command.
+  await row.getByPlaceholder(/notepad/).fill('"C:\\Users\\builder\\Documents"');
+  await expect(kind).toHaveText("Pasta");
+  await row.getByPlaceholder(/notepad/).fill('"C:\\Users\\builder\\Documents\\plano.pdf"');
+  await expect(kind).toHaveText("Arquivo");
+  await row.getByPlaceholder(/notepad/).fill('"C:\\Program Files\\App\\app.exe"');
+  await expect(kind).toHaveText("Programa");
+  // Picking a folder or a file needs the desktop app's dialog.
+  await expect(panel.getByRole("button", { name: "Adicionar pasta" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Adicionar arquivo" })).toBeDisabled();
+  await expect(row.getByRole("button", { name: "Escolher pasta para Novo site" })).toBeDisabled();
+});

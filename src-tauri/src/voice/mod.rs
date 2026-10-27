@@ -30,7 +30,8 @@ pub const EVENT_TRANSCRIBING: &str = "voice:transcribing";
 pub const EVENT_TRANSCRIPT: &str = "voice:transcript";
 pub const EVENT_WAKE: &str = "voice:wake";
 pub const EVENT_COMMAND: &str = "voice:command";
-/// Markdown dictation: `pending` while Whisper works, then the text (never a command).
+/// Dictation (Markdown editor) and questions for JARVIS (the core): `pending` while Whisper
+/// works, then the text (never a command); `target` says who it is for.
 pub const EVENT_DICTATION: &str = "voice:dictation";
 /// A JARVIS window (widget or app) to open or close.
 pub const EVENT_WINDOW: &str = "voice:window";
@@ -72,7 +73,19 @@ pub enum VoiceState {
     Talking,
     /// The Markdown editor's microphone is held: recording for the editor, deaf to commands.
     Dictating,
+    /// The core was clicked: recording a question for JARVIS (Claude Code), deaf to commands.
+    Asking,
     Error,
+}
+
+/// Who gets a recording that is only transcribed, never matched against the commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DictationTarget {
+    /// The Markdown editor, at its cursor.
+    Editor,
+    /// The conversation with JARVIS.
+    Assistant,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +141,7 @@ struct PomodoroEvent {
 struct DictationEvent {
     text: String,
     pending: bool,
+    target: DictationTarget,
 }
 
 struct Worker {
@@ -144,8 +158,12 @@ pub struct VoiceEngine {
     discard: Arc<AtomicBool>,
     /// The Markdown editor's microphone is held.
     dictating: Arc<AtomicBool>,
-    /// The engine was started only to dictate: it leaves again once the dictation is done.
+    /// The core is recording a question for JARVIS.
+    asking: Arc<AtomicBool>,
+    /// The engine was started only to dictate (or ask): it leaves again once that is done.
     exit_after_dictation: Arc<AtomicBool>,
+    /// JARVIS is speaking: the listening modes must not take his words for commands.
+    deaf: Arc<AtomicBool>,
 }
 
 impl Default for VoiceEngine {
@@ -156,7 +174,9 @@ impl Default for VoiceEngine {
             talking: Arc::new(AtomicBool::new(false)),
             discard: Arc::new(AtomicBool::new(false)),
             dictating: Arc::new(AtomicBool::new(false)),
+            asking: Arc::new(AtomicBool::new(false)),
             exit_after_dictation: Arc::new(AtomicBool::new(false)),
+            deaf: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -183,7 +203,9 @@ impl VoiceEngine {
                 talking: self.talking.clone(),
                 discard: self.discard.clone(),
                 dictating: self.dictating.clone(),
+                asking: self.asking.clone(),
                 exit_after_dictation: self.exit_after_dictation.clone(),
+                deaf: self.deaf.clone(),
             };
             std::thread::Builder::new()
                 .name("jarvis-voice".into())
@@ -205,6 +227,19 @@ impl VoiceEngine {
     /// assistant hears nothing, whatever the activation mode. Release sends it to Whisper.
     pub fn set_dictating(&self, down: bool) {
         self.dictating.store(down, Ordering::SeqCst);
+    }
+
+    /// The core's microphone: like dictation, but the text is a question for JARVIS. A release
+    /// with `cancel` throws the recording away.
+    pub fn set_asking(&self, down: bool, cancel: bool) {
+        // Stored before `asking`, so the loop that sees the release also sees the cancel.
+        self.discard.store(!down && cancel, Ordering::SeqCst);
+        self.asking.store(down, Ordering::SeqCst);
+    }
+
+    /// While JARVIS speaks, what the open microphone hears is not a command (held buttons still record).
+    pub fn set_deaf(&self, deaf: bool) {
+        self.deaf.store(deaf, Ordering::SeqCst);
     }
 
     pub fn set_exit_after_dictation(&self, exit: bool) {
@@ -251,20 +286,42 @@ fn resting_state(activation: Activation) -> VoiceState {
     }
 }
 
-/// The held buttons (Voice, and the Markdown microphone), shared with the UI commands.
+/// The held buttons (Voice, the Markdown microphone and the core), shared with the UI commands.
 struct Buttons {
     talking: Arc<AtomicBool>,
     discard: Arc<AtomicBool>,
     dictating: Arc<AtomicBool>,
+    asking: Arc<AtomicBool>,
     exit_after_dictation: Arc<AtomicBool>,
+    deaf: Arc<AtomicBool>,
+}
+
+impl Buttons {
+    /// Who a transcription-only recording would be for right now (the core wins).
+    fn dictation(&self) -> Option<DictationTarget> {
+        if self.asking.load(Ordering::SeqCst) {
+            Some(DictationTarget::Assistant)
+        } else if self.dictating.load(Ordering::SeqCst) {
+            Some(DictationTarget::Editor)
+        } else {
+            None
+        }
+    }
 }
 
 /// Audio kept while a button is held, and who gets it on release.
 enum Recording {
     /// Voice button: Whisper, then the keyword decision.
     Command(Vec<f32>),
-    /// Markdown microphone: Whisper, then the editor.
-    Dictation(Vec<f32>),
+    /// Markdown microphone or the core: Whisper, then the editor or JARVIS.
+    Dictation(DictationTarget, Vec<f32>),
+}
+
+fn dictation_state(target: DictationTarget) -> VoiceState {
+    match target {
+        DictationTarget::Editor => VoiceState::Dictating,
+        DictationTarget::Assistant => VoiceState::Asking,
+    }
 }
 
 /// An open microphone and its resampler to 16 kHz.
@@ -330,8 +387,9 @@ fn run(
     reporter.set(resting_state(activation), None);
 
     while !stop.load(Ordering::Relaxed) {
-        let dictating = buttons.dictating.load(Ordering::SeqCst);
-        let in_dictation = matches!(held, Some(Recording::Dictation(_)));
+        let target = buttons.dictation();
+        let dictating = target.is_some();
+        let in_dictation = matches!(held, Some(Recording::Dictation(..)));
         // Started only to dictate, and the button was released before the model finished loading.
         if !dictating && !in_dictation && buttons.exit_after_dictation.swap(false, Ordering::SeqCst) {
             break;
@@ -348,29 +406,32 @@ fn run(
             last_sound = Instant::now();
             heard_sound = false;
             silent_mic = false;
-            if dictating {
-                held = Some(Recording::Dictation(Vec::new()));
+            if let Some(target) = target {
+                held = Some(Recording::Dictation(target, Vec::new()));
                 session = Session::default();
-                reporter.set(VoiceState::Dictating, None);
+                reporter.set(dictation_state(target), None);
             } else if push {
                 held = Some(Recording::Command(Vec::new()));
                 reporter.set(VoiceState::Talking, None);
             }
-        } else if dictating && !in_dictation {
-            // The Markdown microphone takes over an open microphone: the assistant stops hearing.
-            held = Some(Recording::Dictation(Vec::new()));
+        } else if let Some(target) = target.filter(|_| !in_dictation) {
+            // The Markdown microphone (or the core) takes over an open microphone: the assistant stops hearing.
+            held = Some(Recording::Dictation(target, Vec::new()));
             vad = Vad::default();
             session = Session::default();
-            reporter.set(VoiceState::Dictating, None);
+            reporter.set(dictation_state(target), None);
         } else if !want_open && let Some(open) = mic.take() {
             // Released: stop listening right away, then act on what was said.
             let tail = open.close(&receiver);
             let discard = buttons.discard.swap(false, Ordering::SeqCst);
             match held.take() {
-                Some(Recording::Dictation(mut recording)) => {
+                Some(Recording::Dictation(target, mut recording)) => {
                     extend_capped(&mut recording, &tail);
                     reporter.set(resting_state(activation), muted_message(silent_mic, heard_sound, &recording));
-                    dictate(&reporter, &settings, &mut transcriber, &recording);
+                    // Cancelled (Esc on the core): the recording never reaches Whisper.
+                    if !discard {
+                        dictate(&reporter, &settings, &mut transcriber, target, &recording);
+                    }
                     if buttons.exit_after_dictation.swap(false, Ordering::SeqCst) {
                         break;
                     }
@@ -388,9 +449,12 @@ fn run(
             }
         } else if !dictating && in_dictation {
             // Dictation over while the microphone stays open (listening modes): back to the assistant.
-            if let Some(Recording::Dictation(recording)) = held.take() {
+            let discard = buttons.discard.swap(false, Ordering::SeqCst);
+            if let Some(Recording::Dictation(target, recording)) = held.take() {
                 reporter.set(resting_state(activation), silent_mic.then(|| SILENT_MIC_MESSAGE.to_string()));
-                dictate(&reporter, &settings, &mut transcriber, &recording);
+                if !discard {
+                    dictate(&reporter, &settings, &mut transcriber, target, &recording);
+                }
             }
             vad = Vad::default();
             if buttons.exit_after_dictation.swap(false, Ordering::SeqCst) {
@@ -412,7 +476,9 @@ fn run(
                     samples.clear();
                     open.resampler.process(&chunk, &mut samples);
                     match held.as_mut() {
-                        Some(Recording::Command(recording) | Recording::Dictation(recording)) => extend_capped(recording, &samples),
+                        Some(Recording::Command(recording) | Recording::Dictation(_, recording)) => extend_capped(recording, &samples),
+                        // JARVIS speaking: his voice is no command (nor the start of one).
+                        None if buttons.deaf.load(Ordering::SeqCst) => vad = Vad::default(),
                         None => {
                             for utterance in vad.push(&samples) {
                                 if stop.load(Ordering::Relaxed) {
@@ -440,7 +506,7 @@ fn run(
         let current = settings.read().unwrap().activation;
         let expired = session.expire(Instant::now());
         let message = silent_mic.then(|| SILENT_MIC_MESSAGE.to_string());
-        let in_dictation = matches!(held, Some(Recording::Dictation(_)));
+        let in_dictation = matches!(held, Some(Recording::Dictation(..)));
         if current != activation {
             activation = current;
             session = Session::default();
@@ -457,30 +523,33 @@ fn run(
     reporter.set(VoiceState::Off, None);
 }
 
-/// Punctuated sample text, so Whisper punctuates the dictation; no keywords here.
-fn dictation_prompt(language: &str) -> &'static str {
-    if language == "en" {
-        "Hello, how are you? Yes, thank you. First, second and third."
-    } else {
-        "Olá, tudo bem? Sim, obrigado. Primeiro, segundo e terceiro."
+/// Punctuated sample text, so Whisper punctuates the dictation; no keywords here (questions for
+/// JARVIS get his name, which Whisper otherwise mangles).
+fn dictation_prompt(language: &str, target: DictationTarget) -> &'static str {
+    match (language == "en", target) {
+        (true, DictationTarget::Editor) => "Hello, how are you? Yes, thank you. First, second and third.",
+        (true, DictationTarget::Assistant) => "Hello, Jarvis, how are you? Yes, thank you. First, second and third.",
+        (false, DictationTarget::Editor) => "Olá, tudo bem? Sim, obrigado. Primeiro, segundo e terceiro.",
+        (false, DictationTarget::Assistant) => "Olá, Jarvis, tudo bem? Sim, obrigado. Primeiro, segundo e terceiro.",
     }
 }
 
-/// Markdown dictation: Whisper only — no wake word, no keywords, nothing launched.
-fn dictate(reporter: &Reporter, settings: &RwLock<Settings>, transcriber: &mut Transcriber, recording: &[f32]) {
+/// Dictation and questions for JARVIS: Whisper only — no wake word, no keywords, nothing
+/// launched. Always ends with a non-pending event (empty when nothing was said).
+fn dictate(reporter: &Reporter, settings: &RwLock<Settings>, transcriber: &mut Transcriber, target: DictationTarget, recording: &[f32]) {
     if !vad::contains_speech(recording) {
-        return;
+        return reporter.emit(EVENT_DICTATION, DictationEvent { text: String::new(), pending: false, target });
     }
     let language = settings.read().unwrap().language.clone();
-    reporter.emit(EVENT_DICTATION, DictationEvent { text: String::new(), pending: true });
-    let text = match transcriber.transcribe(recording, &language, dictation_prompt(&language)) {
+    reporter.emit(EVENT_DICTATION, DictationEvent { text: String::new(), pending: true, target });
+    let text = match transcriber.transcribe(recording, &language, dictation_prompt(&language, target)) {
         Ok(text) => text,
         Err(error) => {
             eprintln!("[jarvis] {error}");
             String::new()
         }
     };
-    reporter.emit(EVENT_DICTATION, DictationEvent { text, pending: false });
+    reporter.emit(EVENT_DICTATION, DictationEvent { text, pending: false, target });
 }
 
 fn handle_utterance(

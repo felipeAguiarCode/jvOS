@@ -67,6 +67,8 @@ export function CodeMirror({ doc, onChange, onCursor, language, wrap = false, pl
   const handlers = useRef({ onChange, onCursor });
   handlers.current = { onChange, onCursor };
   const lastDoc = useRef(doc);
+  /** `doc` being put in from outside: not an edit to report back. */
+  const syncing = useRef(false);
   const languageCompartment = useRef(new Compartment()).current;
   const wrapCompartment = useRef(new Compartment()).current;
   const initial = useRef({ language, wrap, placeholder });
@@ -89,7 +91,8 @@ export function CodeMirror({ doc, onChange, onCursor, language, wrap = false, pl
           if (update.docChanged) {
             const text = update.state.doc.toString();
             lastDoc.current = text;
-            handlers.current.onChange(text);
+            // Echoing an outside change could undo a newer one already set (text streaming in).
+            if (!syncing.current) handlers.current.onChange(text);
           }
           if (update.docChanged || update.selectionSet) report(update.state);
         }),
@@ -111,7 +114,12 @@ export function CodeMirror({ doc, onChange, onCursor, language, wrap = false, pl
     const current = view.current;
     if (!current || doc === lastDoc.current) return;
     lastDoc.current = doc;
-    current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: doc } });
+    syncing.current = true;
+    try {
+      current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: doc } });
+    } finally {
+      syncing.current = false;
+    }
   }, [doc]);
 
   useEffect(() => {

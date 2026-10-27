@@ -20,6 +20,8 @@ const MarkdownEditor = lazy(() => import("./apps/MarkdownEditor").then((module) 
 const IdeApp = lazy(() => import("./apps/ide/IdeApp").then((module) => ({ default: module.IdeApp })));
 const TapePlayer = lazy(() => import("./apps/TapePlayer").then((module) => ({ default: module.TapePlayer })));
 const ShellApp = lazy(() => import("./apps/ShellApp").then((module) => ({ default: module.ShellApp })));
+const LabApp = lazy(() => import("./apps/lab/LabApp").then((module) => ({ default: module.LabApp })));
+const AgentApp = lazy(() => import("./apps/agent/AgentApp").then((module) => ({ default: module.AgentApp })));
 
 interface DesktopProps {
   desktop: DesktopApi;
@@ -155,6 +157,18 @@ function WindowContent({ kind, paused, timer, music, onClose }: ContentProps) {
       return (
         <Suspense fallback={<Loading />}>
           <ShellApp onClose={onClose} />
+        </Suspense>
+      );
+    case "lab":
+      return (
+        <Suspense fallback={<Loading />}>
+          <LabApp />
+        </Suspense>
+      );
+    case "agent":
+      return (
+        <Suspense fallback={<Loading />}>
+          <AgentApp />
         </Suspense>
       );
   }

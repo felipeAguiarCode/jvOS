@@ -76,7 +76,7 @@ test("arrow keys move the selection; menus open at the right place", async ({ pa
   // A section of the settings, scrolled into view.
   search = await openSearch(page);
   await page.keyboard.type("palavras-chave");
-  await expect(selected(page)).toContainText("Programas e palavras-chave");
+  await expect(selected(page)).toContainText("Programas e atalhos");
   await page.keyboard.press("Enter");
   const settings = page.getByRole("dialog", { name: "Configurações" });
   await expect(settings).toBeVisible();

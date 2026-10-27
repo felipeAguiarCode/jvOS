@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { baseName, canUseFiles, pickAndRead, pickAndWrite, UNAVAILABLE, type FileFilter } from "../lib/files";
+import { baseName, canUseFiles, pickAndRead, pickAndWrite, readText, samePath, UNAVAILABLE, type FileFilter } from "../lib/files";
+import { noteRequests, type FileRequest } from "../lib/requests";
 import { useStoredState } from "../lib/storage";
 
 /** What the editor keeps between sessions (`jarvis.editor.<key>`). */
@@ -120,6 +121,39 @@ export function useEditorDocument(key: "markdown", filters: FileFilter[], defaul
 
   const save = useCallback(() => write(draft.path), [write, draft.path]);
   const saveAs = useCallback(() => write(null), [write]);
+
+  // JARVIS writing a note: its text shows as it is written, then the file as saved. Unsaved
+  // changes of the user's are never replaced.
+  const latest = useRef({ draft, dirty });
+  latest.current = { draft, dirty };
+  const receive = useCallback(
+    async ({ path, content, done }: FileRequest) => {
+      const { draft: current, dirty: unsaved } = latest.current;
+      if (unsaved) {
+        const where = current.path && samePath(current.path, path) ? "alterou" : "salvou";
+        return show(`JARVIS ${where} ${baseName(path)} · salve ou descarte suas alterações para ver`, "error");
+      }
+      if (!done) {
+        if (content === null) return;
+        setDraft({ version: 1, content, path, language: null, savedContent: content });
+        return show("JARVIS escrevendo…");
+      }
+      try {
+        // In a browser there is no disk: what was written is what there is.
+        const text = canUseFiles ? await readText(path) : (content ?? current.content);
+        setDraft({ version: 1, content: text, path, language: null, savedContent: text });
+        show(`Nota salva pelo JARVIS · ${baseName(path)}`);
+      } catch (error) {
+        show(String(error), "error");
+      }
+    },
+    [setDraft, show],
+  );
+  useEffect(() => {
+    const pending = noteRequests.take();
+    if (pending) void receive(pending);
+    return noteRequests.listen((request) => void receive(request));
+  }, [receive]);
 
   const confirmPending = useCallback(() => {
     const action = pending;

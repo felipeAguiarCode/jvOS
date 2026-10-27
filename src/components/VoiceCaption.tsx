@@ -11,7 +11,7 @@ const MAX_WORDS = 18;
 /** Delay between words as they materialise (s). */
 const WORD_STAGGER = 0.07;
 /** Dark, see-through backdrop: the hologram stays visible behind the words. */
-const BACKDROP = "radial-gradient(closest-side, rgb(0 5 8 / 0.62), rgb(0 5 8 / 0.38) 55%, rgb(0 5 8 / 0))";
+export const BACKDROP = "radial-gradient(closest-side, rgb(0 5 8 / 0.62), rgb(0 5 8 / 0.38) 55%, rgb(0 5 8 / 0))";
 const GLOW = "0 0 18px rgb(0 229 255 / 0.55), 0 0 4px rgb(181 250 255 / 0.5)";
 const DOT_GLOW = "0 0 10px rgb(0 229 255 / 0.8)";
 
@@ -92,7 +92,8 @@ function Caption({ text }: { text: string }) {
   );
 }
 
-function Thinking() {
+/** Three pulsing dots: something is being worked out (a phrase, an answer). */
+export function Thinking() {
   return (
     <motion.div
       aria-hidden

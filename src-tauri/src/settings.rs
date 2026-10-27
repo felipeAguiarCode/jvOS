@@ -100,7 +100,7 @@ const MAX_PHRASE: usize = 60;
 const MAX_LABEL: usize = 60;
 const MAX_CUSTOM_COMMANDS: usize = 100;
 /// Mirrors `WindowKind` in src/lib/desktop.ts.
-const WINDOW_KINDS: [&str; 11] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell"];
+const WINDOW_KINDS: [&str; 13] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell", "lab", "agent"];
 /// What Jarvis Code (the editor jv_ide replaced) answered to, untouched.
 const OLD_CODE_PHRASES: [&str; 2] = ["jarvis code", "código"];
 /// What the Windows Terminal program answered to before jv_sh took those words.

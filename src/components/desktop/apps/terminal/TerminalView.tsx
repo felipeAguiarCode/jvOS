@@ -104,14 +104,16 @@ export function TerminalView({ profile, cwd = null, label, role = "tabpanel", ac
 
     let opened: TerminalSession | null = null;
     let disposed = false;
-    void openSession(backend, profile.id, terminal.cols, terminal.rows, cwd, {
+    // An agent runs in its own folder; a shell may be asked to start elsewhere (jv_ide).
+    const agent = profile.agent;
+    void openSession(backend, profile.id, terminal.cols, terminal.rows, agent ? profile.cwd : cwd, {
       output: (data) => !disposed && terminal.write(data),
       exit: (code) => {
         if (disposed) return;
         if (code) terminal.write(`\r\n\x1b[2m[processo encerrado: código ${code}]\x1b[0m\r\n`);
         handlers.current.onExit(code);
       },
-    }).then(
+    }, agent).then(
       (started) => {
         // StrictMode (dev) mounts twice: a shell that lost the race is closed at once.
         if (disposed) return started.close();
@@ -157,6 +159,7 @@ export function TerminalView({ profile, cwd = null, label, role = "tabpanel", ac
       terminal.dispose();
       view.current = null;
     };
+    // A tab keeps its profile: an agent and its folder never change under it.
   }, [backend, profile.id, cwd]);
 
   // In front, it gets its true size (hidden ones cannot measure) and the keyboard.

@@ -6,6 +6,8 @@ import {
   Cloud,
   Code,
   Download,
+  FileIcon,
+  FolderOpen,
   Globe,
   Loader2,
   Play,
@@ -13,12 +15,15 @@ import {
   SlidersHorizontal,
   SquareTerminal,
   Trash2,
+  Volume2,
   X,
   type LucideIcon,
 } from "lucide-react";
 import type { SettingsSection } from "../lib/commands";
 import type { CoreMode } from "../lib/core";
+import { baseName, pickAnyFile, pickFolder } from "../lib/files";
 import { createAppId, type Activation, type AppEntry, type Language, type ModelStatus, type Settings } from "../lib/settings";
+import { SPEEDS, voiceReady, type SpeechPrefs, type SpeechStatus } from "../lib/speech";
 import { BackgroundNote, BACKGROUNDS, CardPicker, ChipInput, IconButton, Mono, Section, Segmented, Switch, SwitchRow, themeOptions } from "./hud";
 
 const APP_ICONS: Record<string, LucideIcon> = { browser: Globe, vscode: Code, terminal: SquareTerminal, claude: Cloud };
@@ -62,6 +67,21 @@ interface SettingsPanelProps {
   section?: SettingsSection | null;
   /** The core's look (advanced menu): the animated backgrounds need the 3D one. */
   core: CoreMode;
+  /** JARVIS's voice: its models, the chosen voice and pace. */
+  speech: SpeechSettings;
+}
+
+export interface SpeechSettings {
+  /** False where JARVIS cannot speak (a browser). */
+  available: boolean;
+  status: SpeechStatus | null;
+  progress: Record<string, number>;
+  errors: Record<string, string>;
+  prefs: SpeechPrefs;
+  onPrefs: (change: (current: SpeechPrefs) => SpeechPrefs) => void;
+  onDownload: (id: string) => void;
+  /** Says a sample sentence in the chosen voice. */
+  onPreview: () => void;
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
@@ -157,6 +177,7 @@ function PanelBody({
   modelErrors,
   onDownload,
   onTestApp,
+  speech,
 }: SettingsPanelProps) {
   if (!settings) {
     return <div className="flex-1 px-6 text-sm text-hud-text/50">Carregando…</div>;
@@ -165,11 +186,18 @@ function PanelBody({
   const setApp = (id: string, change: (app: AppEntry) => AppEntry) =>
     onChange((current) => ({ ...current, apps: current.apps.map((app) => (app.id === id ? change(app) : app)) }));
 
-  const addApp = () =>
+  const addEntry = (name: string, command: string, keywords: string[] = []) =>
     onChange((current) => ({
       ...current,
-      apps: [...current.apps, { id: createAppId(), name: "Novo programa", keywords: [], command: "", builtin: false }],
+      apps: [...current.apps, { id: createAppId(), name, keywords, command, builtin: false }],
     }));
+  // A folder or a file opens like a program: its path, quoted.
+  const addPath = async (folder: boolean) => {
+    const path = folder ? await pickFolder("Pasta para abrir por voz") : await pickAnyFile("Arquivo para abrir por voz");
+    if (!path) return;
+    const name = folder ? baseName(path) : baseName(path).replace(/\.[^.]+$/, "");
+    addEntry(name, `"${path}"`, [name.toLowerCase()]);
+  };
 
   const removeApp = (id: string) => onChange((current) => ({ ...current, apps: current.apps.filter((app) => app.id !== id) }));
 
@@ -256,10 +284,13 @@ function PanelBody({
         </div>
       </Section>
 
-      <Section title="Programas e palavras-chave" id="settings-apps">
+      <SpeechSection speech={speech} />
+
+      <Section title="Programas e atalhos" id="settings-apps">
         <p className="text-xs leading-relaxed text-hud-text/60">
           Quando uma palavra-chave é reconhecida, o comando é executado. Use o nome de um programa no PATH
-          (<Mono>wt</Mono>, <Mono>code</Mono>), um caminho entre aspas ou uma URL.
+          (<Mono>wt</Mono>, <Mono>code</Mono>), um caminho entre aspas (programa, pasta ou arquivo) ou uma URL. O JARVIS também
+          abre todos eles.
         </p>
         <div className="space-y-3">
           {settings.apps.map((app) => (
@@ -273,13 +304,28 @@ function PanelBody({
             />
           ))}
         </div>
-        <button
-          type="button"
-          onClick={addApp}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-hud-cyan/25 py-2.5 text-xs tracking-[0.18em] text-hud-text/70 uppercase outline-none transition hover:border-hud-cyan/50 hover:text-hud-light focus-visible:ring-1 focus-visible:ring-hud-light/50"
-        >
-          <Plus size={14} strokeWidth={1.6} /> Adicionar programa
-        </button>
+        <div role="group" aria-label="Adicionar" className="grid grid-cols-4 gap-2">
+          {(
+            [
+              { label: "Programa", run: () => addEntry("Novo programa", ""), files: false },
+              { label: "Site", run: () => addEntry("Novo site", "https://"), files: false },
+              { label: "Pasta", run: () => void addPath(true), files: true },
+              { label: "Arquivo", run: () => void addPath(false), files: true },
+            ] as const
+          ).map(({ label, run, files }) => (
+            <button
+              key={label}
+              type="button"
+              aria-label={`Adicionar ${label.toLowerCase()}`}
+              onClick={run}
+              disabled={files && !desktop}
+              title={files && !desktop ? "Disponível no app desktop" : undefined}
+              className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-hud-cyan/25 py-2.5 text-[11px] tracking-[0.14em] text-hud-text/70 uppercase outline-none transition hover:border-hud-cyan/50 hover:text-hud-light focus-visible:ring-1 focus-visible:ring-hud-light/50 disabled:cursor-default disabled:opacity-40 disabled:hover:border-hud-cyan/25 disabled:hover:text-hud-text/70"
+            >
+              <Plus size={13} strokeWidth={1.6} /> {label}
+            </button>
+          ))}
+        </div>
       </Section>
     </div>
   );
@@ -363,6 +409,80 @@ function ModelCard({
   );
 }
 
+/** JARVIS's voice: the model to download, the voice and its pace, and a sample to hear. */
+function SpeechSection({ speech }: { speech: SpeechSettings }) {
+  const { available, status, progress, errors, prefs, onPrefs, onDownload, onPreview } = speech;
+  const voices = status?.voices ?? [];
+  const selectedModel = voices.find((voice) => voice.id === prefs.voice)?.model;
+  const ready = voiceReady(status, prefs.voice);
+  return (
+    <Section title="Voz do JARVIS" id="settings-speech">
+      <SwitchRow
+        label="Falar as respostas"
+        hint={available ? "Voz neural local: as frases aparecem no ritmo da fala" : "Disponível no app desktop"}
+        checked={prefs.enabled}
+        onChange={() => onPrefs((current) => ({ ...current, enabled: !current.enabled }))}
+      />
+      <div role="radiogroup" aria-label="Voz do JARVIS" className="grid grid-cols-2 gap-2">
+        {voices.map((voice) => (
+          <button
+            key={voice.id}
+            type="button"
+            role="radio"
+            aria-checked={voice.id === prefs.voice}
+            onClick={() => onPrefs((current) => ({ ...current, voice: voice.id }))}
+            className={`cursor-pointer rounded-xl border px-3 py-2 text-left text-xs outline-none transition focus-visible:ring-1 focus-visible:ring-hud-light/50 ${
+              voice.id === prefs.voice ? "border-hud-cyan/40 bg-hud-cyan/[0.06] text-hud-light" : "border-hud-cyan/12 bg-white/[0.02] text-hud-text/75 hover:border-hud-cyan/30"
+            }`}
+          >
+            {voice.label}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {status?.models
+          .filter((model) => model.id === selectedModel)
+          .map((model) => (
+            <ModelCard key={model.id} model={model} selected progress={progress[model.id]} error={errors[model.id]} desktop={available} onSelect={() => undefined} onDownload={() => onDownload(model.id)} />
+          ))}
+      </div>
+      <label className="block">
+        <span className="mb-1 flex justify-between text-xs text-hud-text/60">
+          Velocidade <span className="text-hud-text/80">{prefs.speed.toFixed(2)}×</span>
+        </span>
+        <input
+          type="range"
+          aria-label="Velocidade da voz"
+          min={SPEEDS.min}
+          max={SPEEDS.max}
+          step={0.05}
+          value={prefs.speed}
+          onChange={(event) => onPrefs((current) => ({ ...current, speed: Number(event.target.value) }))}
+          className="hud-range"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onPreview}
+        disabled={!ready}
+        title={ready ? undefined : "Baixe a voz primeiro"}
+        className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-hud-cyan/25 py-2 text-xs tracking-[0.16em] text-hud-text/80 uppercase outline-none transition hover:border-hud-cyan/50 hover:text-hud-light focus-visible:ring-1 focus-visible:ring-hud-light/50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Volume2 size={13} strokeWidth={1.7} aria-hidden /> Ouvir exemplo
+      </button>
+    </Section>
+  );
+}
+
+/** What a program entry opens, told from its command. */
+function shortcutKind(command: string) {
+  const text = command.trim();
+  if (/^https?:\/\//i.test(text)) return "Site";
+  const path = text.match(/^"([a-z]:\\[^"]*)"$/i)?.[1] ?? (/^[a-z]:\\[^"\s]*$/i.test(text) ? text : null);
+  if (!path || /\.(exe|bat|cmd|com|lnk|msc)$/i.test(path)) return "Programa";
+  return /\.[a-z0-9]{1,8}$/i.test(path) ? "Arquivo" : "Pasta";
+}
+
 function AppRow({
   app,
   desktop,
@@ -421,14 +541,27 @@ function AppRow({
         placeholder="Palavras-chave (Enter para adicionar)"
       />
       <label className="block">
-        <span className="mb-1 block text-[10px] tracking-[0.18em] text-hud-text/45 uppercase">Comando</span>
-        <input
-          value={app.command}
-          spellCheck={false}
-          placeholder="ex.: notepad, “C:\\…\\app.exe”, https://…"
-          onChange={(event) => onChange((current) => ({ ...current, command: event.target.value }))}
-          className="hud-input w-full font-mono text-xs"
-        />
+        <span className="mb-1 flex items-center gap-2 text-[10px] tracking-[0.18em] text-hud-text/45 uppercase">
+          Comando
+          <span data-testid="shortcut-kind" className="rounded bg-hud-cyan/10 px-1.5 py-px tracking-[0.1em] text-hud-text/70">
+            {shortcutKind(app.command)}
+          </span>
+        </span>
+        <span className="flex items-center gap-1">
+          <input
+            value={app.command}
+            spellCheck={false}
+            placeholder="ex.: notepad, “C:\\…\\app.exe”, https://…"
+            onChange={(event) => onChange((current) => ({ ...current, command: event.target.value }))}
+            className="hud-input min-w-0 flex-1 font-mono text-xs"
+          />
+          <IconButton label={`Escolher pasta para ${app.name}`} disabled={!desktop} onClick={() => void pickFolder("Pasta para abrir por voz").then((path) => path && onChange((current) => ({ ...current, command: `"${path}"` })))}>
+            <FolderOpen size={13} strokeWidth={1.7} />
+          </IconButton>
+          <IconButton label={`Escolher arquivo para ${app.name}`} disabled={!desktop} onClick={() => void pickAnyFile("Arquivo para abrir por voz").then((path) => path && onChange((current) => ({ ...current, command: `"${path}"` })))}>
+            <FileIcon size={13} strokeWidth={1.7} />
+          </IconButton>
+        </span>
       </label>
       {result && (
         <p role="status" className={`text-xs ${result.error ? "text-hud-alert/90" : "text-hud-light/80"}`}>

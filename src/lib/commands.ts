@@ -23,6 +23,8 @@ import {
   SlidersHorizontal,
   SquareTerminal,
   SquareStack,
+  Volume2,
+  VolumeX,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -64,6 +66,9 @@ export interface CommandContext {
   setCore: (mode: CoreMode) => void;
   listening: boolean;
   toggleListening: () => void;
+  /** JARVIS speaks his answers. */
+  speaking: boolean;
+  toggleSpeaking: () => void;
   quality: string;
   cycleQuality: () => void;
   bootEnabled: boolean;
@@ -83,6 +88,8 @@ const WINDOW_KEYWORDS: Record<WindowKind, string[]> = {
   ide: ["ide", "jv ide", "codigo", "code", "editor", "programacao", "syntax", "projeto", "pasta", "git", "termide"],
   music: ["musica", "music", "player", "tocador", "tape", "radio", "radios", "playlist", "vice city", "gta", "youtube"],
   shell: ["terminal", "shell", "console", "powershell", "bash", "cmd", "prompt", "wsl", "linha de comando"],
+  lab: ["lab", "jv lab", "laboratorio", "aprender", "licao", "licoes", "aula", "curso", "estudo", "inteligencia artificial", "llm", "esforco", "harness"],
+  agent: ["agente", "agentes", "agent", "jv agent", "subagente", "claude code", "automacao", "robo", "bot"],
   tape: ["fita", "cassete", "tape", "musica", "widget"],
   miniplayer: ["mini", "player", "musica", "controles", "widget"],
   system: ["sistema", "monitor", "desempenho", "cpu", "processador", "gpu", "ram", "memoria", "hdd", "disco", "wlan", "wifi", "rede", "widget"],
@@ -93,6 +100,8 @@ const APP_SUBTITLES: Partial<Record<WindowKind, string>> = {
   ide: "App · IDE: pasta, git e terminal",
   music: "App · rádios do GTA Vice City",
   shell: "App · seus perfis do Windows Terminal",
+  lab: "App · lições de IA com laboratório",
+  agent: "App · agentes do Claude Code criados com o JARVIS",
 };
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -118,7 +127,7 @@ const SETTINGS_SECTIONS: { section: SettingsSection; title: string; keywords: st
   { section: "activation", title: "Ativação", keywords: ["escuta", "microfone", "voz", "modo"] },
   { section: "appearance", title: "Aparência", keywords: ["cor", "tema", "fundo", "background"] },
   { section: "voice", title: "Reconhecimento de voz", keywords: ["whisper", "modelo", "idioma", "language", "download"] },
-  { section: "apps", title: "Programas e palavras-chave", keywords: ["programas", "palavras", "keywords", "comandos", "atalhos"] },
+  { section: "apps", title: "Programas e atalhos", keywords: ["programas", "palavras", "palavras-chave", "keywords", "comandos", "atalhos", "sites", "pastas", "arquivos"] },
 ];
 
 const ADVANCED_TABS: { tab: AdvancedTab; title: string; keywords: string[] }[] = [
@@ -330,6 +339,15 @@ export function buildCommands(context: CommandContext): Command[] {
     keywords: ["escuta", "microfone", "voz", "voice", "ouvir"],
     shortcut: "M",
     run: context.toggleListening,
+  });
+  commands.push({
+    id: "speaking",
+    title: context.speaking ? "Silenciar o JARVIS" : "Ligar a voz do JARVIS",
+    subtitle: "Ele fala as respostas",
+    group: "Voz",
+    icon: context.speaking ? VolumeX : Volume2,
+    keywords: ["voz", "fala", "falar", "silenciar", "mudo", "som", "speech", "jarvis"],
+    run: context.toggleSpeaking,
   });
 
   // System.
