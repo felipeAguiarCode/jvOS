@@ -65,8 +65,17 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
   const latest = useRef({ phase, busy, voice, sessionId: memory.sessionId, notify, onModelMissing, onFile });
   latest.current = { phase, busy, voice, sessionId: memory.sessionId, notify, onModelMissing, onFile };
 
+  // Claude Code starts with JARVIS (~2 s saved on the first question), on the conversation it left.
+  useEffect(() => {
+    void backend?.warm(latest.current.sessionId).catch(() => undefined);
+  }, [backend]);
+
+  /**
+   * Asks JARVIS. `question` is what the user said (shown, kept in the history); `prompt`, when
+   * given, is what Claude Code gets instead (a shortcut's instructions around those words).
+   */
   const ask = useCallback(
-    (question: string) => {
+    (question: string, prompt?: string) => {
       const text = question.trim();
       if (!text) return;
       if (!backend) return latest.current.notify("Disponível no app desktop");
@@ -83,7 +92,7 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
       };
       setTurn({ id, question: text, text: "", tool: null, done: false, error: null, cancelled: false });
       backend
-        .ask(text, latest.current.sessionId, (event) => {
+        .ask(prompt?.trim() || text, latest.current.sessionId, (event) => {
           switch (event.event) {
             case "session":
               started = true;
@@ -111,6 +120,21 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
     [backend, setMemory],
   );
 
+  /**
+   * An answer JARVIS knows without Claude Code (the time, a reminder going off): shown and
+   * spoken like any other, and kept in the history. False while he is busy answering.
+   */
+  const say = useCallback(
+    (question: string, answer: string) => {
+      if (latest.current.busy || latest.current.phase !== "idle") return false;
+      const id = Date.now();
+      setTurn({ id, question, text: answer, tool: null, done: true, error: null, cancelled: false });
+      setMemory((current) => ({ ...current, items: [...current.items, { id, at: id, question, answer }].slice(-MAX_ITEMS) }));
+      return true;
+    },
+    [setMemory],
+  );
+
   /** Esc, or a click while JARVIS works: drops the question or stops the answer. */
   const cancel = useCallback(() => {
     const { phase, voice } = latest.current;
@@ -123,7 +147,11 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
       setTranscribing(false);
       latest.current.notify("Pergunta cancelada");
     } else if (phase === "thinking" || phase === "answering") {
-      void backend?.cancel();
+      // Claude Code stops with the answer: the next one is started right away, for the next question.
+      void backend
+        ?.cancel()
+        .then(() => backend.warm(latest.current.sessionId))
+        .catch(() => undefined);
     }
   }, [backend]);
 
@@ -228,7 +256,10 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
 
   /** "Nova conversa": JARVIS forgets what came before (the history keeps it, after a mark). */
   const reset = useCallback(() => {
-    void backend?.reset();
+    void backend
+      ?.reset()
+      .then(() => backend.warm(null))
+      .catch(() => undefined);
     setTurn(null);
     setMemory(({ items }) => {
       const last = items[items.length - 1];
@@ -239,10 +270,13 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
 
   /** Empties the history (and starts a new conversation). */
   const clear = useCallback(() => {
-    void backend?.reset();
+    void backend
+      ?.reset()
+      .then(() => backend.warm(null))
+      .catch(() => undefined);
     setTurn(null);
     setMemory(EMPTY_MEMORY);
   }, [backend, setMemory]);
 
-  return { available: backend !== null, phase, turn, busy, items: memory.items, ask, press, release, cancel, dismiss, reset, clear };
+  return { available: backend !== null, phase, turn, busy, items: memory.items, ask, say, press, release, cancel, dismiss, reset, clear };
 }

@@ -79,6 +79,8 @@ export interface Pomodoro {
   skip: () => void;
   /** Changes a phase's length by whole minutes. */
   adjust: (phase: PomodoroPhase, deltaMinutes: number) => void;
+  /** Starts a whole focus phase now (one already running goes on). */
+  focus: () => void;
 }
 
 /**
@@ -149,6 +151,16 @@ export function usePomodoro(onFinish: (finished: PomodoroPhase, next: PomodoroPh
     [setState],
   );
 
+  const focus = useCallback(
+    () =>
+      setState((current) => {
+        if (current.phase === "focus" && current.endsAt !== null) return current;
+        const remaining = minutes(current.durations.focus);
+        return { ...current, phase: "focus", remaining, endsAt: Date.now() + remaining };
+      }),
+    [setState],
+  );
+
   // No ticking here: the timer lives in App, and a clock there would re-render everything.
   return useMemo(
     () => ({
@@ -163,8 +175,9 @@ export function usePomodoro(onFinish: (finished: PomodoroPhase, next: PomodoroPh
       reset,
       skip,
       adjust,
+      focus,
     }),
-    [state.phase, running, state.endsAt, state.remaining, state.cycles, state.durations, start, pause, reset, skip, adjust],
+    [state.phase, running, state.endsAt, state.remaining, state.cycles, state.durations, start, pause, reset, skip, adjust, focus],
   );
 }
 

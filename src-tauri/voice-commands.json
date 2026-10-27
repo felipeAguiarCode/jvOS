@@ -33,5 +33,15 @@
   { "id": "pomodoro:reset", "kind": "pomodoro", "target": "reset", "label": "Reiniciar a fase", "phrases": ["reinicia o pomodoro", "reiniciar o pomodoro", "recomeça o pomodoro", "zera o pomodoro", "reinicia o timer"] },
   { "id": "pomodoro:skip", "kind": "pomodoro", "target": "skip", "label": "Pular a fase", "phrases": ["pula a fase", "pular a fase", "próxima fase", "pula o pomodoro", "pula a pausa", "pular a pausa"] },
   { "id": "pomodoro:longer", "kind": "pomodoro", "target": "longer", "label": "Mais 5 minutos", "phrases": ["mais cinco minutos", "aumenta o pomodoro", "aumentar o pomodoro", "mais tempo no pomodoro"] },
-  { "id": "pomodoro:shorter", "kind": "pomodoro", "target": "shorter", "label": "Menos 5 minutos", "phrases": ["menos cinco minutos", "diminui o pomodoro", "diminuir o pomodoro", "menos tempo no pomodoro"] }
+  { "id": "pomodoro:shorter", "kind": "pomodoro", "target": "shorter", "label": "Menos 5 minutos", "phrases": ["menos cinco minutos", "diminui o pomodoro", "diminuir o pomodoro", "menos tempo no pomodoro"] },
+
+  { "id": "shortcut:research", "kind": "shortcut", "target": "research", "label": "Pesquisar e salvar em nota", "phrases": ["pesquisa sobre", "pesquise sobre", "pesquisar sobre", "faz uma pesquisa sobre", "faça uma pesquisa sobre", "faz uma pesquisa", "pesquisa", "pesquise", "pesquisar", "busca sobre", "procura sobre", "investiga", "investigue"] },
+  { "id": "shortcut:note", "kind": "shortcut", "target": "note", "label": "Anotar", "phrases": ["anota que", "anote que", "anota aí", "anota", "anote", "anotar", "toma nota", "tome nota", "faz uma anotação", "faça uma anotação"] },
+  { "id": "shortcut:reminder", "kind": "shortcut", "target": "reminder", "label": "Lembrete ou timer", "phrases": ["me lembra de", "me lembre de", "me lembra", "me lembre", "cria um lembrete", "lembrete", "timer de", "cronômetro de", "alarme de", "alarme para"] },
+  { "id": "shortcut:time", "kind": "shortcut", "target": "time", "label": "Que horas são", "phrases": ["que horas são", "que horas é", "que hora é", "me diz as horas", "me diga as horas"] },
+  { "id": "shortcut:date", "kind": "shortcut", "target": "date", "label": "Que dia é hoje", "phrases": ["que dia é hoje", "que dia é", "qual a data de hoje", "qual é a data de hoje", "que data é hoje"] },
+  { "id": "shortcut:status", "kind": "shortcut", "target": "status", "label": "Status do sistema", "phrases": ["status do sistema", "estado do sistema", "diagnóstico do sistema", "diagnóstico", "relatório do sistema", "como está o sistema", "como está o computador", "status"] },
+  { "id": "shortcut:briefing", "kind": "shortcut", "target": "briefing", "label": "Briefing do dia", "phrases": ["bom dia", "briefing", "resumo do dia", "me atualiza", "quais as novidades", "quais são as novidades", "notícias do dia", "o que tem de novo"] },
+  { "id": "shortcut:focus", "kind": "shortcut", "target": "focus", "label": "Protocolo foco", "phrases": ["protocolo foco", "protocolo de foco", "modo foco", "ativa o modo foco", "ativar modo foco", "hora de focar"] },
+  { "id": "shortcut:memory", "kind": "shortcut", "target": "memory", "label": "Guardar na memória", "phrases": ["lembre-se que", "lembre-se de que", "lembre-se de", "lembra que", "guarda na memória", "grava na memória", "memoriza que", "memorize que", "memoriza", "memorize"] }
 ]

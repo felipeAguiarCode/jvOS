@@ -20,6 +20,18 @@ const PLAY_FILLER: [&str; 17] =
 /// Whisper's vocabulary hint for the player: the Vice City stations' names.
 const STATION_NAMES: [&str; 7] = ["Flash FM", "Wave 103", "V-Rock", "Fever 105", "Emotion 98.3", "Radio Espantoso", "Wildstyle"];
 
+/// Words that may come between the wake word and the request ("Ei Jarvis, por favor, anota…").
+const LEAD_FILLER: [&str; 9] = ["por", "favor", "agora", "entao", "ok", "okay", "oi", "ola", "e"];
+/// Shortcuts that act on the words after their phrase: said alone, they are not that shortcut.
+const NEEDS_TEXT: [&str; 4] = ["research", "note", "reminder", "memory"];
+/// A question for JARVIS has at least this many words (one word is a keyword, or Whisper's noise).
+const MIN_QUESTION_WORDS: usize = 2;
+/// A keyword without an open or close verb in a sentence this long is part of a question
+/// ("como está a bateria do notebook?"), not a command.
+const QUESTION_WITH_KEYWORD: usize = 4;
+/// What Whisper writes on noise (subtitle credits it learned from), never a question.
+const HALLUCINATIONS: [&str; 4] = ["amara org", "inscreva se", "legendas pela", "obrigado por assistir"];
+
 /// Keywords and the first phrases of each command, for Whisper's vocabulary hint (whisper.cpp
 /// drops the start of a prompt that is too long, so it stays short and without repeats).
 pub fn command_vocabulary<'a>(apps: &'a [AppEntry], commands: &'a [VoiceCommand]) -> impl Iterator<Item = String> + 'a {
@@ -30,7 +42,8 @@ pub fn command_vocabulary<'a>(apps: &'a [AppEntry], commands: &'a [VoiceCommand]
         .chain(
             commands
                 .iter()
-                .filter(|command| !matches!(command.kind.as_str(), "window" | "verbs" | "playVerbs"))
+                // Shortcuts are everyday words Whisper gets right; the prompt keeps its room for names.
+                .filter(|command| !matches!(command.kind.as_str(), "window" | "verbs" | "playVerbs" | "shortcut"))
                 .flat_map(|command| command.phrases.first().cloned()),
         )
         .chain(STATION_NAMES.iter().map(|name| name.to_string()))
@@ -87,6 +100,61 @@ fn match_action<'a>(tokens: &[String], commands: &'a [VoiceCommand]) -> Option<(
         }
     }
     best
+}
+
+/// Where the request starts: after the wake word and any filler ("Ei Jarvis, por favor, …").
+fn request_start(tokens: &[String], wake: Option<usize>) -> usize {
+    let mut at = wake.unwrap_or(0);
+    while tokens.get(at).is_some_and(|token| LEAD_FILLER.contains(&token.as_str())) {
+        at += 1;
+    }
+    at
+}
+
+/// A JARVIS shortcut ("pesquisa sobre…", "anota…", "que horas são") said at the very start or
+/// where the request starts ("Bom dia, Jarvis", "Jarvis, anota…"): the command and the index
+/// of the first word after its phrase. The longest phrase wins.
+fn match_shortcut<'a>(tokens: &[String], commands: &'a [VoiceCommand], request: usize) -> Option<(&'a VoiceCommand, usize)> {
+    let mut best: Option<(&VoiceCommand, usize)> = None;
+    for command in commands.iter().filter(|command| command.kind == "shortcut") {
+        for phrase in &command.phrases {
+            let words = tokenize(phrase);
+            if words.is_empty() {
+                continue;
+            }
+            for start in [0, request] {
+                let end = start + words.len();
+                if tokens.get(start..end) == Some(&words[..]) && best.is_none_or(|(_, best_end)| end > best_end) {
+                    best = Some((command, end));
+                }
+            }
+        }
+    }
+    // "pesquisa" or "anota" alone (or "inicia o timer"): nothing to act on.
+    best.filter(|(command, end)| !NEEDS_TEXT.contains(&command.target.as_str()) || *end < tokens.len())
+}
+
+/// The transcript from its `index`-th word on, as Whisper wrote it (accents, case, punctuation):
+/// words are counted as `tokenize` counts them.
+pub fn words_from(text: &str, index: usize) -> String {
+    let mut count = 0;
+    let mut in_word = false;
+    for (at, c) in text.char_indices() {
+        let word = c.is_alphanumeric();
+        if word && !in_word {
+            if count == index {
+                return text[at..].trim().to_string();
+            }
+            count += 1;
+        }
+        in_word = word;
+    }
+    String::new()
+}
+
+fn is_hallucination(tokens: &[String]) -> bool {
+    let text = tokens.join(" ");
+    HALLUCINATIONS.iter().any(|phrase| text.contains(phrase))
 }
 
 /// Lowercase, no accents, punctuation turned into spaces.
@@ -260,6 +328,11 @@ pub enum Decision {
     Music { action: String, target: Option<String> },
     /// Control the Pomodoro: "start", "pause", "reset", "skip", "longer", "shorter".
     Pomodoro { action: String },
+    /// A JARVIS shortcut (`settings::SHORTCUT_TARGETS`: "research", "note", "reminder"…) and
+    /// the words said after its phrase, as transcribed ("a Revolução Francesa").
+    Shortcut { action: String, text: String },
+    /// Nothing the jvOS knows: a question for JARVIS (Claude Code), the whole transcript.
+    Ask { text: String },
 }
 
 /// Conversation state across utterances.
@@ -298,24 +371,44 @@ impl Session {
             },
         };
         let verbs = Verbs::new(commands);
+        // Always listening, shortcuts and questions need JARVIS's name: the room talks too.
+        let addressed = activation != Activation::Always || wake.is_some();
+        let request = request_start(&tokens, wake);
+
+        // A shortcut opens the request ("pesquisa sobre o relógio atômico" is no window).
+        if addressed && let Some((command, end)) = match_shortcut(&tokens, commands, request) {
+            let key = format!("shortcut:{}:{}", command.target, tokens[end..].join(" "));
+            return self.fire(key, Decision::Shortcut { action: command.target.clone(), text: words_from(transcript, end) }, now);
+        }
+        let words = tokens.len().saturating_sub(request);
+        let question = addressed && words >= MIN_QUESTION_WORDS && !is_hallucination(&tokens);
 
         // A group word without a closing verb ("Jarvis, tudo bem?") is no command at all.
         let matched = match_target(scope, apps, commands)
             .filter(|&(target, position)| !matches!(target, Target::Group(_)) || wants_close(scope, position, &verbs));
         // Opening or closing something with its verb ("abre a fita", "fecha o pomodoro") wins;
         // otherwise an action ("pausa o pomodoro", "próxima música", "toca a Flash FM").
-        let commanding = matched.is_some() && scope.iter().any(|token| verbs.opens_or_closes(token));
-        if !commanding && let Some(decision) = self.action(scope, commands, &verbs, now) {
+        let verb_said = scope.iter().any(|token| verbs.opens_or_closes(token));
+        let commanding = matched.is_some() && verb_said;
+        let request_in_scope = request.saturating_sub(tokens.len() - scope.len());
+        if !commanding && let Some(decision) = self.action(scope, commands, &verbs, request_in_scope, now) {
             return decision;
         }
 
         let Some((target, position)) = matched else {
+            if question {
+                return self.ask(&tokens, transcript, now);
+            }
             if activation == Activation::WakeWord && wake.is_some() {
                 self.awake_until = Some(now + AWAKE_WINDOW);
                 return Decision::Wake;
             }
             return Decision::Ignore;
         };
+        // A question that only mentions a window or a program ("como está a bateria do notebook?").
+        if question && !verb_said && words >= QUESTION_WITH_KEYWORD {
+            return self.ask(&tokens, transcript, now);
+        }
         let close = wants_close(scope, position, &verbs);
 
         let (key, decision) = match target {
@@ -334,8 +427,14 @@ impl Session {
         self.fire(key, decision, now)
     }
 
-    /// A music or Pomodoro action, or a play verb and what to play.
-    fn action(&mut self, scope: &[String], commands: &[VoiceCommand], verbs: &Verbs, now: Instant) -> Option<Decision> {
+    /// Off to JARVIS, the transcript as it is (the same words twice in a row are one question).
+    fn ask(&mut self, tokens: &[String], transcript: &str, now: Instant) -> Decision {
+        self.fire(format!("ask:{}", tokens.join(" ")), Decision::Ask { text: transcript.trim().to_string() }, now)
+    }
+
+    /// A music or Pomodoro action, or a play verb opening the request (at `request` in `scope`)
+    /// and what to play.
+    fn action(&mut self, scope: &[String], commands: &[VoiceCommand], verbs: &Verbs, request: usize, now: Instant) -> Option<Decision> {
         let play = |name: Option<String>| (format!("music:play:{}", name.as_deref().unwrap_or_default()), Decision::Music { action: "play".into(), target: name });
         let (key, decision) = match match_action(scope, commands) {
             Some((command, position, words)) => match command.kind.as_str() {
@@ -354,7 +453,8 @@ impl Session {
                 }
             },
             None => {
-                let verb = scope.iter().position(|token| verbs.play.contains(token))?;
+                // "toca a Flash FM"; in "qual música está tocando?" the verb asks, it does not play.
+                let verb = [0, request].into_iter().find(|&at| scope.get(at).is_some_and(|token| verbs.play.contains(token)))?;
                 play(named_after(scope, verb + 1))
             }
         };
@@ -514,7 +614,7 @@ mod tests {
         assert_eq!(say("fecha o miniplayer"), window("miniplayer", false));
         // The closest verb before the keyword decides.
         assert_eq!(say("fecha o pomodoro e abre o relógio"), window("pomodoro", false));
-        assert_eq!(say("que horas são"), Decision::Ignore);
+        assert_eq!(say("que horas são"), shortcut("time", ""));
     }
 
     #[test]
@@ -591,8 +691,8 @@ mod tests {
         assert_eq!(say("fecha os apps"), close_group("apps"));
         assert_eq!(say("fecha todas as janelas"), close_group("all"));
         assert_eq!(say("fecha tudo"), close_group("all"));
-        // Only closing: "abre os widgets" is no command.
-        assert_eq!(say("abre os widgets"), Decision::Ignore);
+        // Only closing: "abre os widgets" is no command (JARVIS gets it, as a request).
+        assert_eq!(say("abre os widgets"), ask("abre os widgets"));
         // A named window is more specific than a group word.
         assert_eq!(say("fecha a calculadora e os widgets"), window("calculator", false));
     }
@@ -603,7 +703,9 @@ mod tests {
         let commands = default_voice_commands();
         let mut session = Session::default();
         let now = Instant::now();
-        assert_eq!(session.decide("Jarvis, tudo bem?", Activation::WakeWord, &apps, &commands, now), Decision::Wake);
+        // Not a command: a question for JARVIS.
+        assert_eq!(session.decide("Jarvis, tudo bem?", Activation::WakeWord, &apps, &commands, now), ask("Jarvis, tudo bem?"));
+        assert_eq!(session.decide("Jarvis.", Activation::WakeWord, &apps, &commands, now), Decision::Wake);
         assert_eq!(session.decide("fecha todos os widgets", Activation::WakeWord, &apps, &commands, now), close_group("widgets"));
         assert_eq!(session.decide("Hey Jarvis, fecha todas as aplicações", Activation::WakeWord, &apps, &commands, now), close_group("apps"));
         assert_eq!(session.decide("tudo certo por aqui", Activation::Always, &apps, &commands, now), Decision::Ignore);
@@ -722,7 +824,8 @@ mod tests {
             at += RELAUNCH_COOLDOWN;
             session.decide(text, Activation::PushToTalk, &apps, &commands, at)
         };
-        assert_eq!(say("próxima música"), Decision::Ignore);
+        // The old phrase is no command anymore: JARVIS gets it.
+        assert_eq!(say("próxima música"), ask("próxima música"));
         assert_eq!(say("bora pra próxima"), music("next", None));
         assert_eq!(say("hora de treinar"), music("play", Some("Treino pesado")));
         assert_eq!(say("fazer contas"), window("calculator", true));
@@ -744,6 +847,99 @@ mod tests {
             session.decide("Jarvis, toca a Emotion", Activation::WakeWord, &apps, &commands, now + Duration::from_secs(2)),
             music("play", Some("emotion"))
         );
+    }
+
+    fn shortcut(action: &str, text: &str) -> Decision {
+        Decision::Shortcut { action: action.into(), text: text.into() }
+    }
+
+    fn ask(text: &str) -> Decision {
+        Decision::Ask { text: text.into() }
+    }
+
+    #[test]
+    fn shortcuts_open_the_request_and_keep_the_words_as_said() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str, activation: Activation| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, activation, &apps, &commands, at)
+        };
+        let push = Activation::PushToTalk;
+        assert_eq!(say("Pesquisa sobre a Revolução Francesa.", push), shortcut("research", "a Revolução Francesa."));
+        // The shortcut wins over the window and the music phrases in its words.
+        assert_eq!(say("pesquise sobre o relógio atômico", push), shortcut("research", "o relógio atômico"));
+        assert_eq!(say("faz uma pesquisa sobre a música anterior dos Beatles", push), shortcut("research", "a música anterior dos Beatles"));
+        assert_eq!(say("Anota que a reunião mudou para quinta.", push), shortcut("note", "a reunião mudou para quinta."));
+        assert_eq!(say("Me lembra de beber água em 20 minutos.", push), shortcut("reminder", "beber água em 20 minutos."));
+        assert_eq!(say("timer de 5 minutos", push), shortcut("reminder", "5 minutos"));
+        assert_eq!(say("Que horas são?", push), shortcut("time", ""));
+        assert_eq!(say("que dia é hoje", push), shortcut("date", ""));
+        assert_eq!(say("Status do sistema.", push), shortcut("status", ""));
+        assert_eq!(say("Protocolo foco", push), shortcut("focus", ""));
+        assert_eq!(say("Lembre-se que eu moro em Curitiba.", push), shortcut("memory", "eu moro em Curitiba."));
+        // Right after the wake word (and some filler), or at the very start.
+        assert_eq!(say("Ei Jarvis, por favor, anota comprar café.", Activation::WakeWord), shortcut("note", "comprar café."));
+        assert_eq!(say("Bom dia, Jarvis.", Activation::WakeWord), shortcut("briefing", "Jarvis."));
+        assert_eq!(say("Jarvis, bom dia!", Activation::Always), shortcut("briefing", ""));
+        // Always listening, only when called by name.
+        assert_eq!(say("bom dia", Activation::Always), Decision::Ignore);
+        // Without words to act on, or in the middle of a sentence, they are not shortcuts.
+        assert_eq!(say("pesquisa", push), Decision::Ignore);
+        assert_eq!(say("inicia o timer", push), pomodoro("start"));
+        assert_eq!(say("timer", push), window("pomodoro", true));
+        assert_eq!(say("abre o sistema", push), window("system", true));
+    }
+
+    #[test]
+    fn what_is_no_command_goes_to_jarvis() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str, activation: Activation| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, activation, &apps, &commands, at)
+        };
+        let push = Activation::PushToTalk;
+        assert_eq!(say("Qual a previsão do tempo para amanhã?", push), ask("Qual a previsão do tempo para amanhã?"));
+        // A keyword inside a longer sentence without a verb is a question, alone it is a command.
+        assert_eq!(say("como está a bateria do notebook?", push), ask("como está a bateria do notebook?"));
+        assert_eq!(say("bateria", push), window("battery", true));
+        assert_eq!(say("abre o relógio para mim agora", push), window("clock", true));
+        // A play verb plays when it opens the request.
+        assert_eq!(say("qual música está tocando agora?", push), ask("qual música está tocando agora?"));
+        // One word, or Whisper's noise, is nothing.
+        assert_eq!(say("Obrigado.", push), Decision::Ignore);
+        assert_eq!(say("Legendas pela comunidade Amara.org", push), Decision::Ignore);
+        // Always listening: only with the name.
+        assert_eq!(say("qual a capital da França", Activation::Always), Decision::Ignore);
+        assert_eq!(say("Jarvis, qual a capital da França?", Activation::Always), ask("Jarvis, qual a capital da França?"));
+        // Hey Jarvis: in the same sentence, or right after the wake word alone.
+        assert_eq!(say("qual a capital da Itália", Activation::WakeWord), Decision::Ignore);
+        assert_eq!(say("Hey Jarvis.", Activation::WakeWord), Decision::Wake);
+        assert_eq!(say("qual a capital da Itália", Activation::WakeWord), ask("qual a capital da Itália"));
+    }
+
+    #[test]
+    fn questions_are_not_asked_twice() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let now = Instant::now();
+        let question = "quanto é sete vezes oito";
+        assert_eq!(session.decide(question, Activation::PushToTalk, &apps, &commands, now), ask(question));
+        assert_eq!(session.decide(question, Activation::PushToTalk, &apps, &commands, now + Duration::from_secs(1)), Decision::Ignore);
+    }
+
+    #[test]
+    fn words_from_keeps_the_original_text() {
+        assert_eq!(words_from("Pesquisa sobre a Revolução Francesa.", 2), "a Revolução Francesa.");
+        assert_eq!(words_from("Ei, Jarvis! Anota: café às 15h.", 3), "café às 15h.");
+        assert_eq!(words_from("Lembre-se que moro em São Paulo", 3), "moro em São Paulo");
+        assert_eq!(words_from("que horas são", 3), "");
     }
 
     #[test]

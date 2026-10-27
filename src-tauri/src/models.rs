@@ -16,24 +16,33 @@ pub struct ModelInfo {
     pub sha256: &'static str,
 }
 
-/// Quantised multilingual models: Large V3 Turbo (the default, sized to fit a 2 GB GPU) for
-/// accuracy, and Base as a lightweight fallback for machines without a usable GPU.
+/// Quantised multilingual models. Whisper runs on the CPU, where the encoder dominates: per
+/// spoken command a laptop CPU (Core 7 150U) takes ~2.4 s with Small (the default), ~0.75 s
+/// with Base and ~20 s with Large V3 Turbo, whose 32-layer encoder needs a GPU backend.
 pub const MODELS: &[ModelInfo] = &[
     ModelInfo {
-        id: "large-v3-turbo",
-        file: "ggml-large-v3-turbo-q5_0.bin",
-        label: "Large V3 Turbo",
-        description: "Mais preciso, recomendado",
-        size: 574_041_195,
-        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+        id: "small",
+        file: "ggml-small-q5_1.bin",
+        label: "Small",
+        description: "Rápido e preciso, recomendado",
+        size: 190_085_487,
+        sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
     },
     ModelInfo {
         id: "base",
         file: "ggml-base-q5_1.bin",
         label: "Base",
-        description: "Leve e rápido, para CPUs mais fracas",
+        description: "O mais rápido, erra mais palavras",
         size: 59_707_625,
         sha256: "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+    },
+    ModelInfo {
+        id: "large-v3-turbo",
+        file: "ggml-large-v3-turbo-q5_0.bin",
+        label: "Large V3 Turbo",
+        description: "O mais preciso, muito lento sem GPU",
+        size: 574_041_195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
     },
 ];
 

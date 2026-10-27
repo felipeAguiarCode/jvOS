@@ -428,15 +428,23 @@ fn voice_status(state: State<AppState>) -> VoiceStatus {
 /// `session_id` continues an earlier conversation (the UI keeps it with the history).
 #[tauri::command]
 async fn assistant_ask(state: State<'_, AppState>, text: String, session_id: Option<String>, on_event: Channel<assistant::AssistantEvent>) -> Result<(), String> {
-    let assistant = state.assistant.clone();
-    blocking(move || assistant.ask(&text, session_id, on_event)).await
+    let (assistant, model) = (state.assistant.clone(), state.settings.read().unwrap().assistant_model.clone());
+    blocking(move || assistant.ask(&text, session_id, &model, on_event)).await
 }
 
-/// Starts Claude Code while the user is still talking, so the answer comes sooner.
+/// Starts Claude Code ahead of the question (when JARVIS opens, while the user is talking), so
+/// the answer comes sooner.
 #[tauri::command]
 async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>) -> Result<(), String> {
+    let (assistant, model) = (state.assistant.clone(), state.settings.read().unwrap().assistant_model.clone());
+    blocking(move || assistant.warm(session_id, &model)).await
+}
+
+/// "anota que…": a line in today's notes, written right away (no Claude Code). Returns the file.
+#[tauri::command]
+async fn assistant_note(state: State<'_, AppState>, text: String, date: String, time: String) -> Result<String, String> {
     let assistant = state.assistant.clone();
-    blocking(move || assistant.warm(session_id)).await
+    blocking(move || assistant::append_note(assistant.folder(), &text, &date, &time).map(|path| path.display().to_string())).await
 }
 
 #[tauri::command]
@@ -788,6 +796,7 @@ pub fn run() {
             voice_status,
             assistant_ask,
             assistant_warm,
+            assistant_note,
             assistant_cancel,
             assistant_reset,
             assistant_folder,

@@ -43,7 +43,7 @@ pub struct AppEntry {
 pub struct VoiceCommand {
     pub id: String,
     /// "window", "group", "music", "pomodoro", "playlist" (user's: plays the playlist named in
-    /// `target`), "verbs" or "playVerbs".
+    /// `target`), "shortcut" (a JARVIS task: research, note, reminder…), "verbs" or "playVerbs".
     pub kind: String,
     #[serde(default)]
     pub target: String,
@@ -62,6 +62,9 @@ pub struct Settings {
     pub activation: Activation,
     /// Whisper model id (see `models::MODELS`).
     pub model: String,
+    /// The Claude model JARVIS answers with (`ASSISTANT_MODELS`): "default" leaves it to the
+    /// user's Claude Code settings.
+    pub assistant_model: String,
     /// "pt", "en" or "auto".
     pub language: String,
     /// Color of the hologram and the interface: "blue", "green", "yellow" or "custom" (UI only).
@@ -82,7 +85,9 @@ impl Default for Settings {
         Self {
             voice_enabled: false,
             activation: Activation::PushToTalk,
-            model: "large-v3-turbo".into(),
+            model: "small".into(),
+            // Answers as quickly as Haiku (~0.9 s to the first word), Opus takes twice as long.
+            assistant_model: "sonnet".into(),
             language: "pt".into(),
             theme: "blue".into(),
             accent_hue: DEFAULT_HUE,
@@ -108,6 +113,8 @@ const OLD_TERMINAL_KEYWORDS: [&str; 3] = ["terminal", "console", "prompt de coma
 const GROUP_TARGETS: [&str; 3] = ["widgets", "apps", "all"];
 const MUSIC_TARGETS: [&str; 6] = ["resume", "pause", "next", "previous", "nextPlaylist", "previousPlaylist"];
 const POMODORO_TARGETS: [&str; 6] = ["start", "pause", "reset", "skip", "longer", "shorter"];
+/// Mirrors `ShortcutAction` in src/lib/shortcuts.ts.
+pub const SHORTCUT_TARGETS: [&str; 9] = ["research", "note", "reminder", "time", "date", "status", "briefing", "focus", "memory"];
 const DEFAULT_VOICE_COMMANDS: &str = include_str!("../voice-commands.json");
 
 /// The built-in voice commands (`voice-commands.json`, also read by the UI).
@@ -124,6 +131,7 @@ fn valid_custom(kind: &str, target: &str) -> bool {
         "group" => GROUP_TARGETS.contains(&target),
         "music" => MUSIC_TARGETS.contains(&target),
         "pomodoro" => POMODORO_TARGETS.contains(&target),
+        "shortcut" => SHORTCUT_TARGETS.contains(&target),
         "playlist" => !target.is_empty(),
         _ => false,
     }
@@ -194,6 +202,8 @@ fn sanitize_voice_commands(commands: Vec<VoiceCommand>) -> Vec<VoiceCommand> {
 }
 const MAX_TEXT: usize = 300;
 const LANGUAGES: [&str; 3] = ["pt", "en", "auto"];
+/// Claude Code's model aliases, plus "default". Mirrors `ASSISTANT_MODELS` in src/lib/settings.ts.
+const ASSISTANT_MODELS: [&str; 4] = ["haiku", "sonnet", "opus", "default"];
 /// Mirrors `Theme` in src/lib/theme.ts.
 const THEMES: [&str; 4] = ["blue", "green", "yellow", "custom"];
 /// Hue of the blue accent. Mirrors `DEFAULT_HUE` in src/lib/theme.ts.
@@ -255,6 +265,9 @@ pub fn sanitize(mut settings: Settings) -> Settings {
     }
     if crate::models::find(&settings.model).is_none() {
         settings.model = Settings::default().model;
+    }
+    if !ASSISTANT_MODELS.contains(&settings.assistant_model.as_str()) {
+        settings.assistant_model = Settings::default().assistant_model;
     }
 
     let defaults = default_apps();
@@ -470,7 +483,7 @@ mod tests {
             ..Settings::default()
         });
         assert_eq!(settings.language, "pt");
-        assert_eq!(settings.model, "large-v3-turbo");
+        assert_eq!(settings.model, "small");
         assert_eq!(settings.theme, "blue");
         assert_eq!(settings.background, "solid");
         assert_eq!(sanitize(Settings { theme: "green".into(), ..Settings::default() }).theme, "green");
@@ -483,11 +496,21 @@ mod tests {
         assert_eq!(sanitize(Settings { accent_hue: -30.0, ..Settings::default() }).accent_hue, 330.0);
         assert_eq!(sanitize(Settings { accent_hue: f32::NAN, ..Settings::default() }).accent_hue, DEFAULT_HUE);
 
-        // Retired models move to the default; the Base fallback is kept.
-        let retired = sanitize(Settings { model: "small".into(), ..Settings::default() });
-        assert_eq!(retired.model, "large-v3-turbo");
-        let base = sanitize(Settings { model: "base".into(), ..Settings::default() });
-        assert_eq!(base.model, "base");
+        // Retired models move to the default; the others are kept.
+        let retired = sanitize(Settings { model: "medium".into(), ..Settings::default() });
+        assert_eq!(retired.model, "small");
+        for kept in ["base", "large-v3-turbo"] {
+            assert_eq!(sanitize(Settings { model: kept.into(), ..Settings::default() }).model, kept);
+        }
+    }
+
+    #[test]
+    fn jarvis_models_are_checked() {
+        assert_eq!(Settings::default().assistant_model, "sonnet");
+        for kept in ["haiku", "sonnet", "opus", "default"] {
+            assert_eq!(sanitize(Settings { assistant_model: kept.into(), ..Settings::default() }).assistant_model, kept);
+        }
+        assert_eq!(sanitize(Settings { assistant_model: "gpt".into(), ..Settings::default() }).assistant_model, "sonnet");
     }
 
     #[test]

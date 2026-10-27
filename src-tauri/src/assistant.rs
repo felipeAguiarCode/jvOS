@@ -3,9 +3,9 @@
 //! a Channel as it is written; the conversation itself is Claude Code's own session, resumed by
 //! id when the process has to start again (after a cancel, or a restart of JARVIS).
 //!
-//! JARVIS works in its own folder (Documentos\JARVIS: notes, agent drafts) and nowhere else:
-//! `--restricted` confines the file tools to it and leaves out every tool that runs commands.
-//! It acts on the jvOS through JARVIS's MCP server (see `mcp.rs`).
+//! JARVIS works in its own folder (Documentos\JARVIS: notes, agent drafts, his memory) and
+//! nowhere else: `--restricted` confines the file tools to it and leaves out every tool that
+//! runs commands. It acts on the jvOS through JARVIS's MCP server (see `mcp.rs`).
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -20,6 +20,10 @@ use tauri::ipc::Channel;
 
 /// Who JARVIS is, appended to Claude Code's own system prompt.
 const PERSONA: &str = include_str!("../assistant-persona.md");
+/// JARVIS's long-term memory, in his folder: what the user asked him to remember.
+const MEMORY_FILE: &str = "Memória.md";
+/// The memory goes on the command line with the persona (Windows caps it at 32 767 characters).
+const MAX_MEMORY: usize = 8000;
 /// The web and the files of JARVIS's folder; no command runs.
 const TOOLS: &str = "WebSearch,WebFetch,Read,Edit,Write,Glob,Grep";
 /// All allowed without asking: `--restricted` already keeps the file tools inside the folder,
@@ -68,6 +72,8 @@ impl Folder {
 struct Process {
     child: Child,
     stdin: ChildStdin,
+    /// The `--model` it runs with ("default": none given).
+    model: String,
 }
 
 #[derive(Default)]
@@ -98,14 +104,18 @@ impl Assistant {
         &self.folder
     }
 
-    /// Starts Claude Code ahead of the question (while the user is still talking).
-    pub fn warm(&self, session: Option<String>) -> Result<(), String> {
+    /// Starts Claude Code ahead of the question (when JARVIS opens, while the user is talking).
+    /// An answer in progress is left alone.
+    pub fn warm(&self, session: Option<String>, model: &str) -> Result<(), String> {
         let mut process = self.process.lock().unwrap();
-        self.ensure(&mut process, session).map(|_| ())
+        if self.shared.lock().unwrap().turn.is_some() {
+            return Ok(());
+        }
+        self.ensure(&mut process, session, model).map(|_| ())
     }
 
     /// Sends a question; the answer streams to `channel` and always ends with a `Done`.
-    pub fn ask(&self, text: &str, session: Option<String>, channel: Channel<AssistantEvent>) -> Result<(), String> {
+    pub fn ask(&self, text: &str, session: Option<String>, model: &str, channel: Channel<AssistantEvent>) -> Result<(), String> {
         let text = text.trim();
         if text.is_empty() {
             return Err("Pergunta vazia".into());
@@ -114,7 +124,7 @@ impl Assistant {
         if self.shared.lock().unwrap().turn.is_some() {
             return Err(BUSY.into());
         }
-        let running = self.ensure(&mut process, session)?;
+        let running = self.ensure(&mut process, session, model)?;
         // Set before writing, so not even the first event can be missed.
         self.shared.lock().unwrap().turn = Some(channel);
         let message = json!({ "type": "user", "message": { "role": "user", "content": text }, "parent_tool_use_id": null });
@@ -164,22 +174,33 @@ impl Assistant {
         }
     }
 
-    /// The running process, started (or restarted on `session`) when needed.
-    fn ensure<'a>(&self, process: &'a mut Option<Process>, session: Option<String>) -> Result<&'a mut Process, String> {
+    /// The running process, started (or restarted on `session`, or with another model) when needed.
+    fn ensure<'a>(&self, process: &'a mut Option<Process>, session: Option<String>, model: &str) -> Result<&'a mut Process, String> {
         let alive = process.as_mut().is_some_and(|running| matches!(running.child.try_wait(), Ok(None)));
+        let same_model = process.as_ref().is_some_and(|running| running.model == model);
         let known = self.shared.lock().unwrap().session.clone();
         // A conversation from before (the history kept in the UI) that this process is not on.
         let other = session.as_ref().is_some_and(|wanted| known.as_ref().is_some_and(|current| current != wanted));
-        if !alive || other {
+        if !alive || !same_model || other {
             self.stop(process);
             // A session that is gone (deleted, or from another machine) cannot be resumed:
             // Claude Code would only answer "No conversation found". A new one starts instead.
-            *process = Some(self.spawn(session.or(known).filter(|id| session_exists(id)))?);
+            *process = Some(self.spawn(session.or(known).filter(|id| session_exists(id)), model)?);
         }
         Ok(process.as_mut().expect("just started"))
     }
 
-    fn spawn(&self, resume: Option<String>) -> Result<Process, String> {
+    /// The persona, and what JARVIS was asked to remember (read again each time he starts).
+    fn system_prompt(&self) -> String {
+        let memory = std::fs::read_to_string(self.folder.root.join(MEMORY_FILE)).unwrap_or_default();
+        let memory: String = memory.trim().chars().take(MAX_MEMORY).collect();
+        if memory.is_empty() {
+            return PERSONA.to_string();
+        }
+        format!("{PERSONA}\nO que você já guardou em {MEMORY_FILE}:\n\n{memory}\n")
+    }
+
+    fn spawn(&self, resume: Option<String>, model: &str) -> Result<Process, String> {
         let exe = claude_exe().ok_or(NOT_FOUND)?;
         for dir in [&self.folder.root, &self.folder.notes, &self.folder.agents] {
             std::fs::create_dir_all(dir).map_err(|error| format!("Falha ao criar {}: {error}", dir.display()))?;
@@ -194,7 +215,11 @@ impl Assistant {
         if let Some(config) = &self.mcp_config {
             command.arg("--mcp-config").arg(config);
         }
-        command.args(["--disable-slash-commands", "--effort", "low", "--append-system-prompt", PERSONA]);
+        // The user's own default can be a slow model at a high effort: JARVIS talks, so he picks his.
+        if model != "default" {
+            command.args(["--model", model]);
+        }
+        command.args(["--disable-slash-commands", "--effort", "low", "--append-system-prompt"]).arg(self.system_prompt());
         if let Some(id) = &resume {
             command.args(["--resume", id]);
         }
@@ -228,8 +253,32 @@ impl Assistant {
         };
         let shared = self.shared.clone();
         std::thread::spawn(move || read_output(stdout, &shared, generation, errors));
-        Ok(Process { child, stdin })
+        Ok(Process { child, stdin, model: model.to_string() })
     }
+}
+
+/// "anota que…": a line in the day's notes (`Notas/AAAA-MM-DD Anotações.md`), written at once
+/// with no Claude Code involved. `date` ("AAAA-MM-DD") and `time` ("HH:MM") are the user's
+/// local ones, from the UI. Returns the file.
+pub fn append_note(folder: &Folder, text: &str, date: &str, time: &str) -> Result<PathBuf, String> {
+    let digits = |value: &str, separator: char, len: usize| {
+        value.len() == len && value.chars().all(|c| c.is_ascii_digit() || c == separator)
+    };
+    if !digits(date, '-', 10) || !digits(time, ':', 5) {
+        return Err("Data inválida".into());
+    }
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Err("Nada para anotar".into());
+    }
+    std::fs::create_dir_all(&folder.notes).map_err(|error| error.to_string())?;
+    let path = folder.notes.join(format!("{date} Anotações.md"));
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(|error| error.to_string())?;
+    let fresh = file.metadata().map(|meta| meta.len() == 0).unwrap_or(false);
+    let (year, rest) = date.split_at(4);
+    let header = if fresh { format!("# Anotações de {}/{}/{year}\n\n", &rest[4..6], &rest[1..3]) } else { String::new() };
+    writeln!(file, "{header}- **{time}** {text}").map_err(|error| error.to_string())?;
+    Ok(path)
 }
 
 /// The native installer's claude.exe: on the PATH, or where the installer puts it.
@@ -719,6 +768,31 @@ mod tests {
         assert_eq!(partial_field(r#"{"file_path": "x""#, "content"), None);
         assert_eq!(partial_field(r#"{"file_pa"#, "file_path"), None);
         assert_eq!(partial_field(r#"["content"]"#, "content"), None);
+    }
+
+    #[test]
+    fn quick_notes_go_to_the_days_file() {
+        let root = std::env::temp_dir().join(format!("jarvis-notes-test-{}", std::process::id()));
+        let folder = Folder::new(root.clone());
+        let path = append_note(&folder, "  comprar\n café ", "2026-10-27", "09:05").unwrap();
+        append_note(&folder, "ligar para a Ana", "2026-10-27", "14:30").unwrap();
+        assert_eq!(path, folder.notes.join("2026-10-27 Anotações.md"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Anotações de 27/10/2026\n\n- **09:05** comprar café\n- **14:30** ligar para a Ana\n");
+        assert!(append_note(&folder, "x", "../../evil", "09:05").is_err());
+        assert!(append_note(&folder, "   ", "2026-10-27", "09:05").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_memory_joins_the_persona() {
+        let root = std::env::temp_dir().join(format!("jarvis-memory-test-{}", std::process::id()));
+        let assistant = Assistant::new(Folder::new(root.clone()), None);
+        assert_eq!(assistant.system_prompt(), PERSONA);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(MEMORY_FILE), "- Mora em Curitiba.\n").unwrap();
+        let prompt = assistant.system_prompt();
+        assert!(prompt.starts_with(PERSONA) && prompt.ends_with("- Mora em Curitiba.\n"), "{prompt}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

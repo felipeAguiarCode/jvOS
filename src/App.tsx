@@ -19,11 +19,14 @@ import { VoiceCaption } from "./components/VoiceCaption";
 import { useAssistant } from "./hooks/useAssistant";
 import { useAssistantActions } from "./hooks/useAssistantActions";
 import { useAudioAnalyzer, type VoiceStatus } from "./hooks/useAudioAnalyzer";
+import { readBattery } from "./hooks/useBattery";
 import { useDesktop } from "./hooks/useDesktop";
 import { useDockNotice } from "./hooks/useDockNotice";
 import { useMusicPlayer } from "./hooks/useMusicPlayer";
 import { PHASE_LABEL, usePomodoro } from "./hooks/usePomodoro";
+import { useReminders, type Reminder } from "./hooks/useReminders";
 import { useModels, useSettings } from "./hooks/useSettings";
+import type { SystemStats } from "./hooks/useSystemStats";
 import {
   isEngineActive,
   isMicOpen,
@@ -45,9 +48,20 @@ import { useCorePrefs } from "./lib/core";
 import { isWindowKind, WINDOW_KINDS, WINDOW_SPECS, type DesktopGroup } from "./lib/desktop";
 import { DictationContext, type DictationApi } from "./lib/dictation";
 import { useDockPrefs } from "./lib/dock";
-import { isInside } from "./lib/files";
+import { baseName, isInside } from "./lib/files";
 import { useQuality, type QualityLevel } from "./lib/quality";
 import { draftRequests, noteRequests, type FileRequest } from "./lib/requests";
+import {
+  describeDuration,
+  localStamp,
+  parseReminder,
+  shortcutPrompt,
+  spokenDate,
+  spokenStatus,
+  spokenTime,
+  type MachineState,
+  type ShortcutEvent,
+} from "./lib/shortcuts";
 import { createSpeechPlayer, useSpeechPrefs, useSpeechStatus, voiceReady } from "./lib/speech";
 import { readJson, writeJson } from "./lib/storage";
 import { useTaskbarModules } from "./lib/taskbar";
@@ -75,6 +89,8 @@ declare global {
       voiceMusic: (event: MusicCommandEvent) => void;
       /** …and for `voice:pomodoro`. */
       voicePomodoro: (action: PomodoroAction) => void;
+      /** …and for `voice:shortcut` (a shortcut, or a question said to Voice). */
+      voiceShortcut: (event: ShortcutEvent) => void;
       /** A question for JARVIS, as if it had been said to the core. */
       ask: (text: string) => void;
       /** One of JARVIS's tool calls (`jvos_run`, `agent_review`…), as its MCP server hands it over. */
@@ -289,6 +305,10 @@ export default function App() {
     [audio, pomodoro, showDockNotice],
   );
 
+  // JARVIS's shortcuts and questions said to Voice; handled below, once JARVIS exists.
+  const shortcutHandler = useRef<(event: ShortcutEvent) => void>(() => undefined);
+  const onShortcut = useCallback((event: ShortcutEvent) => shortcutHandler.current(event), []);
+
   const engine = useVoiceAssistant({
     onWake: audio.pulse,
     onCommand: ({ appId, name, error }) => {
@@ -300,6 +320,7 @@ export default function App() {
     onCloseGroup,
     onMusic,
     onPomodoro,
+    onShortcut,
   });
   const desktop = engine.available;
   const engineState = engine.status.state;
@@ -341,6 +362,87 @@ export default function App() {
   );
   const assistant = useAssistant({ voice: coreVoice, notify: notifyVoice, onModelMissing: showModelMissing, onFile: onAssistantFile });
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // What JARVIS can tell about the machine: the meters, the battery and the music.
+  const musicNow = useRef(music);
+  musicNow.current = music;
+  const readMachine = useCallback(async (): Promise<MachineState> => {
+    const fake = import.meta.env.DEV ? window.__JARVIS_SYSTEM__ : undefined;
+    const stats = fake ?? (desktop ? await invoke<SystemStats>("system_stats").catch(() => null) : null);
+    const { current, status } = musicNow.current;
+    return {
+      stats,
+      battery: await readBattery(),
+      music: current ? { title: current.track.title, artist: current.track.artist, station: current.station.name, playing: status === "playing" } : null,
+    };
+  }, [desktop]);
+
+  // An answer JARVIS knows by himself: spoken in the core, or on the dock while he is busy.
+  const { say } = assistant;
+  const reply = useCallback(
+    (question: string, answer: string) => {
+      if (!say(question, answer)) notifyVoice(answer);
+    },
+    [say, notifyVoice],
+  );
+
+  // "me lembra de beber água em 20 minutos": the alarm, the dock and JARVIS's voice.
+  const onReminder = useCallback(
+    (reminder: Reminder) => {
+      beep();
+      audio.pulse();
+      dock.show("voice", reminder.text ? `Lembrete: ${reminder.text}` : "Timer concluído");
+      reply("Lembrete", reminder.text ? `Lembrete: ${reminder.text}.` : "O seu timer terminou.");
+    },
+    [audio, dock, reply],
+  );
+  const reminders = useReminders(onReminder);
+
+  // JARVIS's voice shortcuts: what he answers at once here, what goes to Claude Code with its instructions.
+  const { ask: askJarvis } = assistant;
+  shortcutHandler.current = ({ action, text, said }: ShortcutEvent) => {
+    audio.pulse();
+    const now = new Date();
+    switch (action) {
+      case "ask":
+        return askJarvis(said);
+      case "research":
+      case "memory":
+        return askJarvis(said, shortcutPrompt(action, said, text, { now }));
+      case "briefing":
+        return void readMachine().then((machine) => askJarvis(said, shortcutPrompt("briefing", said, text, { now, machine: spokenStatus(machine) })));
+      case "reminder": {
+        const parsed = parseReminder(text);
+        // "às 15h", "amanhã de manhã": JARVIS reads the clock and sets it.
+        if (!parsed) return askJarvis(said, shortcutPrompt("reminder", said, text, { now }));
+        if (!reminders.add(parsed.minutes, parsed.text)) return notifyVoice("Não consegui agendar o lembrete", "error");
+        const when = describeDuration(parsed.minutes);
+        return reply(said, parsed.text ? `Certo. Daqui a ${when} eu aviso: ${parsed.text}.` : `Timer de ${when} iniciado.`);
+      }
+      case "time":
+        return reply(said, spokenTime(now));
+      case "date":
+        return reply(said, spokenDate(now));
+      case "status":
+        return void readMachine().then((machine) => reply(said, spokenStatus(machine)));
+      case "focus":
+        closeAll();
+        openWindow("pomodoro");
+        pomodoro.focus();
+        return reply(said, `Protocolo foco ativado. Janelas fechadas e ${pomodoro.durations.focus} minutos de foco no relógio.`);
+      case "note": {
+        if (!desktop) return notifyVoice("Disponível no app desktop");
+        const { date, time } = localStamp(now);
+        return void invoke<string>("assistant_note", { text, date, time }).then(
+          (path) => {
+            reply(said, "Anotado.");
+            notifyVoice(`Anotado em ${baseName(path)}`);
+          },
+          (error: unknown) => notifyVoice(String(error), "error"),
+        );
+      }
+    }
+  };
 
   // JARVIS's voice (Settings → Voz do JARVIS): his answers spoken, the hologram following it.
   const [speechPrefs, setSpeechPrefs] = useSpeechPrefs();
@@ -603,7 +705,14 @@ export default function App() {
   const actionCommands = useCallback(() => buildCommands(latestCommands.current), []);
 
   // JARVIS's hands: the jvOS actions, and the agents it writes, reviews and runs.
-  const runAction = useAssistantActions({ commands: actionCommands, openAgents: () => openWindow("agent"), notify: notifyVoice });
+  const { add: addReminder } = reminders;
+  const runAction = useAssistantActions({
+    commands: actionCommands,
+    openAgents: () => openWindow("agent"),
+    notify: notifyVoice,
+    machine: readMachine,
+    remind: (minutes, text) => addReminder(minutes, text) !== null,
+  });
   useEffect(
     () =>
       setAgentLauncher(async (launch) => {
@@ -628,11 +737,12 @@ export default function App() {
         voiceCloseGroup: onCloseGroup,
         voiceMusic: onMusic,
         voicePomodoro: onPomodoro,
+        voiceShortcut: onShortcut,
         ask,
         action: runAction,
       };
     }
-  }, [audio.signals, audio.status, preset.level, hear, onWindowCommand, onCloseGroup, onMusic, onPomodoro, ask, runAction]);
+  }, [audio.signals, audio.status, preset.level, hear, onWindowCommand, onCloseGroup, onMusic, onPomodoro, onShortcut, ask, runAction]);
 
   const onDockSelect = (id: DockItemId) => {
     if (id === "voice") return void toggleVoice();

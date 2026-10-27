@@ -1,6 +1,6 @@
 //! JARVIS's own MCP server: the tools Claude Code gets to act on the jvOS — any action of the
-//! search bar (windows, settings, music, theme…), opening a site, reviewing and running the
-//! agents it writes. Streamable HTTP on 127.0.0.1, answered with plain JSON (no SSE stream); a
+//! search bar (windows, settings, music, theme…), opening a site, reading the machine's state,
+//! setting reminders, reviewing and running the agents it writes. Streamable HTTP on 127.0.0.1, answered with plain JSON (no SSE stream); a
 //! random token keeps the other programs on the machine out. Most tools are carried out by the
 //! UI, which owns the desktop: the call goes out as an event and its answer comes back by command.
 
@@ -184,7 +184,7 @@ pub fn handle(body: &str, call: &dyn Fn(&str, Value) -> ToolResult) -> Option<Va
     Some(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
 }
 
-const TOOLS: [&str; 5] = ["jvos_run", "jvos_commands", "open_url", "agent_review", "agent_run"];
+const TOOLS: [&str; 7] = ["jvos_run", "jvos_commands", "open_url", "system_status", "reminder_set", "agent_review", "agent_run"];
 
 fn tools() -> Value {
     let text = |description: &str| json!({ "type": "string", "description": description });
@@ -203,6 +203,20 @@ fn tools() -> Value {
             "name": "open_url",
             "description": "Abre um site (http ou https) no navegador do usuário.",
             "inputSchema": { "type": "object", "properties": { "url": text("Endereço completo, com https://") }, "required": ["url"] },
+        },
+        {
+            "name": "system_status",
+            "description": "Lê agora o estado do computador do usuário: processador, GPU, memória, discos, bateria, Wi-Fi, a hora local e o que está tocando no jv_T4p3.",
+            "inputSchema": { "type": "object", "properties": {} },
+        },
+        {
+            "name": "reminder_set",
+            "description": "Agenda um lembrete no jvOS: daqui a `minutes` minutos o JARVIS avisa (som, aviso na dock e voz) com o texto `text`. Para um horário (\"às 15h\", \"amanhã às 9\"), calcule os minutos a partir da hora local de system_status.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "minutes": { "type": "number", "description": "Daqui a quantos minutos (1 a 10080)" }, "text": text("O que lembrar, curto (\"beber água\")") },
+                "required": ["minutes", "text"],
+            },
         },
         {
             "name": "agent_review",

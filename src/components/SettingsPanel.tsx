@@ -22,7 +22,7 @@ import {
 import type { SettingsSection } from "../lib/commands";
 import type { CoreMode } from "../lib/core";
 import { baseName, pickAnyFile, pickFolder } from "../lib/files";
-import { createAppId, type Activation, type AppEntry, type Language, type ModelStatus, type Settings } from "../lib/settings";
+import { ASSISTANT_MODELS, createAppId, type Activation, type AppEntry, type Language, type ModelStatus, type Settings } from "../lib/settings";
 import { SPEEDS, voiceReady, type SpeechPrefs, type SpeechStatus } from "../lib/speech";
 import { BackgroundNote, BACKGROUNDS, CardPicker, ChipInput, IconButton, Mono, Section, Segmented, Switch, SwitchRow, themeOptions } from "./hud";
 
@@ -32,10 +32,10 @@ const ACTIVATIONS: { value: Activation; label: string; hint: string }[] = [
   {
     value: "pushToTalk",
     label: "Segurar para falar",
-    hint: "Segure o botão Voice (ou a tecla M) enquanto fala, ex.: “abre o terminal”, e solte para enviar, como no WhatsApp. Para cancelar, deslize para a esquerda ou aperte Esc.",
+    hint: "Segure o botão Voice (ou a tecla M) enquanto fala, ex.: “abre o terminal” ou “pesquisa sobre fusão nuclear”, e solte para enviar, como no WhatsApp. O que não for comando vai para o JARVIS. Para cancelar, deslize para a esquerda ou aperte Esc.",
   },
-  { value: "wakeWord", label: "Hey Jarvis", hint: "Diga “Hey Jarvis” e o comando, ex.: “Hey Jarvis, abre o navegador”." },
-  { value: "always", label: "Sempre ouvindo", hint: "Qualquer frase com uma palavra-chave abre o programa." },
+  { value: "wakeWord", label: "Hey Jarvis", hint: "Diga “Hey Jarvis” e o comando ou a pergunta, ex.: “Hey Jarvis, abre o navegador”, “Jarvis, que horas são?”." },
+  { value: "always", label: "Sempre ouvindo", hint: "Qualquer frase com uma palavra-chave abre o programa; perguntas e atalhos começam com “Jarvis”." },
 ];
 
 const LANGUAGES: { value: Language; label: string }[] = [
@@ -282,6 +282,19 @@ function PanelBody({
             {transcript ? `“${transcript}”` : "—"}
           </span>
         </div>
+      </Section>
+
+      <Section title="Cérebro do JARVIS" id="settings-jarvis">
+        <Segmented
+          label="Modelo do JARVIS"
+          options={ASSISTANT_MODELS}
+          value={settings.assistantModel}
+          onChange={(value) => onChange((current) => ({ ...current, assistantModel: value }))}
+        />
+        <p className="text-xs leading-relaxed text-hud-text/60">
+          {ASSISTANT_MODELS.find((model) => model.value === settings.assistantModel)?.hint}. O Claude Code que responde ao clicar no
+          núcleo, às perguntas por voz e aos atalhos (“pesquisa sobre…”, “bom dia”).
+        </p>
       </Section>
 
       <SpeechSection speech={speech} />

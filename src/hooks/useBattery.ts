@@ -22,6 +22,18 @@ export const LOW_BATTERY = 0.15;
 export const isPlugged = (status: BatteryStatus) =>
   status.kind === "ready" && status.charging && status.level >= 1 && status.chargingTime === 0;
 
+/** The battery right now, once; null without one (or on a desktop, which reports a full plugged one). */
+export async function readBattery(): Promise<{ level: number; charging: boolean } | null> {
+  const getBattery = (navigator as Navigator & { getBattery?: () => Promise<BatteryManager> }).getBattery;
+  if (!getBattery) return null;
+  try {
+    const { level, charging, chargingTime, dischargingTime } = await getBattery.call(navigator);
+    return isPlugged({ kind: "ready", level, charging, chargingTime, dischargingTime }) ? null : { level, charging };
+  } catch {
+    return null;
+  }
+}
+
 /** The machine's battery, live (Battery Status API). */
 export function useBattery(): BatteryStatus {
   const [status, setStatus] = useState<BatteryStatus>({ kind: "loading" });

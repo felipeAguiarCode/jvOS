@@ -8,7 +8,8 @@ Tauri 2 · Rust · whisper.cpp · React 19 · TypeScript · Vite · Three.js · 
 
 - **Núcleo**: reator 2D (padrão), holograma 3D em WebGL ou desligado.
 - **Voz local**: Whisper offline. Segure `M` (ou o botão Voice) para falar, ou use "Hey Jarvis" ou o modo sempre ouvindo. Abre programas, sites, pastas, janelas, música e o Pomodoro.
-- **JARVIS (Claude Code)**: clique no núcleo e fale. A resposta surge em estilo SUPERHOT e fica no histórico ao lado. Ele pesquisa na web, executa ações do jvOS, salva notas no Jarvis Mark e cria agentes do Claude Code com você.
+- **JARVIS (Claude Code)**: clique no núcleo e fale. A resposta surge em estilo SUPERHOT e fica no histórico ao lado. Ele pesquisa na web, executa ações do jvOS, salva notas no Jarvis Mark, guarda o que você pedir em `Memória.md` e cria agentes do Claude Code com você. O modelo (Haiku, Sonnet ou Opus) fica nas Configurações.
+- **Atalhos por voz**: "pesquisa sobre…" (vira uma nota com fontes), "anota…", "me lembra de… em 20 minutos", "que horas são", "status do sistema", "bom dia" (briefing) e "protocolo foco". O que não for comando vai para o JARVIS como pergunta.
 - **Voz do JARVIS**: ele fala as respostas com uma voz neural local (sherpa-onnx + Piper/Kokoro, baixada nas Configurações), e o texto acompanha a fala.
 - **Dock e barra superior**: dock com zoom nos ícones e uma barra no estilo Waybar.
 - **Widgets**: Relógio, Pomodoro, Bateria, Calculadora, Sistema (CPU, GPU, disco, Wi-Fi, RAM), Fita e Mini player. O botão direito abre as opções de cada um, e eles arrastam por qualquer ponto.

@@ -193,6 +193,8 @@ export function describeTool(name: string) {
   if (name === "Read" || name === "Glob" || name === "Grep") return "Lendo suas notas";
   if (name === "mcp__jarvis__agent_review") return "Preparando o agente";
   if (name === "mcp__jarvis__agent_run") return "Rodando o agente";
+  if (name === "mcp__jarvis__system_status") return "Verificando o sistema";
+  if (name === "mcp__jarvis__reminder_set") return "Agendando o lembrete";
   if (name.startsWith("mcp__jarvis__")) return "Executando no jvOS";
   return "Trabalhando";
 }

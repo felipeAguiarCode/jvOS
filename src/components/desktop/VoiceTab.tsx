@@ -30,6 +30,11 @@ const SECTIONS: { title: string; hint: string; kinds: VoiceCommandKind[] }[] = [
     kinds: ["music"],
   },
   { title: "Pomodoro", hint: "Com o widget aberto ou não; a dock confirma acima de Widgets.", kinds: ["pomodoro"] },
+  {
+    title: "JARVIS",
+    hint: "No começo da frase, e o resto dela vai junto (“pesquisa sobre fusão nuclear”, “me lembra de beber água em 20 minutos”). O que não for comando vira uma pergunta para ele.",
+    kinds: ["shortcut"],
+  },
 ];
 
 const ACTIVATION_HINT: Record<Activation, string> = {
@@ -55,6 +60,10 @@ const ACTIONS: { group: string; options: { value: string; label: string }[] }[] 
   {
     group: "Pomodoro",
     options: DEFAULT_VOICE_COMMANDS.filter((command) => command.kind === "pomodoro").map((command) => ({ value: `pomodoro:${command.target}`, label: `Pomodoro: ${command.label.toLowerCase()}` })),
+  },
+  {
+    group: "JARVIS",
+    options: DEFAULT_VOICE_COMMANDS.filter((command) => command.kind === "shortcut").map((command) => ({ value: `shortcut:${command.target}`, label: `JARVIS: ${command.label.toLowerCase()}` })),
   },
 ];
 

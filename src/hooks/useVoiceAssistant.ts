@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ShortcutEvent } from "../lib/shortcuts";
 
 /** Mirrors `VoiceState` in `src-tauri/src/voice/mod.rs`. */
 export type EngineState = "off" | "loading" | "standby" | "awake" | "listening" | "ready" | "talking" | "dictating" | "asking" | "error";
@@ -51,6 +52,8 @@ interface Handlers {
   onCloseGroup?: (group: WindowGroup) => void;
   onMusic?: (event: MusicCommandEvent) => void;
   onPomodoro?: (action: PomodoroAction) => void;
+  /** "pesquisa sobre…", "anota…", "que horas são", or a question for JARVIS. */
+  onShortcut?: (event: ShortcutEvent) => void;
 }
 
 /** Returned by `start()` when the selected Whisper model has not been downloaded yet. */
@@ -67,7 +70,7 @@ export const isMicOpen = (state: EngineState) => MIC_OPEN.includes(state);
  * The Rust speech engine (Whisper): wake word, keywords and launching apps.
  * Only exists in the desktop app; in a browser `available` is false.
  */
-export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro }: Handlers = {}) {
+export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro, onShortcut }: Handlers = {}) {
   const available = isTauri();
   const [status, setStatus] = useState<EngineStatus>({ state: "off", message: null });
   const [heard, setHeard] = useState<Heard | null>(null);
@@ -79,8 +82,8 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
   /** The core's microphone: the last question transcribed (empty when nothing was said). */
   const [asked, setAsked] = useState<Heard | null>(null);
   const [askPending, setAskPending] = useState(false);
-  const handlers = useRef({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro });
-  handlers.current = { onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro };
+  const handlers = useRef({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro, onShortcut });
+  handlers.current = { onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro, onShortcut };
 
   const hear = useCallback((text: string) => setHeard((current) => ({ id: (current?.id ?? 0) + 1, text })), []);
 
@@ -100,6 +103,7 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
       listen<{ group: WindowGroup }>("voice:windows", ({ payload }) => handlers.current.onCloseGroup?.(payload.group)),
       listen<MusicCommandEvent>("voice:music", ({ payload }) => handlers.current.onMusic?.(payload)),
       listen<{ action: PomodoroAction }>("voice:pomodoro", ({ payload }) => handlers.current.onPomodoro?.(payload.action)),
+      listen<ShortcutEvent>("voice:shortcut", ({ payload }) => handlers.current.onShortcut?.(payload)),
       listen<{ text: string; pending: boolean; target: "editor" | "assistant" }>("voice:dictation", ({ payload }) => {
         if (payload.target === "assistant") {
           setAskPending(payload.pending);

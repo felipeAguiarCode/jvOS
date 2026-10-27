@@ -38,7 +38,7 @@ test("activation mode and language persist", async ({ page }) => {
   await expect(panel.getByRole("radio", { name: "Segurar para falar" })).toHaveAttribute("aria-checked", "true");
   await always.click();
   await expect(always).toHaveAttribute("aria-checked", "true");
-  await expect(panel.getByText("Qualquer frase com uma palavra-chave abre o programa.")).toBeVisible();
+  await expect(panel.getByText("Qualquer frase com uma palavra-chave abre o programa; perguntas e atalhos começam com “Jarvis”.")).toBeVisible();
   await panel.getByRole("radio", { name: "Segurar para falar" }).click();
   await expect(panel.getByText(/Segure o botão Voice \(ou a tecla M\)/)).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/settings-push-to-talk.png` });

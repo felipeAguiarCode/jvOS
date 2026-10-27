@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { agentRequests, type AgentAsk, type ToolReply } from "../lib/agents";
 import { normalize, searchCommands, type Command } from "../lib/search";
+import { describeDuration, MAX_REMINDER_MINUTES, statusReport, type MachineState } from "../lib/shortcuts";
 
 /** Mirrors `ActionRequest` in `src-tauri/src/mcp.rs`. */
 interface ActionRequest {
@@ -18,6 +19,10 @@ interface AssistantActionsOptions {
   openAgents: () => void;
   /** Tells the user what JARVIS did (on the Voice dock item). */
   notify: (text: string) => void;
+  /** The machine right now (meters, battery, music). */
+  machine: () => Promise<MachineState>;
+  /** Sets a reminder; false when it could not be set. */
+  remind: (minutes: number, text: string) => boolean;
 }
 
 /**
@@ -46,9 +51,9 @@ const text = (value: unknown) => (typeof value === "string" ? value.trim() : "")
  * JARVIS's hands on the jvOS: the tool calls its MCP server hands over (`assistant:action`),
  * carried out here and answered back to Claude Code. `run` also serves the dev probe.
  */
-export function useAssistantActions({ commands, openAgents, notify }: AssistantActionsOptions) {
-  const latest = useRef({ commands, openAgents, notify });
-  latest.current = { commands, openAgents, notify };
+export function useAssistantActions({ commands, openAgents, notify, machine, remind }: AssistantActionsOptions) {
+  const latest = useRef({ commands, openAgents, notify, machine, remind });
+  latest.current = { commands, openAgents, notify, machine, remind };
 
   const askAgents = useCallback((request: AgentAsk) => {
     latest.current.openAgents();
@@ -57,8 +62,17 @@ export function useAssistantActions({ commands, openAgents, notify }: AssistantA
 
   const run = useCallback(
     async (tool: string, args: Record<string, unknown>): Promise<ToolReply> => {
-      const { commands, notify } = latest.current;
+      const { commands, notify, machine, remind } = latest.current;
       switch (tool) {
+        case "system_status":
+          return { ok: true, text: statusReport(await machine(), new Date()) };
+        case "reminder_set": {
+          const minutes = typeof args.minutes === "number" ? args.minutes : Number(args.minutes);
+          const what = text(args.text);
+          if (!(minutes > 0) || minutes > MAX_REMINDER_MINUTES) return { ok: false, text: `Minutos fora do intervalo (1 a ${MAX_REMINDER_MINUTES})` };
+          if (!remind(minutes, what)) return { ok: false, text: "Não consegui agendar o lembrete" };
+          return { ok: true, text: `Lembrete agendado para daqui a ${describeDuration(minutes)}: ${what || "timer"}` };
+        }
         case "jvos_commands":
           return { ok: true, text: commands().map(describe).join("\n") };
         case "jvos_run": {

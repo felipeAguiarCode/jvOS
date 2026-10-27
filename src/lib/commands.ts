@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  Brain,
   Columns2,
   Gauge,
   Layers,
@@ -33,10 +34,10 @@ import type { MusicPlayer } from "../hooks/useMusicPlayer";
 import { CORE_MODES, type CoreMode } from "./core";
 import { WINDOW_KINDS, WINDOW_SPECS, type DesktopGroup, type WindowKind } from "./desktop";
 import type { Command } from "./search";
-import type { Activation, Background, Settings } from "./settings";
+import { ASSISTANT_MODELS, type Activation, type Background, type Settings } from "./settings";
 import type { Theme } from "./theme";
 
-export type SettingsSection = "activation" | "appearance" | "voice" | "apps";
+export type SettingsSection = "activation" | "appearance" | "voice" | "jarvis" | "apps";
 export type AdvancedTab = "colors" | "core" | "windows" | "layout" | "tui" | "taskbar" | "dock" | "voice";
 
 /** Everything the commands act on; built by App. */
@@ -127,6 +128,7 @@ const SETTINGS_SECTIONS: { section: SettingsSection; title: string; keywords: st
   { section: "activation", title: "Ativação", keywords: ["escuta", "microfone", "voz", "modo"] },
   { section: "appearance", title: "Aparência", keywords: ["cor", "tema", "fundo", "background"] },
   { section: "voice", title: "Reconhecimento de voz", keywords: ["whisper", "modelo", "idioma", "language", "download"] },
+  { section: "jarvis", title: "Cérebro do JARVIS", keywords: ["claude", "modelo", "haiku", "sonnet", "opus", "inteligencia", "velocidade"] },
   { section: "apps", title: "Programas e atalhos", keywords: ["programas", "palavras", "palavras-chave", "keywords", "comandos", "atalhos", "sites", "pastas", "arquivos"] },
 ];
 
@@ -300,6 +302,18 @@ export function buildCommands(context: CommandContext): Command[] {
       keywords: ["barra", "taskbar", "waybar", "topo", "superior", "panel"],
       run: () => context.updateSettings((current) => ({ ...current, taskbar: !current.taskbar })),
     });
+    for (const model of ASSISTANT_MODELS) {
+      commands.push({
+        id: `jarvis-model:${model.value}`,
+        title: `Modelo do JARVIS: ${model.label}`,
+        subtitle: model.hint,
+        group: "Voz",
+        icon: Brain,
+        keywords: ["jarvis", "claude", "modelo", "cerebro", "inteligencia", "velocidade", model.value],
+        badge: settings.assistantModel === model.value ? "atual" : undefined,
+        run: () => context.updateSettings((current) => ({ ...current, assistantModel: model.value })),
+      });
+    }
     for (const activation of ACTIVATIONS) {
       commands.push({
         id: `activation:${activation.value}`,

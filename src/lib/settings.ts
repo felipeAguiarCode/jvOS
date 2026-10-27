@@ -19,7 +19,17 @@ export interface AppEntry {
 }
 
 /** What a voice command does. Mirrors `VoiceCommand` in src-tauri/src/settings.rs. */
-export type VoiceCommandKind = "window" | "group" | "music" | "pomodoro" | "playlist" | "verbs" | "playVerbs";
+export type VoiceCommandKind = "window" | "group" | "music" | "pomodoro" | "playlist" | "shortcut" | "verbs" | "playVerbs";
+
+/** The Claude model JARVIS answers with. Mirrors `ASSISTANT_MODELS` in src-tauri/src/settings.rs. */
+export type AssistantModel = "haiku" | "sonnet" | "opus" | "default";
+
+export const ASSISTANT_MODELS: { value: AssistantModel; label: string; hint: string }[] = [
+  { value: "haiku", label: "Haiku", hint: "O mais rápido" },
+  { value: "sonnet", label: "Sonnet", hint: "Rápido e capaz, recomendado" },
+  { value: "opus", label: "Opus", hint: "O mais inteligente, responde mais devagar" },
+  { value: "default", label: "Padrão", hint: "O modelo e o esforço do seu Claude Code" },
+];
 
 /** A spoken interaction (Menu avançado → Voz): built-in ones can only change their phrases. */
 export interface VoiceCommand {
@@ -55,6 +65,8 @@ export interface Settings {
   voiceEnabled: boolean;
   activation: Activation;
   model: string;
+  /** JARVIS's brain (Claude Code `--model`). */
+  assistantModel: AssistantModel;
   language: Language;
   /** Color of the hologram and the interface. */
   theme: Theme;
@@ -82,7 +94,8 @@ export interface ModelStatus {
 const DEFAULT_SETTINGS: Settings = {
   voiceEnabled: false,
   activation: "pushToTalk",
-  model: "large-v3-turbo",
+  model: "small",
+  assistantModel: "sonnet",
   language: "pt",
   theme: "blue",
   accentHue: DEFAULT_HUE,
@@ -99,8 +112,9 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const BROWSER_MODELS: ModelStatus[] = [
-  { id: "large-v3-turbo", label: "Large V3 Turbo", description: "Mais preciso, recomendado", size: 574_041_195, downloaded: false, downloading: false },
-  { id: "base", label: "Base", description: "Leve e rápido, para CPUs mais fracas", size: 59_707_625, downloaded: false, downloading: false },
+  { id: "small", label: "Small", description: "Rápido e preciso, recomendado", size: 190_085_487, downloaded: false, downloading: false },
+  { id: "base", label: "Base", description: "O mais rápido, erra mais palavras", size: 59_707_625, downloaded: false, downloading: false },
+  { id: "large-v3-turbo", label: "Large V3 Turbo", description: "O mais preciso, muito lento sem GPU", size: 574_041_195, downloaded: false, downloading: false },
 ];
 
 const STORAGE_KEY = "jarvis.settings";

@@ -17,9 +17,17 @@ const MIN_SAMPLES: usize = SAMPLE_RATE * 11 / 10;
 const ENCODER_FRAMES_PER_SECOND: f32 = 50.0;
 const ENCODER_MARGIN: i32 = 128;
 const ENCODER_MAX: i32 = 1500;
-/// Smaller windows lose accuracy; 768 frames runs ~2.5× faster than the full window with the
-/// same results on the speech fixtures (~0.9 s per command on an 8-thread laptop CPU).
-const ENCODER_MIN: i32 = 768;
+/// Measured on the speech fixtures (Core 7 150U, CPU only, 10 threads): 384 frames gives the
+/// same text as 768 at ~60% of the time (Small ~2.4 s, Base ~0.75 s per command); 256 garbles
+/// Base and sends Small into repetition loops.
+const ENCODER_MIN: i32 = 384;
+/// Decoded tokens per second of audio (speech is ~6), plus a base: a decoder caught in a
+/// repetition loop ("Abre a bateria. Abre a bateria…") stops there instead of running for seconds.
+const TOKENS_PER_SECOND: f32 = 10.0;
+const TOKENS_BASE: i32 = 24;
+/// The encoder is fastest with one thread per physical core on a hybrid laptop CPU (2 P + 8 E
+/// cores: 10 threads beat 8 and 12).
+const MAX_THREADS: usize = 10;
 
 static SILENCE_LOGS: Once = Once::new();
 
@@ -38,7 +46,7 @@ impl Transcriber {
         let context = WhisperContext::new_with_params(model, parameters)
             .map_err(|e| format!("Falha ao carregar o modelo de voz: {e}"))?;
         let state = context.create_state().map_err(|e| format!("Falha ao iniciar o Whisper: {e}"))?;
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8) as i32;
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, MAX_THREADS) as i32;
         Ok(Self { state, threads })
     }
 
@@ -72,6 +80,7 @@ impl Transcriber {
         let seconds = audio.len() as f32 / SAMPLE_RATE as f32;
         let frames = (seconds * ENCODER_FRAMES_PER_SECOND).ceil() as i32 + ENCODER_MARGIN;
         params.set_audio_ctx(frames.clamp(ENCODER_MIN, ENCODER_MAX));
+        params.set_max_tokens((seconds * TOKENS_PER_SECOND) as i32 + TOKENS_BASE);
 
         self.state.full(params, audio).map_err(|e| format!("Falha na transcrição: {e}"))?;
 

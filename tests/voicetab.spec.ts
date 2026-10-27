@@ -36,7 +36,7 @@ test.beforeEach(async ({ page }) => {
 
 test("the Voz tab gathers every voice interaction, and its phrases can be edited and restored", async ({ page }) => {
   const menu = await openVoiceTab(page);
-  for (const section of ["Janelas", "Verbos", "Fechar em grupo", "Música · jv_T4p3", "Pomodoro", "Programas", "Suas interações"]) {
+  for (const section of ["Janelas", "Verbos", "Fechar em grupo", "Música · jv_T4p3", "Pomodoro", "JARVIS", "Programas", "Suas interações"]) {
     await expect(menu.getByRole("heading", { name: section })).toBeAttached();
   }
   // A few of the built-in ones, as chips.

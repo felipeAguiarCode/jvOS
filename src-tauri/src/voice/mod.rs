@@ -41,6 +41,9 @@ pub const EVENT_WINDOWS: &str = "voice:windows";
 pub const EVENT_MUSIC: &str = "voice:music";
 /// Pomodoro controls ("inicia o pomodoro", "pula a fase").
 pub const EVENT_POMODORO: &str = "voice:pomodoro";
+/// A JARVIS shortcut ("pesquisa sobre…", "anota…", "que horas são"), or a question for him
+/// (`action` "ask") when nothing else matched.
+pub const EVENT_SHORTCUT: &str = "voice:shortcut";
 
 const CANNOT_CLOSE: &str = "Fechar programas pela voz ainda não é possível";
 
@@ -134,6 +137,16 @@ struct MusicEvent {
 #[serde(rename_all = "camelCase")]
 struct PomodoroEvent {
     action: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutEvent {
+    action: String,
+    /// The words after the shortcut's phrase (a question: all of them).
+    text: String,
+    /// The whole transcript.
+    said: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -612,6 +625,15 @@ fn handle_utterance(
             reporter.emit(EVENT_POMODORO, PomodoroEvent { action });
             reporter.set(resting_state(activation), None);
         }
+        // JARVIS lives in the UI too: his answers, notes and reminders.
+        Decision::Shortcut { action, text: rest } => {
+            reporter.emit(EVENT_SHORTCUT, ShortcutEvent { action, text: rest, said: text });
+            reporter.set(resting_state(activation), None);
+        }
+        Decision::Ask { text: question } => {
+            reporter.emit(EVENT_SHORTCUT, ShortcutEvent { action: "ask".into(), text: question, said: text });
+            reporter.set(resting_state(activation), None);
+        }
         Decision::CannotClose { app_id } => {
             let Some(app) = apps.iter().find(|app| app.id == app_id) else { return };
             let error = Some(CANNOT_CLOSE.to_string());
@@ -625,7 +647,7 @@ fn handle_utterance(
 mod speech_tests {
     //! End to end with real speech (Windows TTS fixtures) and the real Whisper model:
     //! VAD → Whisper → wake word / keyword decision. Downloads the default model on first run
-    //! (Large V3 Turbo, ~575 MB, into the app's model folder): `cargo test -- --ignored speech`.
+    //! (Small, ~190 MB, into the app's model folder): `cargo test -- --ignored speech`.
 
     use super::*;
     use crate::models;
@@ -648,9 +670,11 @@ mod speech_tests {
         }
     }
 
+    /// The default model, or the one in `JARVIS_TEST_MODEL` ("base", "small"…) to compare them.
     fn model_path() -> PathBuf {
         let dir = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap()).join("dev.jarvis.os/models");
-        let model = models::find(&Settings::default().model).unwrap();
+        let id = std::env::var("JARVIS_TEST_MODEL").unwrap_or_else(|_| Settings::default().model);
+        let model = models::find(&id).unwrap();
         if !models::is_downloaded(&dir, model) {
             models::download(model, &dir, |_, _| {}).unwrap();
         }
@@ -696,14 +720,14 @@ mod speech_tests {
     }
 
     #[test]
-    #[ignore = "needs the Whisper model (downloads ~575 MB on first run)"]
+    #[ignore = "needs the Whisper model (downloads ~190 MB on first run)"]
     fn speech_wake_word_mode() {
         let decisions = run(&["unrelated", "wake_command", "wake_only", "command_vscode", "claude"], Activation::WakeWord);
         assert_eq!(decisions, vec![Decision::Ignore, launch("browser"), Decision::Wake, launch("vscode"), launch("claude")]);
     }
 
     #[test]
-    #[ignore = "needs the Whisper model (downloads ~575 MB on first run)"]
+    #[ignore = "needs the Whisper model (downloads ~190 MB on first run)"]
     fn speech_window_commands() {
         // The Windows TTS voice garbles "relógio" and "pomodoro" for Whisper; "bateria" survives.
         let window = |kind: &str, open: bool| Decision::Window { kind: kind.into(), open };
@@ -714,7 +738,7 @@ mod speech_tests {
     }
 
     #[test]
-    #[ignore = "needs the Whisper model (downloads ~575 MB on first run)"]
+    #[ignore = "needs the Whisper model (downloads ~190 MB on first run)"]
     fn speech_always_listening_mode() {
         let decisions = run(&["terminal", "unrelated", "command_vscode"], Activation::Always);
         // "terminal" opens jv_sh, the terminal inside JARVIS.
