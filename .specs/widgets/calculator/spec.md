@@ -1,4 +1,4 @@
-# Calculadora
+# Widget: Calculadora
 
 Widget de calculadora no estilo REPL, com teclado na tela e no teclado físico, que calcula com um parser próprio, sem `eval`.
 
@@ -10,9 +10,126 @@ Widget de calculadora no estilo REPL, com teclado na tela e no teclado físico, 
 | **Window kind** | `calculator` em `src/lib/desktop.ts` (300 × 420, mínimo 260 × 360, grupo `widgets`) |
 | **Voz** | `window:calculator` ("calculadora", "calculator") |
 
-## Visão geral
+## Objetivo
 
 A Calculadora funciona como um REPL. Na linha `>` o usuário digita a expressão, e depois do `=` aparece o resultado em formato brasileiro (vírgula decimal). Embaixo há um teclado plano de 6 × 4 teclas. Ela aceita parênteses, potência (`^`), porcentagem pós-fixa (`%`) e sinal negativo, e calcula com um parser próprio, sem `eval`. Funciona pelo mouse e pelo teclado físico.
+
+## Não-objetivos
+
+- Sem memória (M+), histórico de várias contas ou funções científicas além de `^` e `%`.
+- O `%` é sempre "dividido por 100" no número anterior (`50%` = `0,5`), sem a semântica de "porcentagem de" das calculadoras de bolso.
+- A voz só abre e fecha a calculadora (`window:calculator`). Não há frases para fazer contas nela.
+
+## Histórias de usuário
+
+### US1 — Fazer uma conta pelos botões (P1)
+
+Como usuário, quero clicar nas teclas e ver o resultado.
+
+**Por que P1:** é a função do widget.
+**Teste independente:** `tests/desktop.spec.ts` — `the calculator computes from the buttons and from the keyboard`.
+
+**Aceite:** [critérios 1 a 4, 10 e 11](#critérios-de-aceite).
+
+### US2 — Fazer contas pelo teclado (P1)
+
+Como usuário, quero digitar a conta direto, com o widget em foco.
+
+**Por que P1:** é mais rápido que o mouse.
+**Teste independente:** `tests/desktop.spec.ts` — `the calculator computes from the buttons and from the keyboard`.
+
+**Aceite:** [critérios 5 a 8](#critérios-de-aceite).
+
+### US3 — Escolher o que aparece (P2)
+
+**Teste independente:** `tests/widgets.spec.ts` — `Calculadora: right click turns parts of the widget off, and it stays so`.
+
+**Aceite:** [critério 9](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** a calculadora aberta
+- **Quando** clico em `7`, `×`, `8` e "Igual"
+- **Então** o display mostra `56`.
+
+### Critério 2 (US1)
+
+- **Dado** um resultado na tela
+- **Quando** clico em "Limpar"
+- **Então** o display volta a `0`.
+
+### Critério 3 (US1)
+
+- **Dado** um resultado
+- **Então** a linha de cima mostra `> <expressão anterior>` e a de baixo `= <resultado>`.
+
+### Critério 4 (US1)
+
+- **Dado** `0,1 + 0,2`
+- **Quando** calculo
+- **Então** o resultado é `0,3`, sem o ruído de ponto flutuante.
+
+### Critério 5 (US2)
+
+- **Dado** o display clicado (foco no widget)
+- **Quando** digito `12+3` e Enter
+- **Então** vejo `12+3` enquanto digito e `15` depois.
+
+### Critério 6 (US2)
+
+- **Dado** o resultado `15`
+- **Quando** digito `*2` e Enter
+- **Então** a conta continua do resultado e dá `30`.
+
+### Critério 7 (US2)
+
+- **Dado** qualquer estado
+- **Quando** aperto Esc (ou Delete)
+- **Então** o display volta a `0`.
+
+### Critério 8 (US2)
+
+- **Dado** o foco na calculadora
+- **Quando** digito a conta
+- **Então** o estado da voz continua `idle`.
+
+### Critério 9 (US3)
+
+- **Dado** o menu "Opções do widget Calculadora"
+- **Quando** desmarco "Teclado"
+- **Então** as teclas somem (o display ocupa a janela) e a escolha vale depois de recarregar. Os outros itens são "Conta anterior" e "Cursor".
+
+### Critério 10 (US1)
+
+- **Dado** a calculadora aberta
+- **Quando** clico em `(`, `2`, `+` e "Igual"
+- **Então** o display mostra "Erro" na cor de alerta, porque a expressão é inválida.
+
+### Critério 11 (US1)
+
+- **Dado** a calculadora com o display em `0` (expressão vazia)
+- **Quando** clico em "Igual"
+- **Então** nada acontece: o display continua `>` `0`, sem `=`.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - "Igual" (ou Enter) com a expressão vazia → nada acontece.
+  - Expressão inválida (`(2+`, `2**`, `5%` sem número antes, `1,2,3`, um símbolo fora de `ALIASES`) → `CalcError` e "Erro" em alerta.
+  - Divisão por zero ou resultado infinito → "Erro" ("resultado inválido").
+  - Depois de "Erro", um operador ou `)` → a conta continua de "Erro" e dá "Erro" de novo; um número, "Limpar" ou ⌫ recomeçam.
+  - `jarvis.widget.calculator` ausente, inválido ou com uma chave não booleana → essa opção vale `true`.
+- **Duplicidade/idempotência:**
+  - "Igual" de novo depois do resultado → avalia a mesma expressão, e o resultado não muda.
+  - "Inverter sinal" duas vezes → o último número volta ao sinal original.
+  - Escolher "Calculadora" com ela aberta → ela só vem para a frente.
+- **Concorrência/corrida:**
+  - Teclas apertadas com o menu de opções aberto → ficam no menu e não entram na conta.
+  - Uma tecla com Ctrl, Meta ou Alt → fica para a janela e o app (ex.: Ctrl+W), sem digitar na conta.
+  - Recarregar no meio de uma conta → a expressão e o resultado se perdem (RNF-001); só as opções voltam.
+- **Permissões/visibilidade:** não se aplica: é só UI, sem comando Tauri, rede ou arquivo. Nada do que se digita vira código, porque não há `eval` e o tokenizador recusa o que não está em `ALIASES`.
 
 ## Dados
 
@@ -118,63 +235,19 @@ O menu de botão direito, feito com `useWidgetMenu`, `WidgetMenu` e `toggleItems
 - **RNF-002**: Roda igual no modo web e no Tauri.
 - Sem `eval`; resultado com no máximo 12 dígitos significativos e 10 casas.
 
-## Histórias de usuário
-
-### US1 — Fazer uma conta pelos botões (P1)
-
-Como usuário, quero clicar nas teclas e ver o resultado.
-
-**Por que P1:** é a função do widget.
-**Teste independente:** `tests/desktop.spec.ts` — `the calculator computes from the buttons and from the keyboard`.
-
-**Aceite**
-
-1. **Dado** a calculadora aberta, **quando** clico em `7`, `×`, `8` e "Igual", **então** o display mostra `56`.
-2. **Dado** um resultado na tela, **quando** clico em "Limpar", **então** o display volta a `0`.
-3. **Dado** um resultado, **então** a linha de cima mostra `> <expressão anterior>` e a de baixo `= <resultado>`.
-4. **Dado** `0,1 + 0,2`, **quando** calculo, **então** o resultado é `0,3`, sem o ruído de ponto flutuante.
-
-### US2 — Fazer contas pelo teclado (P1)
-
-Como usuário, quero digitar a conta direto, com o widget em foco.
-
-**Por que P1:** é mais rápido que o mouse.
-**Teste independente:** `tests/desktop.spec.ts` — `the calculator computes from the buttons and from the keyboard`.
-
-**Aceite**
-
-1. **Dado** o display clicado (foco no widget), **quando** digito `12+3` e Enter, **então** vejo `12+3` enquanto digito e `15` depois.
-2. **Dado** o resultado `15`, **quando** digito `*2` e Enter, **então** a conta continua do resultado e dá `30`.
-3. **Dado** qualquer estado, **quando** aperto Esc (ou Delete), **então** o display volta a `0`.
-4. **Dado** o foco na calculadora, **quando** digito a conta, **então** o estado da voz continua `idle`.
-
-### US3 — Escolher o que aparece (P2)
-
-**Teste independente:** `tests/widgets.spec.ts` — `Calculadora: right click turns parts of the widget off, and it stays so`.
-
-**Aceite**
-
-1. **Dado** o menu "Opções do widget Calculadora", **quando** desmarco "Teclado", **então** as teclas somem (o display ocupa a janela) e a escolha vale depois de recarregar. Os outros itens são "Conta anterior" e "Cursor".
-
 ## Critérios de sucesso
 
 - **SC-001**: Contas do dia a dia dão o mesmo resultado de uma calculadora comum, com vírgula decimal.
 - **SC-002**: Nenhuma entrada derruba o widget, e o pior caso é `Erro`.
 
-## Fora de escopo e limitações
-
-- Sem memória (M+), histórico de várias contas ou funções científicas além de `^` e `%`.
-- O `%` é sempre "dividido por 100" no número anterior (`50%` = `0,5`), sem a semântica de "porcentagem de" das calculadoras de bolso.
-- A voz só abre e fecha a calculadora (`window:calculator`). Não há frases para fazer contas nela.
-
-## Código
+## Entregáveis
 
 O cálculo fica em `src/lib/calc.ts`. A entrada é tokenizada (aceitando os símbolos de tela e de teclado), convertida para RPN pelo algoritmo shunting-yard e avaliada numa pilha. Qualquer erro vira `CalcError`. O widget guarda `expression` e `result` em estado React, traduz teclas físicas e cliques em `insert` ou `run(action)`, e formata o resultado com `formatResult` (`toPrecision(12)` + `toLocaleString("pt-BR")`).
 
 | | |
 |---|---|
 | **Camadas** | UI React (`Calculator.tsx`) · lib (`calc.ts`) |
-| **Dependências** | nenhuma externa; ícone `Delete` do lucide para ⌫ |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/desktop.spec.ts`, `tests/widgets.spec.ts` (e a busca em `tests/search.spec.ts` abre a Calculadora) |
 | **Plataforma** | Windows 11 · WebView2; no modo web funciona igual |
 
@@ -211,6 +284,23 @@ sequenceDiagram
   Note over W: CalcError → "Erro"
 ```
 
+### Testes
+
+- `npx playwright test tests/desktop.spec.ts --project ui -g "the calculator computes"`: `7 × 8` dá `56`, "Limpar" volta a `0`, `12+3` pelo teclado dá `15`, `*2` continua do resultado, Esc limpa e a voz segue `idle` (critérios 1, 2 e 5 a 8).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Calculadora"`: "Teclado" desmarcado esconde as teclas e continua assim depois de recarregar (critério 9).
+- `npx playwright test tests/desktop.spec.ts --project ui -g "voice commands open and close windows"`: `window:calculator` abre e fecha o widget (T012).
+- `npx playwright test tests/search.spec.ts --project ui -g "typing finds a widget"`: a busca acha a Calculadora e Enter a abre.
+- `cargo test --lib opens_and_closes_jarvis_windows` (em `src-tauri`): "abrir a calculadora" e "fechar a calculadora, por favor" viram `window:calculator`.
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `calculator`.
+- Sem teste automatizado: critérios 3, 4, 10 e 11. O `calc.ts` não tem teste unitário (ver [Pendências](#pendências)).
+
+### Reversão
+
+- Tirar `calculator` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:calculator` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Tirar o `case "calculator"` de `Desktop.tsx`, as palavras de busca de `commands.ts` e apagar `Calculator.tsx` e `src/lib/calc.ts`, que só a calculadora importa.
+- Testes de outras features usam a Calculadora como segunda janela (`desktop`, `search`, `shortcuts`, e o `matcher.rs` e o `voice/mod.rs` no Rust). Eles precisam trocar de kind.
+- Fica órfão e é ignorado: `jarvis.widget.calculator`; `calculator` em `jarvis.desktop` (o `parseDesktop` descarta); `window:calculator` e os `custom-*` com alvo `calculator` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: tudo local.
@@ -227,6 +317,12 @@ sequenceDiagram
 
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - [ADR-0017 — UI PT-BR, código EN](../../arch/adr/0017-ui-pt-br-codigo-en.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícone `Delete` do ⌫)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [voice-commands](../../features/voice-commands/spec.md) (`window:calculator`), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** WebView2 (`toLocaleString("pt-BR")` para a vírgula decimal).
 
 ## Tarefas
 

@@ -221,13 +221,25 @@ describe("whole runs", () => {
     assert.match(spec, /\| \*\*Status\*\* \| Em desenvolvimento \|/);
     assert.match(spec, /\| \*\*Origem\*\* \| não commitado \(03\/11\) \|/);
     assert.match(spec, /\(300 × 200, mínimo 220 × 120, grupo `widgets`\)/);
-    assert.match(spec, /^# Humor\n\n[^<|#\n]/, "title and lead");
+    assert.match(spec, /^# Widget: Humor\n\n[^<|#\n]/, "title and lead");
+    // The spec-coding.dev order (Goal, Non-goals, Acceptance, Edge cases, … Output, Dependencies) around the SpecLang body.
     const headings = spec.split("\n").filter((line) => /^## /.test(line));
-    assert.deepEqual(headings, ["## Visão geral", "## Dados", "## Componentes", "## Voz e teclado", "## Restrições", "## Histórias de usuário", "## Critérios de sucesso", "## Fora de escopo e limitações", "## Código", "## Tarefas", "## Pendências"]);
+    assert.deepEqual(headings, ["## Objetivo", "## Não-objetivos", "## Histórias de usuário", "## Critérios de aceite", "## Casos de borda", "## Dados", "## Componentes", "## Voz e teclado", "## Restrições", "## Critérios de sucesso", "## Entregáveis", "## Dependências", "## Tarefas", "## Pendências"]);
+    for (const category of ["Vazio/nulo", "Duplicidade/idempotência", "Concorrência/corrida", "Permissões/visibilidade"]) assert.ok(spec.includes(`- **${category}:** `), category);
+    for (const sub of ["### Testes", "### Reversão"]) assert.ok(spec.split("\n").includes(sub), sub);
+    assert.match(spec, /- `npx playwright test tests\/humor\.spec\.ts --project ui`: /);
+    assert.match(spec, /- \*\*Vendor:\*\* \[React\]\(\.\.\/\.\.\/foundation\/vendor\/react\/spec\.md\)/);
+    // Acceptance in the spec-coding.dev format: numbered criteria with Dado / Quando / Então, linked from the story.
+    const criteria = spec.match(/^### Critério \d+ \(US1\)$/gm) ?? [];
+    assert.ok(criteria.length >= 3, "criteria for US1");
+    assert.ok(spec.includes(`**Aceite:** [critérios 1 a ${criteria.length}](#critérios-de-aceite).`), "story links its criteria");
+    assert.match(spec, /^### Critério 1 \(US1\)\n\n- \*\*Dado\*\* o desktop sem a janela Humor\n- \*\*Quando\*\* digo "Jarvis, abre humor"/m);
+    assert.doesNotMatch(spec, /^\*\*Aceite\*\*$|\*\*(quando|então)\*\*/m, "no old per-story list");
     assert.match(spec, /^### `HumorWidget`$/m);
     for (const label of ["**Comportamento:**", "**Layout:**", "**Estilo:**"]) assert.ok(spec.includes(`- ${label}`), label);
     for (const id of ["RF-001", "RF-002", "RF-003", "RNF-001"]) assert.equal(spec.split(`**${id}**`).length - 1, 1, `${id} defined once`);
-    assert.match(spec, /- \[ \] T\d{3} Kind no Rust — `src-tauri\/src\/settings.rs`/);
+    assert.match(spec, /- \[ \] T\d{3} Kind no Rust\n {2}- Arquivos permitidos: `src-tauri\/src\/settings.rs`/);
+    assert.match(spec, /- \[ \] T\d{3} \[US1\] Conteúdo de verdade no lugar do esqueleto\n {2}- Aceite: critérios 1 a \d+\n {2}- Arquivos permitidos: .*\n {2}- Comando de teste: `npx playwright test tests\/humor\.spec\.ts --project ui`\n {2}- Evidência: /);
     assert.doesNotMatch(spec, /retroativas|<!--|plan\.md|tasks\.md|^### Contratos/m);
   });
 
@@ -256,8 +268,15 @@ describe("whole runs", () => {
     assert.ok(out.includes("async fn daily_quote_get() -> Result<String, String> {"));
     const spec = readFileSync(join(root, ".specs/features/daily-quote/spec.md"), "utf8");
     assert.deepEqual(readdirSync(join(root, ".specs/features/daily-quote")), ["spec.md"]);
-    for (const heading of ["## Dados", "### Comando `daily_quote_get`", "### Tool `daily_quote` do JARVIS", "## Voz e teclado", "#### Comandos Tauri", "#### Ferramentas MCP (JARVIS)"]) assert.ok(spec.split("\n").includes(heading), heading);
-    assert.doesNotMatch(spec, /^## Telas$/m);
+    // The "Feature Specification" format (ADR-0025): English section titles, PT-BR content.
+    assert.match(spec, /^# Feature Specification: /);
+    const headings = spec.split("\n").filter((line) => /^## /.test(line));
+    assert.deepEqual(headings, ["## Metadata", "## Overview", "## Goals and Success Criteria", "## Scope and Non-Goals", "## User Stories", "## Requirements", "## Acceptance Criteria", "## Behavior and Flows", "## Data Model and Persistence", "## Technical Design", "## Interfaces and Contracts", "## Edge Cases and Error Handling", "## Dependencies", "## Test Strategy and Coverage", "## Implementation Plan", "## Rollback Plan", "## Constitution Compliance", "## Known Limitations", "## Open Questions", "## References"]);
+    for (const heading of ["### Comando `daily_quote_get`", "### Tool `daily_quote` do JARVIS", "### Voice and Keyboard", "### Tauri Commands", "### Assistant Tool", "### AC-001 — Trigger by Voice", "### Phase 2 — Registration (CLI checklist)"]) assert.ok(spec.split("\n").includes(heading), heading);
+    assert.match(spec, /^\| Voice Shortcut \| `shortcut:dailyQuote` \|$/m);
+    assert.match(spec, /- \*\*When\*\* o usuário diz "Jarvis, frase do dia" seguido do texto\n- \*\*Then\*\* /);
+    assert.match(spec, /\| RF-002 \| Quando o usuário disser "frase do dia" \(`shortcut:dailyQuote`\), seguido do texto, o sistema DEVE/);
+    assert.doesNotMatch(spec, /<!--|^## (Dados|Componentes|Entregáveis|Tarefas)$/m);
   });
 
   test("an ADR takes the next number", async () => {

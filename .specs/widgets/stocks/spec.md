@@ -1,18 +1,173 @@
-# Ações
+# Widget: Ações
 
 Widget com as ações, FIIs, ETFs e índices que o usuário acompanha, com alertas de preço que o JARVIS também cria e que avisam mesmo com o widget fechado.
 
 | | |
 |---|---|
 | **ID** | `widget/stocks` |
-| **Status** | Implementado · não commitado |
-| **Origem** | não commitado (27/10) |
+| **Status** | Implementado |
+| **Origem** | `e7151cf` (2026-11-05), escrito em 27/10 |
 | **Window kind** | `stocks` em `src/lib/desktop.ts` (380 × 300, mínimo 300 × 180, grupo `widgets`) |
 | **Voz** | `window:stocks` ("ações", "cotações", "bolsa", "carteira de ações", "fundos imobiliários", "investimentos"); pedidos livres vão ao JARVIS, que usa as tools `stocks_*` |
 
-## Visão geral
+## Objetivo
 
 O widget Ações lista as ações, FIIs, ETFs e índices que o usuário acompanha. Para cada um ele mostra o preço, a variação do dia e uma minilinha com os preços de hoje, além dos alertas de preço pendentes. Os códigos entram digitados no widget ou pedidos ao JARVIS ("Jarvis, monitora a Petrobras"), que também consulta cotações e cria alertas de uso único. Quando um alerta dispara, há bipe, aviso no dock e fala do JARVIS, mesmo com o widget fechado. As cotações vêm do Yahoo Finance pelo Rust, sem chave de API, com cerca de 15 minutos de atraso na B3.
+
+## Não-objetivos
+
+- Sem carteira (quantidade, preço médio, lucro), sem gráfico histórico além do dia e sem notícias.
+- Dados com cerca de 15 minutos de atraso na B3 (Yahoo).
+- Não há frase de voz própria além de abrir e fechar ("mostra as cotações"). "Monitora as ações da Petrobras" e "me avisa se a PETR4 passar de 60 reais" caem no JARVIS (fallback, ver [voice-commands](../../features/voice-commands/spec.md)), que converte o nome no código e chama a tool. Ver [assistant-tools](../../features/assistant-tools/spec.md).
+
+## Histórias de usuário
+
+### US1 — Acompanhar códigos no widget (P1)
+
+Como investidor, quero digitar "petr4" e ver o preço e a variação do dia.
+
+**Por que P1:** é a função básica do widget.
+**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off`.
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Pedir ao JARVIS (P1)
+
+Como usuário, quero dizer "Jarvis, monitora a Petrobras" (o exemplo do próprio widget) ou pedir uma cotação, e ter a resposta e o widget atualizados.
+
+**Por que P1:** é o jeito principal de uso por voz.
+**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off`.
+
+**Aceite:** [critérios 6 a 9](#critérios-de-aceite).
+
+### US3 — Alertas de preço (P2)
+
+Como usuário, quero ser avisado quando um ativo passar de um preço ou cair abaixo dele.
+
+**Por que P2:** é um valor extra sobre a lista, que funciona com o widget fechado.
+**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off` e `JARVIS's lines for the weather, the agenda and a price alert`.
+
+**Aceite:** [critérios 10 a 14](#critérios-de-aceite).
+
+### US4 — Atualização automática (P2)
+
+**Aceite:** [critérios 15 a 17](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o widget vazio
+- **Então** vejo "Nenhum código ainda. Diga “Jarvis, monitora a Petrobras” ou digite abaixo."
+
+### Critério 2 (US1)
+
+- **Dado** o campo "Adicionar código" (placeholder `PETR4, HGLG11…`)
+- **Quando** digito `petr4` e Enter
+- **Então** aparece a linha `PETR4` com `R$ 53,88` e `−8,18%` (variação negativa na cor de alerta) e uma minilinha.
+
+### Critério 3 (US1)
+
+- **Dado** cotações carregadas
+- **Então** o cabeçalho "Ações e FIIs" mostra `às HH:MM` da última atualização. Sem conexão, mostra "sem conexão".
+
+### Critério 4 (US1)
+
+- **Dado** uma linha
+- **Quando** passo o mouse e clico em "Parar de acompanhar PETR4"
+- **Então** ela some de vez, junto com os alertas desse código.
+
+### Critério 5 (US1)
+
+- **Dado** o nome completo do ativo
+- **Então** ele aparece como dica (tooltip) da linha.
+
+### Critério 6 (US2)
+
+- **Dado** a tool `stocks_watch { symbol: "hglg11" }`
+- **Então** `HGLG11` entra no widget, que abre na tela, e o JARVIS recebe "HGLG11 no widget Ações. HGLG11 (FII CSHG LOG): R$ 151,70, +0,42% no dia, às HH:MM".
+
+### Critério 7 (US2)
+
+- **Dado** `stocks_quote { symbols: ["PETR4", "NOPE3"] }`
+- **Então** a resposta traz uma linha por código, e o inexistente vem como `NOPE3: erro (…)`.
+
+### Critério 8 (US2)
+
+- **Dado** `stocks_quote` sem `symbols`
+- **Então** são cotados os códigos do widget. Com o widget vazio, a tool responde erro.
+
+### Critério 9 (US2)
+
+- **Dado** `stocks_watch { symbol, remove: true }`
+- **Então** o código sai do widget.
+
+### Critério 10 (US3)
+
+- **Dado** `stocks_alert { symbol: "HGLG11", below: 140 }` com o preço acima disso
+- **Então** o alerta fica pendente e aparece sob a linha como "⚑ avisar abaixo de R$ 140,00".
+
+### Critério 11 (US3)
+
+- **Dado** `stocks_alert { symbol: "PETR4", above: 50 }` com o preço já em 53,88
+- **Então** o alerta dispara na hora: bipe, pulso do núcleo, dock "PETR4: R$ 53,88" e uma fala como "Alerta de preço, Tony: PETR4 a 53 reais e 88, acima de 50 reais."
+
+### Critério 12 (US3)
+
+- **Dado** um alerta que disparou
+- **Então** ele é apagado (uso único), e só os outros continuam em `jarvis.watchlist`.
+
+### Critério 13 (US3)
+
+- **Dado** `stocks_alert` sem `above` nem `below` (ou com valor ≤ 0)
+- **Então** a tool responde `ok: false`.
+
+### Critério 14 (US3)
+
+- **Dado** `stocks_alert { symbol, remove: true }`
+- **Então** todos os alertas desse código são apagados.
+
+### Critério 15 (US4)
+
+- **Dado** o widget aberto
+- **Então** as cotações são buscadas ao abrir e depois a cada 60 s.
+
+### Critério 16 (US4)
+
+- **Dado** o widget fechado e algum alerta pendente
+- **Então** as cotações são buscadas a cada 120 s, só para checar os alertas.
+
+### Critério 17 (US4)
+
+- **Dado** o widget fechado e nenhum alerta
+- **Então** nada é buscado.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Sem códigos → "Nenhum código ainda. Diga “Jarvis, monitora a Petrobras” ou digite abaixo.", e `refresh` não busca nada.
+  - Enter com o campo "Adicionar código" vazio → nada é enviado.
+  - Código ainda sem cotação → o preço mostra "…"; com códigos e nenhuma cotação, o cabeçalho também.
+  - Menos de 2 pontos no dia → a minilinha fica só como espaço vazio.
+  - Um chart sem `regularMarketPrice` → aquele código vem com o erro "sem preço".
+  - `stocks_quote` sem `symbols` e o widget vazio → `ok: false` ("Nenhum código pedido e o widget Ações está vazio").
+  - `stocks_alert` sem `above` nem `below`, ou com um deles ≤ 0 → `ok: false`.
+  - `jarvis.watchlist` corrompido → `parseWatch` normaliza e corta os códigos em 20, descarta alertas sem `id`/`symbol` ou sem limite e corta os alertas em 50.
+- **Duplicidade/idempotência:**
+  - Acompanhar um código que já está na lista (`petr4` de novo, `PETR4.SA`, `stocks_watch` repetido) → a lista não muda.
+  - Um alerta é de uso único: dispara uma vez e sai de `jarvis.watchlist`. Com acima e abaixo, dispara no primeiro limite cruzado.
+  - Lista com 20 códigos → "A lista está cheia (20)"; com 50 alertas, novos alertas são recusados.
+- **Concorrência/corrida:**
+  - Um alerta criado e o `refresh` logo em seguida → o alerta já vale nesse `refresh`, antes de o React renderizar.
+  - Um código com erro no meio da lista → só ele mostra "erro" e não dispara alerta; os outros seguem normais.
+  - A rede falha → $erro aparece embaixo da lista, o cabeçalho diz "sem conexão", e as últimas cotações continuam na tela.
+  - O app fica oculto com o widget aberto → só o ritmo de 120 s dos alertas continua; na volta, cotações com mais de 60 s são buscadas na hora.
+  - O widget fecha com alerta pendente → a primeira checagem só acontece 120 s depois de fechar.
+- **Permissões/visibilidade:**
+  - Só o Rust fala com o Yahoo (`query1.finance.yahoo.com`), sem chave de API, porque a CSP da WebView bloqueia outras origens.
+  - `yahoo_symbol` só aceita `[A-Za-z0-9^.=-]` com até 16 caracteres antes de montar a URL, e recusa `PETR4/../x`.
+  - No modo web, o fake `__JARVIS_QUOTES__` só vale em DEV; sem ele, aparece "Disponível no app desktop".
+  - As tools `stocks_*` chegam pelo servidor MCP local e só mexem em `jarvis.watchlist`, o mesmo estado do widget.
 
 ## Dados
 
@@ -121,79 +276,19 @@ O hook que guarda $watchlist, busca $cotações e checa os alertas. Ele vive no 
 - **RNF-003**: Atualização a cada 60 s com o widget aberto, e a cada 120 s fechado só com alertas pendentes.
 - ≤ 20 códigos, ≤ 16 caracteres cada; ≤ 50 alertas; timeout de 10 s; 60 s / 120 s de intervalo.
 
-## Histórias de usuário
-
-### US1 — Acompanhar códigos no widget (P1)
-
-Como investidor, quero digitar "petr4" e ver o preço e a variação do dia.
-
-**Por que P1:** é a função básica do widget.
-**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off`.
-
-**Aceite**
-
-1. **Dado** o widget vazio, **então** vejo "Nenhum código ainda. Diga “Jarvis, monitora a Petrobras” ou digite abaixo."
-2. **Dado** o campo "Adicionar código" (placeholder `PETR4, HGLG11…`), **quando** digito `petr4` e Enter, **então** aparece a linha `PETR4` com `R$ 53,88` e `−8,18%` (variação negativa na cor de alerta) e uma minilinha.
-3. **Dado** cotações carregadas, **então** o cabeçalho "Ações e FIIs" mostra `às HH:MM` da última atualização. Sem conexão, mostra "sem conexão".
-4. **Dado** uma linha, **quando** passo o mouse e clico em "Parar de acompanhar PETR4", **então** ela some de vez, junto com os alertas desse código.
-5. **Dado** o nome completo do ativo, **então** ele aparece como dica (tooltip) da linha.
-
-### US2 — Pedir ao JARVIS (P1)
-
-Como usuário, quero dizer "Jarvis, monitora a Petrobras" (o exemplo do próprio widget) ou pedir uma cotação, e ter a resposta e o widget atualizados.
-
-**Por que P1:** é o jeito principal de uso por voz.
-**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off`.
-
-**Aceite**
-
-1. **Dado** a tool `stocks_watch { symbol: "hglg11" }`, **então** `HGLG11` entra no widget, que abre na tela, e o JARVIS recebe "HGLG11 no widget Ações. HGLG11 (FII CSHG LOG): R$ 151,70, +0,42% no dia, às HH:MM".
-2. **Dado** `stocks_quote { symbols: ["PETR4", "NOPE3"] }`, **então** a resposta traz uma linha por código, e o inexistente vem como `NOPE3: erro (…)`.
-3. **Dado** `stocks_quote` sem `symbols`, **então** são cotados os códigos do widget. Com o widget vazio, a tool responde erro.
-4. **Dado** `stocks_watch { symbol, remove: true }`, **então** o código sai do widget.
-
-### US3 — Alertas de preço (P2)
-
-Como usuário, quero ser avisado quando um ativo passar de um preço ou cair abaixo dele.
-
-**Por que P2:** é um valor extra sobre a lista, que funciona com o widget fechado.
-**Teste independente:** `tests/feeds.spec.ts` — `stocks: typed into the widget or watched by JARVIS, with a price alert that goes off` e `JARVIS's lines for the weather, the agenda and a price alert`.
-
-**Aceite**
-
-1. **Dado** `stocks_alert { symbol: "HGLG11", below: 140 }` com o preço acima disso, **então** o alerta fica pendente e aparece sob a linha como "⚑ avisar abaixo de R$ 140,00".
-2. **Dado** `stocks_alert { symbol: "PETR4", above: 50 }` com o preço já em 53,88, **então** o alerta dispara na hora: bipe, pulso do núcleo, dock "PETR4: R$ 53,88" e uma fala como "Alerta de preço, Tony: PETR4 a 53 reais e 88, acima de 50 reais."
-3. **Dado** um alerta que disparou, **então** ele é apagado (uso único), e só os outros continuam em `jarvis.watchlist`.
-4. **Dado** `stocks_alert` sem `above` nem `below` (ou com valor ≤ 0), **então** a tool responde `ok: false`.
-5. **Dado** `stocks_alert { symbol, remove: true }`, **então** todos os alertas desse código são apagados.
-
-### US4 — Atualização automática (P2)
-
-**Aceite**
-
-1. **Dado** o widget aberto, **então** as cotações são buscadas ao abrir e depois a cada 60 s.
-2. **Dado** o widget fechado e algum alerta pendente, **então** as cotações são buscadas a cada 120 s, só para checar os alertas.
-3. **Dado** o widget fechado e nenhum alerta, **então** nada é buscado.
-
 ## Critérios de sucesso
 
 - **SC-001**: Um alerta cujo preço já foi cruzado é avisado logo depois de criado.
 - **SC-002**: Um código com erro nunca impede os outros de aparecer.
 
-## Fora de escopo e limitações
-
-- Sem carteira (quantidade, preço médio, lucro), sem gráfico histórico além do dia e sem notícias.
-- Dados com cerca de 15 minutos de atraso na B3 (Yahoo).
-- Não há frase de voz própria além de abrir e fechar ("mostra as cotações"). "Monitora as ações da Petrobras" e "me avisa se a PETR4 passar de 60 reais" caem no JARVIS (fallback, ver [voice-commands](../../features/voice-commands/spec.md)), que converte o nome no código e chama a tool. Ver [assistant-tools](../../features/assistant-tools/spec.md).
-
-## Código
+## Entregáveis
 
 `useWatchlist` vive no `App`, para que os alertas funcionem com o widget fechado. Ele guarda códigos e alertas em `jarvis.watchlist`, mantém as cotações em memória e decide quando atualizar: 60 s com o widget aberto, 120 s fechado só se houver alerta. `refresh` chama `fetchQuotes` (fake em DEV ou o comando `stock_quotes`), junta as cotações, procura alertas cruzados, remove os que dispararam e chama `onAlert`. No Rust, `feeds::quotes` busca cada código numa thread (`std::thread::scope`) pela API de chart do Yahoo, com `ureq`. As tools MCP `stocks_*` chegam por `assistant:action` e são executadas em `useAssistantActions` sobre o mesmo hook.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`Stocks.tsx`) · hook (`useWatchlist`) · lib (`feeds.ts`) · comando Tauri `stock_quotes` · módulo Rust `feeds.rs` · tools MCP |
-| **Dependências** | Yahoo Finance (`/v8/finance/chart`, sem chave); crate `ureq` 3; `serde_json` |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/feeds.spec.ts`; Rust `mod tests` em `src-tauri/src/feeds.rs` |
 | **Plataforma** | Windows 11 · WebView2; no modo web, fake `__JARVIS_QUOTES__` em DEV ou o erro "Disponível no app desktop" |
 
@@ -261,6 +356,26 @@ sequenceDiagram
   A->>M: assistant_action_result
 ```
 
+### Testes
+
+- `npx playwright test tests/feeds.spec.ts --project ui -g "stocks: typed into the widget"`: com o fake `__JARVIS_QUOTES__`, a lista vazia, `petr4` digitado com `R$ 53,88` e `−8,18%`, `stocks_watch` e `stocks_quote` (com `NOPE3: erro`), o alerta abaixo pendente, o alerta acima que dispara com a fala, o uso único em `jarvis.watchlist`, `stocks_alert` sem limite dando `ok: false`, e "Parar de acompanhar PETR4" (critérios 1, 2, 4, 6, 7 e 10 a 13).
+- `npx playwright test tests/feeds.spec.ts --project ui -g "tickers, prices"`: `normalizeSymbol`, `formatPrice`, `formatChange`, `spokenPrice` e `spokenChange` (critério 2).
+- `npx playwright test tests/feeds.spec.ts --project ui -g "lines for the weather"`: `crossed` e a fala `stockAlertLine` (critério 11).
+- `cargo test --lib -- b3_tickers_get_the_exchange_suffix a_chart_gives_the_price` (em `src-tauri`): o sufixo `.SA` da B3, a recusa de `PETR4/../x` e de códigos longos, e o parse do chart (preço, variação, nome, pontos, erro do Yahoo).
+- `cargo test --lib -- --ignored feeds_answer_for_real --nocapture` (em `src-tauri`): a chamada real ao Yahoo, com `NOPE99` em erro (precisa de rede; também consulta o clima).
+- `cargo test --lib the_weather_the_agenda_and_the_stocks_by_voice` (em `src-tauri`): "Monitora as ações da Petrobras" e "me avisa se a PETR4 passar de 60 reais" vão ao JARVIS, e "mostra as cotações" abre o widget.
+- `cargo test --lib lists_every_tool_with_a_schema` (em `src-tauri`): as tools `stocks_*` estão em `TOOLS`, com schema e descrição.
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `stocks`.
+- Sem teste automatizado: critérios 3, 5, 8, 9, 14 e 15 a 17 (os intervalos de 60 s e 120 s).
+
+### Reversão
+
+- Tirar `stocks` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:stocks` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Na UI: o `case "stocks"` e o campo `stocks` de `feeds` em `Desktop.tsx`, as palavras de busca, `Stocks.tsx`, `useWatchlist.ts`, o `useWatchlist(...)` e o `onAlert` do `App`, os `case "stocks_*"` de `useAssistantActions.ts`, os rótulos `mcp__jarvis__stocks_*` de `src/lib/assistant.ts`, a fala `stockAlert` e, em `feeds.ts`, a parte das cotações (`Quote`, `fetchQuotes`, formatadores, `quotesReport`). A parte do clima em `feeds.ts` fica.
+- No Rust: as três tools em `TOOLS` e `tools()` (`mcp.rs`), o comando `stock_quotes` (`lib.rs`) e `quotes`, `yahoo_symbol` e `parse_chart` em `feeds.rs`. O `get` e o `ureq` ficam para o clima. Tire as tools dos dois lados juntos: declaradas no MCP sem o `case`, elas recebem "Ferramenta desconhecida: …".
+- Os testes listados em [Testes](#testes) saem, e o `matcher.rs` perde as frases de ações e cotações.
+- Fica órfão e é ignorado: `jarvis.watchlist` (os alertas pendentes nunca disparam); `stocks` em `jarvis.desktop` (o `parseDesktop` descarta); `window:stocks` e os `custom-*` com alvo `stocks` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: a rede só é usada para cotações, que são online por natureza. Sem chave de API.
@@ -282,6 +397,12 @@ sequenceDiagram
 - [ADR-0008 — MCP HTTP in-process](../../arch/adr/0008-mcp-http-in-process.md)
 - [ADR-0009 — tipos espelhados TS ↔ Rust](../../arch/adr/0009-tipos-espelhados-ts-rust.md)
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícone `X` de remover), [Tauri](../../foundation/vendor/tauri/spec.md) (comando `stock_quotes` e evento `assistant:action`), [http](../../foundation/vendor/http/spec.md) (`ureq` 3 para o Yahoo), [serde](../../foundation/vendor/serde/spec.md) (`Quote` com `rename_all = "camelCase"` e o chart lido com `serde_json`)
+- **Specs:** [assistant-tools](../../features/assistant-tools/spec.md) (tools `stocks_quote`, `stocks_watch` e `stocks_alert`), [assistant](../../features/assistant/spec.md) (o JARVIS que converte nomes em códigos e fala o alerta), [voice-commands](../../features/voice-commands/spec.md) (`window:stocks` e o fallback ao JARVIS), [dock-taskbar](../../features/dock-taskbar/spec.md) (aviso no dock), [holographic-core](../../features/holographic-core/spec.md) (pulso do núcleo), [pomodoro](../pomodoro/spec.md) (o `beep()` de `src/lib/beep.ts`), [appearance](../../features/appearance/spec.md) (kit TUI: `ReverseRow`), [desktop-windows](../../features/desktop-windows/spec.md) (janela), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** rede: Yahoo Finance (`query1.finance.yahoo.com/v8/finance/chart`, sem chave, cerca de 15 min de atraso na B3).
 
 ## Tarefas
 

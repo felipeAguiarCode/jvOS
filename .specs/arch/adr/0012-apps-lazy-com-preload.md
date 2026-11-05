@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Aceito |
-| **Data** | 2026-10-27 (`lazyApps.tsx`, não commitado) |
+| **Data** | 2026-10-27 (`lazyApps.tsx`, commitado em `e7151cf`) |
 | **Origem** | `src/components/desktop/lazyApps.tsx`; memória `jarvis-playwright-workflow` |
 
 ## Contexto

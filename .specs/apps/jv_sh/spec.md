@@ -1,4 +1,4 @@
-# jv_sh
+# App: jv_sh
 
 O terminal do jvOS: os shells reais do usuário, em abas, dentro de uma janela JARVIS.
 
@@ -10,9 +10,195 @@ O terminal do jvOS: os shells reais do usuário, em abas, dentro de uma janela J
 | **Window kind** | `shell` em `src/lib/desktop.ts` (900×540, mínimo 480×300, grupo `apps`) |
 | **Voz** | `window:shell` |
 
-## Visão geral
+## Objetivo
 
 O jv_sh é o terminal do jvOS: os shells reais do usuário (os perfis do Windows Terminal, ou os shells achados na máquina) rodando em abas dentro de uma janela JARVIS. Ele existe para que o usuário não precise sair do desktop para usar PowerShell, cmd, Git Bash ou WSL, com as cores do tema e um comando próprio, `jvfetch`, que mostra a máquina "no estilo JARVIS". Também é onde o JARVIS roda, uma vez, um agente do Claude Code criado no [jv_agent](../../apps/jv_agent/spec.md).
+
+## Não-objetivos
+
+- Não roda linha de comando arbitrária vinda da UI, da voz ou do JARVIS.
+- Não persiste abas entre sessões: cada abertura começa com uma aba.
+- Não implementa divisão de painéis nem configurações próprias de perfil; os perfis são os do Windows Terminal.
+- WSL ignora a pasta de trabalho do processo; para pastas `\\wsl.localhost\` ou `\\wsl$\` de outra distribuição, o shell começa na home.
+- O chrome da janela (arrastar, maximizar, carregamento lazy) é de [desktop-windows](../../features/desktop-windows/spec.md).
+- Os terminais do jv_ide reutilizam o mesmo backend; ver [jv_ide](../../apps/jv_ide/spec.md).
+
+## Histórias de usuário
+
+### US1 — Abrir um shell e digitar nele (P1)
+
+Como usuário, abro o Terminal pela dock e digito comandos no meu shell padrão.
+
+**Por que P1:** é a razão de existir do app.
+**Teste independente:** `tests/shell.spec.ts` — "the dock's Terminal opens jv_sh on the default profile, and what is typed reaches the shell".
+
+**Aceite:** [critérios 1 a 3](#critérios-de-aceite).
+
+### US2 — Várias abas e perfis (P1)
+
+Como usuário, abro outras abas com o perfil padrão ou com qualquer outro perfil, troco entre elas e fecho.
+
+**Por que P1:** um terminal de uso diário precisa de abas.
+**Teste independente:** "tabs: + opens the default profile, the menu any other; Ctrl+Tab switches and Ctrl+Shift+W closes".
+
+**Aceite:** [critérios 4 a 7](#critérios-de-aceite).
+
+### US3 — Saída e fechamento (P1)
+
+Como usuário, quero que o terminal se comporte como o Windows Terminal ao sair de um shell e ao fechar a janela.
+
+**Por que P1:** nenhum processo pode ficar órfão.
+**Teste independente:** "exit closes its tab; an error code keeps it; the last tab closes the window" e "the terminal keeps the keyboard; the × closes the window and every shell".
+
+**Aceite:** [critérios 8 a 11](#critérios-de-aceite).
+
+### US4 — O teclado é do shell (P2)
+
+Como usuário, quero que atalhos como Ctrl+W ou "/" cheguem ao shell, e não ao desktop.
+
+**Por que P2:** atalhos do desktop não podem roubar teclas de quem está no terminal.
+**Teste independente:** "the terminal keeps the keyboard; the × closes the window and every shell".
+
+**Aceite:** [critérios 12 a 13](#critérios-de-aceite).
+
+### US5 — Tamanho acompanha a janela (P2)
+
+**Teste independente:** "maximised by its button or a double click, the shell learns its new size".
+
+**Aceite:** [critério 14](#critérios-de-aceite).
+
+### US6 — Abrir por voz, pela Busca e pelo JARVIS (P2)
+
+**Teste independente:** "voice and the search open it; the search opens a tab with any profile".
+
+**Aceite:** [critérios 15 a 17](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o desktop sem o jv_sh
+- **Quando** clico em "Terminal" na dock
+- **Então** a janela "jv_sh" abre com uma aba do perfil padrão, já com o foco do teclado.
+
+### Critério 2 (US1)
+
+- **Dado** o jv_sh aberto
+- **Quando** digito `dir` e Enter
+- **Então** o texto chega ao shell e a saída aparece na aba.
+
+### Critério 3 (US1)
+
+- **Dado** o jv_sh aberto
+- **Quando** clico de novo em "Terminal" na dock
+- **Então** a janela continua aberta e na frente, com as mesmas abas (a dock abre, não alterna).
+
+### Critério 4 (US2)
+
+- **Dado** uma aba
+- **Quando** clico em "Nova aba" (ou Ctrl+Shift+T)
+- **Então** surge outra aba do perfil padrão, já ativa.
+
+### Critério 5 (US2)
+
+- **Dado** o menu "Escolher perfil"
+- **Quando** ele abre
+- **Então** lista os perfis com "padrão" ao lado do perfil padrão; escolher um abre a aba dele.
+
+### Critério 6 (US2)
+
+- **Dado** várias abas
+- **Quando** aperto Ctrl+Tab (Ctrl+Shift+Tab volta)
+- **Então** a próxima aba fica ativa, dando a volta no fim da lista.
+
+### Critério 7 (US2)
+
+- **Dado** várias abas
+- **Quando** aperto Ctrl+Shift+W ou o × da aba
+- **Então** a aba fecha e o shell dela é encerrado.
+
+### Critério 8 (US3)
+
+- **Dado** duas abas
+- **Quando** digito `exit`
+- **Então** a aba fecha.
+
+### Critério 9 (US3)
+
+- **Dado** uma aba
+- **Quando** o shell sai com código diferente de zero
+- **Então** a aba fica, com " (encerrado)" no título e "[processo encerrado: código N]" na tela.
+
+### Critério 10 (US3)
+
+- **Dado** a última aba
+- **Quando** ela fecha (por saída ou pelo ×)
+- **Então** a janela do jv_sh fecha.
+
+### Critério 11 (US3)
+
+- **Dado** abas abertas
+- **Quando** fecho a janela pelo ×
+- **Então** todos os shells são encerrados.
+
+### Critério 12 (US4)
+
+- **Dado** o foco no terminal
+- **Quando** aperto Ctrl+W e digito `/m`
+- **Então** o shell recebe `\x17` e `/m`, e a Busca não abre.
+
+### Critério 13 (US4)
+
+- **Dado** texto selecionado
+- **Quando** clico com o botão direito (ou Ctrl+Shift+C)
+- **Então** a seleção vai para a área de transferência; sem seleção, o botão direito (ou Ctrl+V) cola.
+
+### Critério 14 (US5)
+
+- **Dado** o jv_sh aberto
+- **Quando** maximizo a janela (botão ou duplo clique no título)
+- **Então** o terminal se reajusta e o shell recebe o novo número de colunas e linhas; ao restaurar, volta ao tamanho anterior.
+
+### Critério 15 (US6)
+
+- **Dado** o desktop
+- **Quando** digo "abre o terminal" (`window:shell`)
+- **Então** o jv_sh abre; "fecha o terminal" fecha.
+
+### Critério 16 (US6)
+
+- **Dado** a Busca (`/`)
+- **Quando** digito "nova aba git bash" e Enter
+- **Então** o jv_sh abre com uma aba "Git Bash", mesmo que a janela estivesse fechada.
+
+### Critério 17 (US6)
+
+- **Dado** um agente instalado pelo jv_agent
+- **Quando** o JARVIS o roda
+- **Então** abre uma aba `Agente <nome>` executando só `claude --agent <nome> "<tarefa>"` na pasta escolhida.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Nenhum perfil encontrado → "Nenhum shell encontrado nesta máquina".
+  - `settings.json` do Windows Terminal ilegível ou sem perfis utilizáveis → os shells achados no `PATH` (RF-002).
+  - Shell sai com código 0 ou sem código (`null`) → a aba fecha; com outro código, ela fica com " (encerrado)".
+  - Tarefa de agente vazia → a aba roda só `claude --agent <nome>`.
+- **Duplicidade/idempotência:**
+  - "Terminal" na dock com a janela aberta → ela continua aberta e na frente, com as mesmas abas (abre, não alterna).
+  - Vários pedidos de aba com a janela fechada → só o último fica em $pedido.
+  - `install_tools` a cada inicialização → grava os arquivos do `jvfetch` só quando eles mudam.
+- **Concorrência/corrida:**
+  - Saída que chega antes de a UI saber o id da sessão → espera até 10 s (no máximo 256 KiB) para ser entregue.
+  - O roteador assina `terminal:output` e `terminal:exit` antes de abrir o shell → o banner e o primeiro prompt não se perdem.
+  - Caractere UTF-8 cortado entre duas leituras → guardado para a próxima; após a saída do shell, 150 ms para drenar o resto (RNF-003).
+  - Rajada de redimensionamentos → 60 ms de calma, e o shell só é avisado se colunas × linhas mudaram (RNF-002).
+- **Permissões/visibilidade:**
+  - A UI manda só o id do perfil; um id fora de `terminal::profiles()` → "Perfil não encontrado" (RF-003).
+  - Pasta inicial relativa, inexistente ou que não é pasta → "Pasta inválida", "Pasta não encontrada" ou "Não é uma pasta".
+  - Agente não instalado → `O agente "<nome>" não está instalado`; sem `claude.exe` → "Claude Code não encontrado".
+  - Fora do Tauri e sem o fake de DEV → "Disponível no app desktop".
+  - Os shells e os agentes rodam com as permissões do usuário, fora do confinamento do JARVIS a `Documentos\JARVIS` ([ADR-0007](../../arch/adr/0007-jarvis-confinado-a-documentos.md)) → por isso o agente roda numa aba visível, onde o usuário aprova as permissões.
 
 ## Dados
 
@@ -169,102 +355,20 @@ O comando que mostra a máquina "no estilo JARVIS".
 - **RNF-004**: O xterm guarda 5000 linhas de histórico, fonte 13.
 - **RNF-005**: Abas inativas ficam ocultas, mas os shells continuam rodando.
 
-## Histórias de usuário
-
-### US1 — Abrir um shell e digitar nele (P1)
-
-Como usuário, abro o Terminal pela dock e digito comandos no meu shell padrão.
-
-**Por que P1:** é a razão de existir do app.
-**Teste independente:** `tests/shell.spec.ts` — "the dock's Terminal opens jv_sh on the default profile, and what is typed reaches the shell".
-
-**Aceite**
-
-1. **Dado** o desktop sem o jv_sh, **quando** clico em "Terminal" na dock, **então** a janela "jv_sh" abre com uma aba do perfil padrão, já com o foco do teclado.
-2. **Dado** o jv_sh aberto, **quando** digito `dir` e Enter, **então** o texto chega ao shell e a saída aparece na aba.
-3. **Dado** o jv_sh aberto, **quando** clico de novo em "Terminal" na dock, **então** a janela continua aberta e na frente, com as mesmas abas (a dock abre, não alterna).
-
-### US2 — Várias abas e perfis (P1)
-
-Como usuário, abro outras abas com o perfil padrão ou com qualquer outro perfil, troco entre elas e fecho.
-
-**Por que P1:** um terminal de uso diário precisa de abas.
-**Teste independente:** "tabs: + opens the default profile, the menu any other; Ctrl+Tab switches and Ctrl+Shift+W closes".
-
-**Aceite**
-
-1. **Dado** uma aba, **quando** clico em "Nova aba" (ou Ctrl+Shift+T), **então** surge outra aba do perfil padrão, já ativa.
-2. **Dado** o menu "Escolher perfil", **quando** ele abre, **então** lista os perfis com "padrão" ao lado do perfil padrão; escolher um abre a aba dele.
-3. **Dado** várias abas, **quando** aperto Ctrl+Tab (Ctrl+Shift+Tab volta), **então** a próxima aba fica ativa, dando a volta no fim da lista.
-4. **Dado** várias abas, **quando** aperto Ctrl+Shift+W ou o × da aba, **então** a aba fecha e o shell dela é encerrado.
-
-### US3 — Saída e fechamento (P1)
-
-Como usuário, quero que o terminal se comporte como o Windows Terminal ao sair de um shell e ao fechar a janela.
-
-**Por que P1:** nenhum processo pode ficar órfão.
-**Teste independente:** "exit closes its tab; an error code keeps it; the last tab closes the window" e "the terminal keeps the keyboard; the × closes the window and every shell".
-
-**Aceite**
-
-1. **Dado** duas abas, **quando** digito `exit`, **então** a aba fecha.
-2. **Dado** uma aba, **quando** o shell sai com código diferente de zero, **então** a aba fica, com " (encerrado)" no título e "[processo encerrado: código N]" na tela.
-3. **Dado** a última aba, **quando** ela fecha (por saída ou pelo ×), **então** a janela do jv_sh fecha.
-4. **Dado** abas abertas, **quando** fecho a janela pelo ×, **então** todos os shells são encerrados.
-
-### US4 — O teclado é do shell (P2)
-
-Como usuário, quero que atalhos como Ctrl+W ou "/" cheguem ao shell, e não ao desktop.
-
-**Por que P2:** atalhos do desktop não podem roubar teclas de quem está no terminal.
-**Teste independente:** "the terminal keeps the keyboard; the × closes the window and every shell".
-
-**Aceite**
-
-1. **Dado** o foco no terminal, **quando** aperto Ctrl+W e digito `/m`, **então** o shell recebe `\x17` e `/m`, e a Busca não abre.
-2. **Dado** texto selecionado, **quando** clico com o botão direito (ou Ctrl+Shift+C), **então** a seleção vai para a área de transferência; sem seleção, o botão direito (ou Ctrl+V) cola.
-
-### US5 — Tamanho acompanha a janela (P2)
-
-**Teste independente:** "maximised by its button or a double click, the shell learns its new size".
-
-**Aceite**
-
-1. **Dado** o jv_sh aberto, **quando** maximizo a janela (botão ou duplo clique no título), **então** o terminal se reajusta e o shell recebe o novo número de colunas e linhas; ao restaurar, volta ao tamanho anterior.
-
-### US6 — Abrir por voz, pela Busca e pelo JARVIS (P2)
-
-**Teste independente:** "voice and the search open it; the search opens a tab with any profile".
-
-**Aceite**
-
-1. **Dado** o desktop, **quando** digo "abre o terminal" (`window:shell`), **então** o jv_sh abre; "fecha o terminal" fecha.
-2. **Dado** a Busca (`/`), **quando** digito "nova aba git bash" e Enter, **então** o jv_sh abre com uma aba "Git Bash", mesmo que a janela estivesse fechada.
-3. **Dado** um agente instalado pelo jv_agent, **quando** o JARVIS o roda, **então** abre uma aba `Agente <nome>` executando só `claude --agent <nome> "<tarefa>"` na pasta escolhida.
-
 ## Critérios de sucesso
 
 - **SC-001**: Todo comando digitado chega ao shell da aba ativa, e só a ele.
 - **SC-002**: Nenhum shell sobrevive ao fechamento da aba, da janela ou do JARVIS.
 - **SC-003**: Um perfil do Windows Terminal aparece no jv_sh com o mesmo nome e o mesmo padrão.
 
-## Fora de escopo e limitações
-
-- Não roda linha de comando arbitrária vinda da UI, da voz ou do JARVIS.
-- Não persiste abas entre sessões: cada abertura começa com uma aba.
-- Não implementa divisão de painéis nem configurações próprias de perfil; os perfis são os do Windows Terminal.
-- WSL ignora a pasta de trabalho do processo; para pastas `\\wsl.localhost\` ou `\\wsl$\` de outra distribuição, o shell começa na home.
-- O chrome da janela (arrastar, maximizar, carregamento lazy) é de [desktop-windows](../../features/desktop-windows/spec.md).
-- Os terminais do jv_ide reutilizam o mesmo backend; ver [jv_ide](../../apps/jv_ide/spec.md).
-
-## Código
+## Entregáveis
 
 O Rust abre cada shell num pseudoconsole ConPTY (`portable-pty`), lê a saída numa thread e a emite como evento `terminal:output` com o id da sessão; a UI desenha com xterm.js e devolve teclas e tamanhos por comandos `terminal_*`. Os perfis vêm do `settings.json` do Windows Terminal (JSON com comentários) ou, sem ele, dos shells achados no `PATH`. Um roteador no TypeScript (`openSession`) entrega a cada aba só os eventos da própria sessão, o que permite ao jv_sh e ao jv_ide dividirem o mesmo backend.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`ShellApp`, `TerminalView`) · lib (`src/lib/terminal.ts`) · comandos Tauri `terminal_*` · módulo Rust `terminal.rs` |
-| **Dependências** | `@xterm/xterm` ^6, `@xterm/addon-fit` ^0.11, `portable-pty` 0.9, `dunce` 1.0.5; processos: os shells do usuário, `powershell.exe` (para o `jvfetch`), `claude.exe` (agentes) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/shell.spec.ts`; Rust `mod tests` em `src-tauri/src/terminal.rs` |
 | **Plataforma** | Windows 11 · WebView2. Fora do Tauri: fake `window.__JARVIS_TERMINAL__` (só em DEV) com eco e `exit [código]`; sem ele, "Disponível no app desktop" |
 
@@ -341,6 +445,22 @@ sequenceDiagram
   L-->>UI: onExit → fecha a aba (código 0) ou marca "(encerrado)"
 ```
 
+### Testes
+
+- `npx playwright test tests/shell.spec.ts --project ui`: dock, abas e perfis, saída e fechamento, teclado reservado, maximizar, voz e Busca, contra o fake `__JARVIS_TERMINAL__` (critérios 1–16).
+- `npx playwright test tests/agent.spec.ts --project ui -g "runs it once in jv_sh"`: o JARVIS abre a aba `Agente <nome>` com `claude --agent` na pasta escolhida (critério 17).
+- `cargo test --lib terminal::` (em `src-tauri`): perfis do Windows Terminal e JSON com comentários, linhas de comando, `%VAR%`, pasta inicial e `--cd` do WSL, UTF-8 cortado, `jvfetch` e ambiente, um shell real no ConPTY com o código de saída (RF-001–RF-004, RF-007–RF-009; critério 2 no backend real).
+- `cargo test --lib terminal:: -- --ignored` (em `src-tauri`): o perfil padrão desta máquina abre e o `jvfetch` roda em todos os perfis dela.
+- `cargo test --lib opens_and_closes_jarvis_windows` (em `src-tauri`): "abre o terminal" e "fecha o terminal" viram `window:shell` (critério 15).
+
+### Reversão
+
+- Tirar o kind `shell` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` e dos comandos `Nova aba: <perfil>` em `src/lib/commands.ts`, o `case "shell"` de `Desktop.tsx`, o `ShellApp` de `lazyApps.tsx` e o item "Terminal" da dock (`QuickDock.tsx`, `onDockSelect` em `App.tsx`).
+- Tirar `window:shell` de `src-tauri/voice-commands.json` e `"shell"` do `WINDOW_KINDS` de `settings.rs`, junto com os asserts de `window("shell", …)` em `voice/matcher.rs` e `voice/mod.rs`; tirar `shell` do `testMatch` do projeto `ui` e `tests/shell.spec.ts`. As palavras "terminal", "console" e "prompt de comando" saíram do programa Windows Terminal para o jv_sh (`OLD_TERMINAL_KEYWORDS` em `settings.rs`): sem o jv_sh, devolva-as aos padrões do programa.
+- `src/lib/terminal.ts`, `TerminalView.tsx`, `terminal.rs`, os comandos `terminal_*` e o `jvfetch` ficam: os terminais do jv_ide usam o mesmo backend.
+- **Não** é ignorado sem ajuste: o lançador de agentes de `App.tsx` (`setAgentLauncher`) abre `shell` e chama `requestTab`; sem o jv_sh, o agente do [jv_agent](../../apps/jv_agent/spec.md) não tem onde rodar.
+- Fica órfão e é ignorado: a janela `shell` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos), o comando `window:shell` gravado no `settings.json` (descartado ao carregar) e os arquivos de `%LOCALAPPDATA%\dev.jarvis.os\jv_sh\`.
+
 ### Constituição
 
 - [x] P1 Offline-first — tudo local; nenhuma rede.
@@ -364,6 +484,12 @@ sequenceDiagram
 - [ADR-0012 — apps lazy com preload](../../arch/adr/0012-apps-lazy-com-preload.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - Segurança: [security.md](../../arch/security.md) · Contrato IPC: [ipc-contract.md](../../arch/ipc-contract.md)
+
+## Dependências
+
+- **Vendor:** [Tauri](../../foundation/vendor/tauri/spec.md), [React](../../foundation/vendor/react/spec.md), [xterm.js e portable-pty](../../foundation/vendor/terminal/spec.md) (`@xterm/xterm` ^6, `@xterm/addon-fit` ^0.11, `portable-pty` 0.9), [lucide](../../foundation/vendor/lucide/spec.md), [serde](../../foundation/vendor/serde/spec.md), [workspace-fs](../../foundation/vendor/workspace-fs/spec.md) (`dunce` 1.0.5, em `start_dir`), [Claude Code](../../foundation/vendor/claude-code/spec.md) (abas de agente)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela, maximizar, app lazy), [dock-taskbar](../../features/dock-taskbar/spec.md) (item "Terminal"), [voice-commands](../../features/voice-commands/spec.md) (`window:shell`), [search](../../features/search/spec.md) (`Nova aba: <perfil>`), [appearance](../../features/appearance/spec.md) (tema e acento TUI da paleta), [jv_agent](../../apps/jv_agent/spec.md) (os agentes que a aba `Agente <nome>` roda)
+- **Sistema:** WebView2; ConPTY do Windows; o `settings.json` do Windows Terminal (opcional); os shells do usuário (pwsh, powershell, cmd, Git Bash, WSL); `powershell.exe` para o `jvfetch`; `claude.exe` para os agentes. Nenhuma rede.
 
 ## Tarefas
 

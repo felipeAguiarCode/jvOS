@@ -1,18 +1,159 @@
-# Clima
+# Widget: Clima
 
 Widget com o tempo agora e nos próximos cinco dias na cidade do usuário, que o JARVIS também usa para responder "como está o tempo?".
 
 | | |
 |---|---|
 | **ID** | `widget/weather` |
-| **Status** | Implementado · não commitado |
-| **Origem** | não commitado (27/10) |
+| **Status** | Implementado |
+| **Origem** | `e7151cf` (2026-11-05), escrito em 27/10 |
 | **Window kind** | `weather` em `src/lib/desktop.ts` (400 × 230, mínimo 340 × 200, grupo `widgets`) |
 | **Voz** | `window:weather` ("clima", "widget do clima", "previsão"), `shortcut:weather` ("previsão do tempo", "como está o tempo", "vai chover", "qual a temperatura"…) |
 
-## Visão geral
+## Objetivo
 
 O widget mostra temperatura, condição com ícone, sensação, umidade e vento agora e, para cada um dos próximos cinco dias, máxima, mínima e chance de chuva. A cidade é digitada uma vez no próprio widget, ou vem da primeira pergunta ao JARVIS, e fica salva. Pela voz, "como está o tempo [em X] [amanhã]" é respondido na hora pelo JARVIS, sem passar pelo Claude, e o Claude usa a tool `weather` quando precisa da previsão (no briefing, por exemplo). Os dados vêm do Open-Meteo pelo Rust, sem chave de API.
+
+## Não-objetivos
+
+- Sem localização automática, sem previsão por hora e sem alertas meteorológicos.
+- Unidades fixas: °C e km/h.
+- O texto do briefing é do [voice-shortcuts](../../features/voice-shortcuts/spec.md), e a tool MCP em si é descrita em [assistant-tools](../../features/assistant-tools/spec.md).
+
+## Histórias de usuário
+
+### US1 — Definir a cidade e ver a previsão (P1)
+
+Como usuário, quero dizer minha cidade uma vez e ver o tempo de agora e dos próximos dias.
+
+**Por que P1:** sem cidade, o widget não tem o que mostrar.
+**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request`.
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Perguntar o tempo por voz (P1)
+
+Como usuário, quero perguntar "como está o tempo?" ou "vai chover amanhã?" e ouvir a resposta.
+
+**Por que P1:** é o uso mais comum por voz.
+**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request`.
+
+**Aceite:** [critérios 6 a 10](#critérios-de-aceite).
+
+### US3 — O JARVIS consulta o clima (P2)
+
+**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request` e `the briefing hands JARVIS the weather, the day's agenda and what is left on the list`.
+
+**Aceite:** [critérios 11 a 14](#critérios-de-aceite).
+
+### US4 — Trocar a cidade (P3)
+
+**Aceite:** [critério 15](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o widget sem cidade
+- **Então** ele mostra o campo "Sua cidade" (placeholder `Curitiba`) e a dica "Enter para consultar. O JARVIS usa essa cidade quando você pergunta do tempo."
+
+### Critério 2 (US1)
+
+- **Dado** o campo
+- **Quando** digito `curitiba` e Enter
+- **Então** o cabeçalho mostra o lugar resolvido ("Curitiba, Paraná"), a temperatura `15°` com "nublado", e `sensação`, `umidade` e `vento` à direita.
+
+### Critério 3 (US1)
+
+- **Dado** a previsão carregada
+- **Então** a lista "Próximos dias" tem 5 itens: "hoje" e os dias da semana abreviados, cada um com ícone, máxima, mínima e chance de chuva (60% ou mais em âmbar).
+
+### Critério 4 (US1)
+
+- **Dado** a cidade salva
+- **Quando** recarrego
+- **Então** `jarvis.weather` mantém `{ city: "curitiba" }` e o widget consulta de novo.
+
+### Critério 5 (US1)
+
+- **Dado** o widget aberto
+- **Então** a previsão é renovada a cada 30 minutos.
+
+### Critério 6 (US2)
+
+- **Dado** nenhuma cidade definida
+- **Quando** pergunto "como está o tempo?"
+- **Então** o widget abre pedindo a cidade e o JARVIS diz algo como "Receio que eu ainda não saiba a sua cidade… Diga, por exemplo, “clima em Curitiba”."
+
+### Critério 7 (US2)
+
+- **Dado** a cidade definida
+- **Quando** pergunto "como está o tempo?"
+- **Então** o JARVIS diz a temperatura e a condição agora e "Hoje, mínima de 10 e máxima de 19.". Se a chance de chuva for de 30% ou mais, ele acrescenta isso, e com 60% ou mais sugere o guarda-chuva.
+
+### Critério 8 (US2)
+
+- **Dado** "vai chover amanhã?"
+- **Então** a resposta é sobre amanhã (por exemplo, "Amanhã em Curitiba: chuva fraca, entre 12 e 22 graus…") e cita os 76 por cento de chuva.
+
+### Critério 9 (US2)
+
+- **Dado** "como está o tempo em São Paulo?"
+- **Então** o JARVIS responde sobre São Paulo e a cidade do widget não muda.
+
+### Critério 10 (US2)
+
+- **Dado** a previsão fora do ar
+- **Então** o JARVIS diz uma das falas `weatherFailed` ("Os satélites estão calados no momento…").
+
+### Critério 11 (US3)
+
+- **Dado** a tool `weather {}`
+- **Então** o JARVIS recebe a previsão da cidade do widget, que começa por `<lugar>, agora: 15°C (sensação 13°C), nublado, umidade 68%, vento 11 km/h`, e uma linha por dia.
+
+### Critério 12 (US3)
+
+- **Dado** `weather { city: "Recife" }`
+- **Então** a resposta é de Recife, e `jarvis.weather` continua com a cidade do widget.
+
+### Critério 13 (US3)
+
+- **Dado** nenhuma cidade no widget e nenhuma na tool
+- **Então** a tool responde `ok: false` pedindo para perguntar a cidade ao usuário.
+
+### Critério 14 (US3)
+
+- **Dado** o atalho "bom dia" (briefing) com cidade definida
+- **Então** o prompt do JARVIS traz `Clima: Curitiba, agora…`.
+
+### Critério 15 (US4)
+
+- **Dado** o widget com previsão
+- **Quando** clico no lápis "Trocar a cidade"
+- **Então** volta o campo, já preenchido e com foco. Enter salva a nova cidade e limpa a previsão antiga até chegar a nova.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Sem $cidade → o widget mostra o formulário "Sua cidade". "Como está o tempo?" abre o widget pedindo a cidade e o JARVIS diz uma fala `weatherNoCity`. A tool `weather` sem `city` responde `ok: false`.
+  - Enter com o campo "Sua cidade" vazio → nada é enviado, e o Rust nem é chamado. Uma cidade vazia que chegue ao Rust recebe "Diga a cidade".
+  - Cidade não encontrada → "Não encontrei a cidade “<nome>”" no lugar da previsão.
+  - Um dia sem probabilidade de chuva (`null` no Open-Meteo) → `rain` 0.
+  - `jarvis.weather` sem `city` string → cidade vazia; um nome com mais de 80 caracteres é cortado (`MAX_CITY`).
+- **Duplicidade/idempotência:**
+  - A mesma cidade com outra caixa ("Curitiba", "curitiba") → conta como a cidade do widget e atualiza a previsão dele.
+  - Sem $cidade, a primeira cidade perguntada vira $cidade; as perguntas seguintes por outras cidades não a trocam (RF-005).
+  - Região igual ao nome → "São Paulo", e não "São Paulo, São Paulo".
+- **Concorrência/corrida:**
+  - Uma pergunta por outra cidade → a resposta é dela, e a previsão do widget fica como estava.
+  - O app fica oculto com o widget aberto → nada é buscado; na volta, uma previsão com mais de 30 min é renovada na hora.
+  - Trocar a cidade com a consulta da antiga ainda no ar → as duas respostas atualizam o widget, e vale a que chegar por último (a cidade é comparada quando a consulta sai).
+  - A previsão falha → o widget mostra o erro, e pela voz o JARVIS diz uma fala `weatherFailed`.
+- **Permissões/visibilidade:**
+  - Só o Rust fala com o Open-Meteo (`geocoding-api.open-meteo.com` e `api.open-meteo.com`), sem chave e com timeout de 10 s, porque a CSP da WebView bloqueia outras origens.
+  - Não há localização automática: a cidade só entra digitada ou dita.
+  - No modo web, o fake `__JARVIS_WEATHER__` só vale em DEV; sem ele, aparece "Disponível no app desktop".
+  - A tool `weather` lê a cidade do widget, mas nunca a muda.
 
 ## Dados
 
@@ -88,74 +229,19 @@ O hook que guarda $cidade e busca $previsão. Ele vive no `App`, porque o atalho
 - **RNF-001**: As requisições saem do Rust com timeout de 10 s e sem chave.
 - **RNF-002**: 30 min de intervalo, porque os modelos do Open-Meteo atualizam de hora em hora e o widget pergunta duas vezes por hora (comentário em `useWeather.ts`).
 
-## Histórias de usuário
-
-### US1 — Definir a cidade e ver a previsão (P1)
-
-Como usuário, quero dizer minha cidade uma vez e ver o tempo de agora e dos próximos dias.
-
-**Por que P1:** sem cidade, o widget não tem o que mostrar.
-**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request`.
-
-**Aceite**
-
-1. **Dado** o widget sem cidade, **então** ele mostra o campo "Sua cidade" (placeholder `Curitiba`) e a dica "Enter para consultar. O JARVIS usa essa cidade quando você pergunta do tempo."
-2. **Dado** o campo, **quando** digito `curitiba` e Enter, **então** o cabeçalho mostra o lugar resolvido ("Curitiba, Paraná"), a temperatura `15°` com "nublado", e `sensação`, `umidade` e `vento` à direita.
-3. **Dado** a previsão carregada, **então** a lista "Próximos dias" tem 5 itens: "hoje" e os dias da semana abreviados, cada um com ícone, máxima, mínima e chance de chuva (60% ou mais em âmbar).
-4. **Dado** a cidade salva, **quando** recarrego, **então** `jarvis.weather` mantém `{ city: "curitiba" }` e o widget consulta de novo.
-5. **Dado** o widget aberto, **então** a previsão é renovada a cada 30 minutos.
-
-### US2 — Perguntar o tempo por voz (P1)
-
-Como usuário, quero perguntar "como está o tempo?" ou "vai chover amanhã?" e ouvir a resposta.
-
-**Por que P1:** é o uso mais comum por voz.
-**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request`.
-
-**Aceite**
-
-1. **Dado** nenhuma cidade definida, **quando** pergunto "como está o tempo?", **então** o widget abre pedindo a cidade e o JARVIS diz algo como "Receio que eu ainda não saiba a sua cidade… Diga, por exemplo, “clima em Curitiba”."
-2. **Dado** a cidade definida, **quando** pergunto "como está o tempo?", **então** o JARVIS diz a temperatura e a condição agora e "Hoje, mínima de 10 e máxima de 19.". Se a chance de chuva for de 30% ou mais, ele acrescenta isso, e com 60% ou mais sugere o guarda-chuva.
-3. **Dado** "vai chover amanhã?", **então** a resposta é sobre amanhã (por exemplo, "Amanhã em Curitiba: chuva fraca, entre 12 e 22 graus…") e cita os 76 por cento de chuva.
-4. **Dado** "como está o tempo em São Paulo?", **então** o JARVIS responde sobre São Paulo e a cidade do widget não muda.
-5. **Dado** a previsão fora do ar, **então** o JARVIS diz uma das falas `weatherFailed` ("Os satélites estão calados no momento…").
-
-### US3 — O JARVIS consulta o clima (P2)
-
-**Teste independente:** `tests/feeds.spec.ts` — `the weather: the widget's city, spoken now and tomorrow, another city on request` e `the briefing hands JARVIS the weather, the day's agenda and what is left on the list`.
-
-**Aceite**
-
-1. **Dado** a tool `weather {}`, **então** o JARVIS recebe a previsão da cidade do widget, que começa por `<lugar>, agora: 15°C (sensação 13°C), nublado, umidade 68%, vento 11 km/h`, e uma linha por dia.
-2. **Dado** `weather { city: "Recife" }`, **então** a resposta é de Recife, e `jarvis.weather` continua com a cidade do widget.
-3. **Dado** nenhuma cidade no widget e nenhuma na tool, **então** a tool responde `ok: false` pedindo para perguntar a cidade ao usuário.
-4. **Dado** o atalho "bom dia" (briefing) com cidade definida, **então** o prompt do JARVIS traz `Clima: Curitiba, agora…`.
-
-### US4 — Trocar a cidade (P3)
-
-**Aceite**
-
-1. **Dado** o widget com previsão, **quando** clico no lápis "Trocar a cidade", **então** volta o campo, já preenchido e com foco. Enter salva a nova cidade e limpa a previsão antiga até chegar a nova.
-
 ## Critérios de sucesso
 
 - **SC-001**: Depois de definir a cidade uma vez, "como está o tempo?" é respondido sem pedir nada.
 - **SC-002**: Perguntar por outra cidade nunca troca a cidade do usuário.
 
-## Fora de escopo e limitações
-
-- Sem localização automática, sem previsão por hora e sem alertas meteorológicos.
-- Unidades fixas: °C e km/h.
-- O texto do briefing é do [voice-shortcuts](../../features/voice-shortcuts/spec.md), e a tool MCP em si é descrita em [assistant-tools](../../features/assistant-tools/spec.md).
-
-## Código
+## Entregáveis
 
 `useWeather` vive no `App` e mantém a última previsão em memória. `forecast(place?)` consulta `fetchWeather`. No Rust, `feeds::weather` geocodifica pelo Open-Meteo e busca a previsão numa segunda chamada. As falas ficam em `weatherLine` (`jarvisLines.ts`) e o texto para o Claude em `weatherReport` (`feeds.ts`).
 
 | | |
 |---|---|
 | **Camadas** | UI React (`WeatherWidget.tsx`) · hook (`useWeather`) · lib (`feeds.ts`, `jarvisLines.ts`, `shortcuts.ts`) · comando Tauri `weather_forecast` · módulo Rust `feeds.rs` · tool MCP `weather` |
-| **Dependências** | Open-Meteo (`geocoding-api.open-meteo.com/v1/search` e `api.open-meteo.com/v1/forecast`, sem chave); `ureq` 3 |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/feeds.spec.ts`; Rust `mod tests` em `src-tauri/src/feeds.rs` e `src-tauri/src/voice/matcher.rs` |
 | **Plataforma** | Windows 11 · WebView2; no modo web, fake `__JARVIS_WEATHER__` em DEV (devolve a cidade pedida com a inicial maiúscula) ou o erro "Disponível no app desktop" |
 
@@ -209,6 +295,28 @@ sequenceDiagram
   App->>U: weatherLine(…, "tomorrow")
 ```
 
+### Testes
+
+- `npx playwright test tests/feeds.spec.ts --project ui -g "spoken now and tomorrow"`: com o fake `__JARVIS_WEATHER__`, sem cidade o JARVIS pede uma e o widget abre; `curitiba` digitado dá `15°`, "nublado", cinco dias e `jarvis.weather` gravado; "Hoje, mínima de 10 e máxima de 19.", amanhã com "76 por cento"; e a tool `weather` sem e com `city: "Recife"`, sem mudar a cidade (critérios 1 a 3, 6 a 8, 11 e 12, e a gravação do critério 4).
+- `npx playwright test tests/feeds.spec.ts --project ui -g "the briefing hands JARVIS"`: o prompt do briefing traz `Clima: Curitiba, agora` (critério 14).
+- `npx playwright test tests/feeds.spec.ts --project ui -g "tickers, prices"`: `describeWeather` (código WMO → texto, lua à noite) e `placeIn` (a cidade na pergunta, ignorando "amanhã" e "hoje").
+- `npx playwright test tests/feeds.spec.ts --project ui -g "lines for the weather"`: `weatherLine` de hoje e de amanhã, com a chuva e o guarda-chuva (critérios 7 e 8).
+- `cargo test --lib the_forecast_reads_now_and_the_next_days` (em `src-tauri`): a geocodificação ("Curitiba, Paraná", "São Paulo" sem repetir, "Não encontrei a cidade “Atlantis”") e o parse da previsão, com a chuva `null` virando 0.
+- `cargo test --lib -- --ignored feeds_answer_for_real --nocapture` (em `src-tauri`): a chamada real ao Open-Meteo para Curitiba (precisa de rede; também cota ações).
+- `cargo test --lib the_weather_the_agenda_and_the_stocks_by_voice` (em `src-tauri`): "Como está o tempo em Curitiba?", "Previsão do tempo para amanhã" e "Vai chover hoje?" viram `shortcut:weather`, e "abre o clima" abre o widget.
+- `cargo test --lib what_is_no_command_goes_to_jarvis` (em `src-tauri`): "Qual a previsão do tempo para amanhã?" vai ao JARVIS.
+- `cargo test --lib lists_every_tool_with_a_schema` (em `src-tauri`): a tool `weather` está em `TOOLS`, com schema e descrição.
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `weather` e o alvo `weather` dos atalhos é válido.
+- Sem teste automatizado: critérios 5, 9, 10, 13 e 15.
+
+### Reversão
+
+- Tirar `weather` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:weather` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Na UI: o `case "weather"` e o campo `weather` de `feeds` em `Desktop.tsx`, as palavras de busca, `WeatherWidget.tsx`, `useWeather.ts` e o `useWeather(...)` do `App`, o `case "weather"` do atalho e o clima do briefing no `App`, o `case "weather"` de `useAssistantActions.ts`, as falas `weather*` de `jarvisLines.ts`, `placeIn` de `shortcuts.ts` e a parte do clima em `feeds.ts` (`Weather`, `fetchWeather`, `describeWeather`, `localDay`, `weatherReport`).
+- Na voz e no Rust: a entrada `shortcut:weather`, o alvo `weather` de `SHORTCUT_TARGETS` (com o espelho `ShortcutAction` em `src/lib/shortcuts.ts`), a tool `weather` em `TOOLS` e `tools()` (`mcp.rs`), o comando `weather_forecast` (`lib.rs`) e `weather`, `parse_place` e `parse_forecast` em `feeds.rs`. Tire a tool dos dois lados juntos: declarada no MCP sem o `case`, ela recebe "Ferramenta desconhecida: …".
+- Os testes listados em [Testes](#testes) saem ou mudam (o briefing continua com a agenda e as tarefas).
+- Fica órfão e é ignorado: `jarvis.weather`; `weather` em `jarvis.desktop` (o `parseDesktop` descarta); `window:weather` e `shortcut:weather` no `settings.json` (o `sanitize_voice_commands` descarta ids embutidos que saíram do catálogo) e os `custom-*` com alvo `weather` (descartados quando o alvo sai do Rust).
+
 ### Constituição
 
 - [x] P1 Offline-first: a rede só é usada para o clima, que é online por natureza. Sem chave de API.
@@ -229,6 +337,12 @@ sequenceDiagram
 - [ADR-0008 — MCP HTTP in-process](../../arch/adr/0008-mcp-http-in-process.md)
 - [ADR-0009 — tipos espelhados TS ↔ Rust](../../arch/adr/0009-tipos-espelhados-ts-rust.md)
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícones das condições e o lápis), [Tauri](../../foundation/vendor/tauri/spec.md) (comando `weather_forecast` e evento `assistant:action`), [http](../../foundation/vendor/http/spec.md) (`ureq` 3 para o Open-Meteo), [serde](../../foundation/vendor/serde/spec.md) (`Weather`, `Current` e `Day`, e o JSON lido com `serde_json`)
+- **Specs:** [voice-shortcuts](../../features/voice-shortcuts/spec.md) (atalho `shortcut:weather` e o briefing), [assistant-tools](../../features/assistant-tools/spec.md) (tool `weather`), [assistant](../../features/assistant/spec.md) (as perguntas que caem no JARVIS), [voice-commands](../../features/voice-commands/spec.md) (`window:weather` e o fallback), [appearance](../../features/appearance/spec.md) (kit TUI: `ReverseRow`), [desktop-windows](../../features/desktop-windows/spec.md) (janela), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** rede: Open-Meteo (`geocoding-api.open-meteo.com/v1/search` e `api.open-meteo.com/v1/forecast`, sem chave).
 
 ## Tarefas
 

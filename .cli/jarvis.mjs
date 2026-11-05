@@ -253,7 +253,8 @@ export async function main(argv, { io = { input: process.stdin, output: process.
     const dry = Boolean(flags["dry-run"]);
     const tasks = files.find((file) => file.path.startsWith(".specs/") && file.path.endsWith("/spec.md"));
     for (const line of checklistLines(steps, Boolean(tasks))) out(line);
-    if (tasks) out(`  ${dim(dry ? "As mesmas tarefas iriam para" : "As mesmas tarefas estão em")} ${paint("light", tasks.path)} ${dim("(Tarefas, Fase 2).")}`);
+    const phase = tasks?.path.startsWith(".specs/features/") ? "(Implementation Plan, Phase 2)." : "(Tarefas, Fase 2).";
+    if (tasks) out(`  ${dim(dry ? "As mesmas tarefas iriam para" : "As mesmas tarefas estão em")} ${paint("light", tasks.path)} ${dim(phase)}`);
     const test = files.find((file) => file.role === "test");
     if (test) out(`  ${dim("Depois de colar:")} ${paint("light", `npx tsc · npx playwright test ${test.path} · cargo test (src-tauri)`)}`);
     out("");

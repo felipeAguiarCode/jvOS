@@ -1,6 +1,6 @@
 # Constituição do JARVIS OS
 
-Princípios que todo código novo segue. Cada `spec.md` se checa contra esta lista em Código › Constituição. Uma exceção precisa de justificativa ali ou de um ADR.
+Princípios que todo código novo segue. Cada `spec.md` se checa contra esta lista em Entregáveis › Constituição. Uma exceção precisa de justificativa ali ou de um ADR.
 
 ## P1 — Local e offline primeiro
 

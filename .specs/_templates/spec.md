@@ -1,4 +1,4 @@
-# <Nome legível>
+# <Tipo>: <Nome legível>
 
 <Uma frase: o que é.>
 
@@ -11,19 +11,72 @@
 | **Voz** | ids de `src-tauri/voice-commands.json` (ex.: `window:weather`, `shortcut:weather`) |
 
 <!--
-Formato SpecLang (GitHub Next) com os IDs e o aceite mantidos: a spec é a fonte da verdade do que o
-código faz. Valores com nome `$assim`, código em `crases`, rótulos da UI "entre aspas".
-- Cada ID (US, RF, RNF, SC, T) aparece uma vez. Um RF fica no bullet de comportamento onde a regra vive.
-- Casos de borda viram "Se …, então …" no componente certo; os transversais ficam em "Casos de borda".
+Formato do Feature Spec Generator do spec-coding.dev (https://spec-coding.dev/tools/): Objetivo,
+Não-objetivos, Critérios de aceite, Casos de borda, Entregáveis (Output) e Dependências. Entre os casos
+de borda e os entregáveis fica o corpo SpecLang (Dados, Telas, Componentes, Voz e teclado, Restrições),
+que é a fonte da verdade do que o código faz.
+- <Tipo> é Feature, Widget ou App. Valores com nome `$assim`, código em `crases`, rótulos da UI "entre aspas".
+- Cada ID (US, RF, RNF, SC, T, Critério) aparece uma vez e nunca é reaproveitado. Um RF fica no bullet de
+  comportamento onde a regra vive.
+- Critérios de aceite: binários e observáveis, com o número real ("abre em até 2 s", não "é rápido").
+  Cubra o caminho feliz, um caminho de falha e um caso de borda. Cada critério vira um caso de teste: a
+  história entre parênteses diz qual "Teste independente" o prova. Sem "Quando", o critério descreve um
+  estado (Dado → Então).
 - Layout e Estilo saem do código (classes, kit TUI, tokens). O que não está no código leva o
   marcador "⚠ inferido — confirmar".
-- Apague as seções opcionais que não se aplicam: Telas (só apps), Casos de borda, Voz e teclado,
-  Restrições, Contratos.
+- Apague as seções opcionais que não se aplicam: Telas (só apps), Voz e teclado, Restrições, Contratos.
 -->
 
-## Visão geral
+## Objetivo
 
-Um parágrafo: para quem é e por que existe.
+Uma ou duas frases: o resultado para o usuário, observável o bastante para alguém conferir sem adivinhar.
+
+## Não-objetivos
+
+- <o que o item não faz de propósito; ao menos um, para o escopo não crescer em silêncio>
+- <limitações conhecidas; as lacunas abertas ficam em Pendências>
+
+## Histórias de usuário
+
+### US1 — <título curto> (P1)
+
+<Uma frase do ponto de vista do usuário.>
+
+**Por que P1:** <valor entregue>.
+**Teste independente:** <o teste que cobre só esta história>.
+
+**Aceite:** [critérios 1 a 3](#critérios-de-aceite).
+
+### US2 — <título> (P2)
+
+…
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** <estado inicial>
+- **Quando** <ação>
+- **Então** <resultado observável>.
+
+### Critério 2 (US1)
+
+- **Dado** <estado de falha: entrada inválida, falta de rede, limite>
+- **Quando** <ação>
+- **Então** <o que o usuário vê>.
+
+### Critério 3 (US1)
+
+- **Dado** <caso de borda>
+- **Então** <estado observável>.
+
+## Casos de borda
+
+- **Vazio/nulo:** <nada salvo, lista vazia, valor ausente> → <o que acontece>.
+- **Duplicidade/idempotência:** <a mesma ação duas vezes, item repetido> → <o que acontece>.
+- **Concorrência/corrida:** <duas janelas, eventos fora de ordem, gravação com debounce> → <o que acontece>.
+- **Permissões/visibilidade:** <confinamento do JARVIS, microfone, rede, arquivos fora do workspace> → <o que acontece>.
+- <o que não pertence a uma categoria só>
 
 ## Dados
 
@@ -58,10 +111,6 @@ Uma seção `###` por componente ou parte do comportamento. Uma feature sem UI u
 - **Layout:** <o que fica onde; os filhos em `crases`>.
 - **Estilo:** <kit TUI, tokens do tema (`hud-amber`), tamanhos e fontes>.
 
-## Casos de borda
-
-- <o que não pertence a um componente só>
-
 ## Voz e teclado
 
 - **RF-00x**: Quando o usuário disser "<frase>" (`<id do catálogo>`), <ação>.
@@ -71,41 +120,18 @@ Uma seção `###` por componente ou parte do comportamento. Uma feature sem UI u
 
 - **RNF-001**: <limite, desempenho, offline, privacidade> (o número real do código).
 
-## Histórias de usuário
-
-### US1 — <título curto> (P1)
-
-<Uma frase do ponto de vista do usuário.>
-
-**Por que P1:** <valor entregue>.
-**Teste independente:** <o teste que cobre só esta história>.
-
-**Aceite**
-
-1. **Dado** <estado inicial>, **quando** <ação>, **então** <resultado observável>.
-2. **Dado** …, **quando** …, **então** ….
-
-### US2 — <título> (P2)
-
-…
-
 ## Critérios de sucesso
 
 - **SC-001**: <resultado mensurável, independente de tecnologia>.
 
-## Fora de escopo e limitações
-
-- <o que o item não faz de propósito>
-- <limitações conhecidas; as lacunas abertas ficam em Pendências>
-
-## Código
+## Entregáveis
 
 Duas ou três frases: a abordagem técnica escolhida.
 
 | | |
 |---|---|
 | **Camadas** | UI React · hook · lib · comando Tauri · módulo Rust |
-| **Dependências** | bibliotecas e processos externos relevantes |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/<x>.spec.ts`, testes Rust `mod tests` |
 | **Plataforma** | Windows 11 · WebView2; comportamento fora do Tauri (fake / fallback / indisponível) |
 
@@ -144,6 +170,16 @@ sequenceDiagram
   R-->>UI: resultado
 ```
 
+### Testes
+
+- `npx playwright test tests/<x>.spec.ts --project ui`: <o que prova> (critérios 1 a 3).
+- `cargo test --lib <módulo>` (em `src-tauri`): <o que prova>.
+
+### Reversão
+
+- <o que tirar para desfazer o item: registros em `desktop.ts`, catálogo de voz, kinds e comandos no Rust>
+- <o que fica para trás e é ignorado sem risco: a chave `jarvis.<x>`, um campo do `settings.json`>
+
 ### Constituição
 
 Princípios de [constitution.md](../../arch/constitution.md) que se aplicam, com as exceções explicadas.
@@ -155,23 +191,31 @@ Princípios de [constitution.md](../../arch/constitution.md) que se aplicam, com
 
 - [ADR-00xx — título](../../arch/adr/00xx-....md)
 
+## Dependências
+
+- **Vendor:** [<lib>](../../foundation/vendor/<id>/spec.md)
+- **Specs:** [<outra spec>](../../features/<x>/spec.md) (<por quê>)
+- **Sistema:** <WebView2, microfone, rede: qual serviço>
+
 ## Tarefas
 
-Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec.
+Regras: cada tarefa é revisável sozinha, não implementa nada fora desta spec e só vira `[x]` com a evidência. Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec.
 
 ### Fase 1 — Base
 
-- [x] T001 <tipos / parser / persistência> — `src/lib/<x>.ts`
-- [x] T002 [P] <comando Rust> — `src-tauri/src/<x>.rs`
+- [ ] T001 <tipos / parser / persistência>
+  - Aceite: <critérios N a M, ou a seção da spec>
+  - Arquivos permitidos: `src/lib/<x>.ts`
+  - Comando de teste: `npx playwright test tests/<x>.spec.ts --project ui`
+  - Evidência: <o teste que passa, uma captura ou um log>
 
 ### Fase 2 — US1 <título> (P1)
 
-- [x] T003 [US1] <componente> — `src/components/...`
-
-### Fase N — Testes
-
-- [x] T0xx Playwright `tests/<x>.spec.ts` — "<título do teste>"
-- [x] T0xx Rust `src-tauri/src/<x>.rs` — `nome_do_teste`
+- [ ] T002 [US1] <componente>
+  - Aceite: critérios 1 a 3
+  - Arquivos permitidos: `src/components/...`
+  - Comando de teste: …
+  - Evidência: …
 
 ## Pendências
 

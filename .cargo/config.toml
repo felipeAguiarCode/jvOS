@@ -1,9 +1,11 @@
-# Cargo builds into `t/` at the repository root, not src-tauri/target. With the Vulkan backend,
+# Cargo builds into `t/` ("target", cut to one letter) at the repository root, not src-tauri/target. With the Vulkan backend,
 # whisper.cpp builds its shader generator as a nested CMake project whose deepest files (compiler
 # checks under .../vulkan-shaders-gen-build/CMakeFiles/...) reached 260+ characters from
 # src-tauri\target: Windows' MAX_PATH, which cl.exe and MSBuild cannot go past. Here the path is
 # 16 characters shorter (and scripts/tauri.mjs builds that project with Ninja, which skips
-# MSBuild's deepest folders). Relative to this file's parent (the repository root), so the path
+# MSBuild's deepest folders). Measured 2026-11-05: the C++ ABI compiler check is 257 characters
+# from t\release (the limit is 259); from `target/` it is 262 and the check fails, so keep one
+# letter. Relative to this file's parent (the repository root), so the path
 # stays clean; `tauri`, `cargo` and rust-analyzer all follow it.
 [build]
 target-dir = "t"

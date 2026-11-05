@@ -1,4 +1,4 @@
-# jv_agent
+# App: jv_agent
 
 A oficina onde o usuário cria, por voz e com o JARVIS, subagentes do Claude Code, vê o agente tomar forma como um robô ASCII e o roda uma vez numa aba do jv_sh.
 
@@ -6,13 +6,175 @@ A oficina onde o usuário cria, por voz e com o JARVIS, subagentes do Claude Cod
 |---|---|
 | **ID** | `app/jv_agent` |
 | **Status** | Implementado |
-| **Origem** | `750ebd0` (2026-10-27) · evoluída não commitado (figura ASCII, sessão e aba do editor) |
+| **Origem** | `750ebd0` (2026-10-27) · evoluída em `e7151cf` (2026-11-05): figura ASCII, sessão e aba do editor |
 | **Window kind** | `agent` em `src/lib/desktop.ts` (1000×600, mínimo 640×380) |
 | **Voz** | `window:agent` ("jv agent", "agentes", "criador de agentes"); a conversa com o JARVIS ("Jarvis, vamos criar um agente") não é um id do catálogo |
 
-## Visão geral
+## Objetivo
 
 O jv_agent é a oficina onde o usuário cria, por voz e com o JARVIS, subagentes do Claude Code. O JARVIS faz uma entrevista curta e escreve o rascunho em `Documentos\JARVIS\Agentes\<nome>.md`, no formato de subagente (cabeçalho YAML e depois o prompt). A janela mostra esse rascunho como um robô ASCII montado parte por parte, uma barra de 6 etapas, a ficha do agente, um cartão de revisão e, ao lado, a sessão: o que o usuário e o JARVIS disseram, entre os eventos do agente. Depois de revisado e com a confirmação do usuário, o agente é instalado na pasta de subagentes do Claude Code e roda uma vez numa aba do jv_sh, onde o usuário acompanha a execução e aprova as permissões.
+
+## Não-objetivos
+
+- O app não executa o agente sozinho: a execução e as permissões ficam na aba do jv_sh (ver [jv_sh](../jv_sh/spec.md)).
+- A entrevista é conduzida pela persona do JARVIS (ver [persona](../../domain/jarvis-persona.md) e [assistente](../../features/assistant/spec.md)), não pelo app.
+- Os eventos da sessão vivem só na memória da janela.
+- O "Rodar uma vez" do botão não exige revisão prévia: o clique do usuário já é a confirmação.
+
+## Histórias de usuário
+
+### US1 — Ver o agente sendo escrito pelo JARVIS (P1)
+
+Quero dizer "Jarvis, vamos criar um agente" e ver o agente tomar forma na tela enquanto respondo às perguntas.
+
+**Por que P1:** é a experiência central: criar um agente conversando.
+**Teste independente:** `tests/agent.spec.ts` — "JARVIS writes the agent in jv_agent, shows it for review and runs it once in jv_sh".
+
+**Aceite:** [critérios 1 a 4](#critérios-de-aceite).
+
+### US2 — Revisar e rodar uma vez (P1)
+
+Quero que o JARVIS me mostre o agente para revisão e só o rode depois que eu disser "pode rodar".
+
+**Por que P1:** nenhum agente roda sem revisão e confirmação.
+**Teste independente:** o mesmo teste de `tests/agent.spec.ts`.
+
+**Aceite:** [critérios 5 a 8](#critérios-de-aceite).
+
+### US3 — Ver o que falta (P1)
+
+Quero saber o que impede o agente de rodar.
+
+**Por que P1:** evita instalar um subagente inválido.
+**Teste independente:** `tests/agent.spec.ts` — "what is missing is listed and keeps the agent from running".
+
+**Aceite:** [critérios 9 a 11](#critérios-de-aceite).
+
+### US4 — Rodar pelo botão, com pasta e tarefa escolhidas (P2)
+
+Quero escolher onde o agente trabalha e qual é a primeira tarefa, e rodar com um clique.
+
+**Por que P2:** atalho manual ao fluxo por voz.
+**Teste independente:** `tests/agent.spec.ts` — "the Rodar button runs the open agent in the folder and with the task chosen there".
+
+**Aceite:** [critério 12](#critérios-de-aceite).
+
+### US5 — Editar o rascunho à mão (P2)
+
+Quero corrigir o arquivo diretamente, e o JARVIS deve ler minha versão.
+
+**Por que P2:** completa a entrevista quando falar não basta.
+**Teste independente:** o primeiro teste de UI abre a aba `[2]`, confere o texto e digita nela.
+
+**Aceite:** [critérios 13 a 14](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o JARVIS escrevendo um `.md` em `Agentes`
+- **Quando** o texto chega em partes
+- **Então** o jv_agent abre sozinho, mostra "● JARVIS escrevendo", e o robô fica no estado `live` (antena piscando, olhos se mexendo).
+
+### Critério 2 (US1)
+
+- **Dado** a escrita concluída
+- **Quando** o arquivo está salvo
+- **Então** o robô acende cabeça, corpo e antena (nome), olhos `◉` (descrição), braços (ferramentas), núcleo com o modelo em maiúsculas, como `SONNET` (modelo), e pernas (prompt). A barra mostra `[■■■■■□] 5/6`.
+
+### Critério 3 (US1)
+
+- **Dado** o rascunho salvo
+- **Então** a ficha mostra o nome, "faz" (descrição), "usa" (ferramentas ou "todas as ferramentas") e "modelo" (ou "o padrão"), e a sessão registra "✓ <nome>.md salvo · n de 5 partes".
+
+### Critério 4 (US1)
+
+- **Dado** a conversa em andamento
+- **Então** a sessão mostra `você ›` e `jarvis ›` com horário, desde 5 minutos antes de a janela abrir, sem passar de "Nova conversa". Respostas longas são cortadas em 420 caracteres.
+
+### Critério 5 (US2)
+
+- **Dado** um rascunho sem revisão
+- **Quando** o JARVIS chama `agent_run`
+- **Então** a resposta é `ok: false` ("Mostre o agente com agent_review antes de rodar.").
+
+### Critério 6 (US2)
+
+- **Dado** um rascunho sem problemas
+- **Quando** o JARVIS chama `agent_review` com a tarefa
+- **Então** o cartão entra em revisão (`data-state="review"`), o robô fica âmbar, a barra mostra 6/6, a pasta de trabalho padrão é `Agentes\<nome>`, e a linha de prompt sugere "diga “pode rodar” ou clique em Rodar uma vez". A resposta ao JARVIS começa com "Em revisão no jv_agent: <nome>" e termina pedindo a confirmação antes de `agent_run`.
+
+### Critério 7 (US2)
+
+- **Dado** o agente editado à mão depois da revisão
+- **Quando** o JARVIS chama `agent_run`
+- **Então** a resposta é "O agente mudou depois da revisão: chame agent_review de novo.", e o cartão fica `changed`.
+
+### Critério 8 (US2)
+
+- **Dado** o agente revisado de novo
+- **Quando** o JARVIS chama `agent_run`
+- **Então** o agente é instalado, o jv_sh abre uma aba "Agente <nome>" na pasta escolhida, a resposta é "Rodando o agente <nome> numa aba do jv_sh, em <pasta>", o robô fica `running`, e a sessão registra "▶ claude --agent <nome> “<tarefa>” · <pasta>".
+
+### Critério 9 (US3)
+
+- **Dado** um rascunho só com `name`
+- **Então** o cartão lista "⚠ Falta a descrição (description) no cabeçalho" e "⚠ Falta o prompt do agente depois do cabeçalho", "Rodar uma vez" fica desabilitado, e o robô fica `problem`, com olhos ocos `○`, sem braços nem pernas e com a antena em alerta.
+
+### Critério 10 (US3)
+
+- **Dado** problemas no rascunho
+- **Quando** o JARVIS chama `agent_review`
+- **Então** a resposta é `ok: false`, com "O agente ainda tem problemas: …".
+
+### Critério 11 (US3)
+
+- **Dado** um nome sem arquivo
+- **Quando** o JARVIS chama `agent_review`
+- **Então** a resposta é "Não achei Agentes/<nome>.md".
+
+### Critério 12 (US4)
+
+- **Dado** um rascunho sem problemas
+- **Quando** preencho "Pasta de trabalho" e "Tarefa da primeira execução" e clico em "Rodar uma vez"
+- **Então** o jv_sh abre a aba `agent:<nome>` nessa pasta. O botão "Escolher pasta" abre o diálogo nativo (só no desktop).
+
+### Critério 13 (US5)
+
+- **Dado** um rascunho aberto
+- **Quando** clico na aba `[2] <nome>.md`
+- **Então** um editor CodeMirror (Markdown) mostra o texto. O que digito vai para o disco depois de 600 ms sem digitar, e a barra inferior alterna entre "Salvando…" e "Salvo".
+
+### Critério 14 (US5)
+
+- **Dado** a lista "Agentes"
+- **Quando** clico num nome
+- **Então** esse rascunho abre, e as edições pendentes do anterior são gravadas antes.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Nenhum rascunho aberto → robô `empty`, "Nenhum agente aberto." na oficina e "Nenhum agente aberto. Clique no núcleo e diga: …" na aba `[2]`.
+  - Campo do cabeçalho ainda vazio → "—" na ficha; sem `tools` → "todas as ferramentas"; sem `model` → "o padrão" e "···" no núcleo.
+  - Sessão sem nada → "Nada ainda nesta sessão. …"; nenhum rascunho em `Agentes` → "Nenhum ainda.".
+  - "Pasta de trabalho" vazia → "Rodar uma vez" desabilitado; tarefa vazia → a aba roda só `claude --agent <nome>`.
+  - `.instalados.json` ilegível → lista vazia (ver [Pendências](#pendências)).
+- **Duplicidade/idempotência:**
+  - `agent_install` de um agente que o JARVIS já instalou → atualizado; de um agente do usuário com o mesmo nome → "Você já tem um agente \"<nome>\" no Claude Code: escolha outro nome".
+  - `agent_run` de novo depois de rodar → a revisão foi encerrada, então "Mostre o agente com agent_review antes de rodar.".
+  - Texto chegando em partes → "✎ JARVIS escrevendo Agentes/<nome>.md" é registrado uma vez; a sessão guarda até 100 eventos.
+- **Concorrência/corrida:**
+  - `agent_run` logo depois de `agent_review`, antes de a janela renderizar → a revisão já está guardada (`reviewNow`).
+  - Rascunho alterado depois da revisão → "O agente mudou depois da revisão: chame agent_review de novo." e o cartão fica `changed`.
+  - Usuário editando enquanto o JARVIS escreve → nada é gravado e "Rodar uma vez" fica desabilitado.
+  - Outro arquivo chegando ou outro nome clicado na lista → as edições pendentes do aberto são gravadas antes (`flush`).
+  - Pedido do JARVIS com a janela fechada → fica guardado em `agentRequests` ou `draftRequests` até a janela abrir; o `App` pré-carrega o app.
+- **Permissões/visibilidade:**
+  - O JARVIS só escreve o rascunho em `Documentos\JARVIS\Agentes` ([ADR-0007](../../arch/adr/0007-jarvis-confinado-a-documentos.md)); o agente roda fora dele, numa aba visível do jv_sh, onde o usuário aprova as permissões.
+  - Nome fora de `[a-z0-9][a-z0-9-]{0,63}` → problema no cartão; `agent_drafts` deixa de fora os arquivos com nome inválido.
+  - `terminal_open_agent` com agente não instalado → `O agente "<nome>" não está instalado`; sem `claude.exe` → "Claude Code não encontrado"; uma pasta fora de `Agentes` precisa existir.
+  - A instalação grava em `~/.claude/agents` (ou `CLAUDE_CONFIG_DIR\agents`), fora de `Documentos\JARVIS`, e nunca sobrescreve um agente que não está em `.instalados.json`.
+- **Fora do Tauri:** os rascunhos ficam em memória, os problemas são checados em TypeScript, a instalação é pulada e o jv_sh usa o fake `__JARVIS_TERMINAL__`. "Escolher pasta" fica desabilitado.
 
 ## Dados
 
@@ -229,10 +391,6 @@ O caminho do botão e da tool até a aba do jv_sh.
     - Se o Claude Code faltar, responda "Claude Code não encontrado". Se o agente não estiver instalado, responda "O agente \"<nome>\" não está instalado".
     - Se a tarefa tiver aspas ou quebras de linha, elas viram espaços (um único argumento de linha de comando).
 
-## Casos de borda
-
-- **Fora do Tauri:** os rascunhos ficam em memória, os problemas são checados em TypeScript, a instalação é pulada e o jv_sh usa o fake `__JARVIS_TERMINAL__`. "Escolher pasta" fica desabilitado.
-
 ## Voz e teclado
 
 - Voz `window:agent` ("jv agent", "agentes", "criador de agentes"): abre ou fecha a janela.
@@ -247,93 +405,20 @@ O caminho do botão e da tool até a aba do jv_sh.
 - **RNF-002**: Nenhum comando arbitrário: o Rust só monta `claude --agent <nome> [tarefa]`, com o nome validado (ver [segurança](../../arch/security.md)).
 - Números do código: gravação 600 ms após a última tecla; checagem de problemas após 300 ms; sessão desde 5 min antes de abrir; até 100 eventos; respostas cortadas em 420 caracteres; nome de 1 a 64 caracteres.
 
-## Histórias de usuário
-
-### US1 — Ver o agente sendo escrito pelo JARVIS (P1)
-
-Quero dizer "Jarvis, vamos criar um agente" e ver o agente tomar forma na tela enquanto respondo às perguntas.
-
-**Por que P1:** é a experiência central: criar um agente conversando.
-**Teste independente:** `tests/agent.spec.ts` — "JARVIS writes the agent in jv_agent, shows it for review and runs it once in jv_sh".
-
-**Aceite**
-
-1. **Dado** o JARVIS escrevendo um `.md` em `Agentes`, **quando** o texto chega em partes, **então** o jv_agent abre sozinho, mostra "● JARVIS escrevendo", e o robô fica no estado `live` (antena piscando, olhos se mexendo).
-2. **Dado** a escrita concluída, **quando** o arquivo está salvo, **então** o robô acende cabeça, corpo e antena (nome), olhos `◉` (descrição), braços (ferramentas), núcleo com o modelo em maiúsculas, como `SONNET` (modelo), e pernas (prompt). A barra mostra `[■■■■■□] 5/6`.
-3. **Dado** o rascunho salvo, **então** a ficha mostra o nome, "faz" (descrição), "usa" (ferramentas ou "todas as ferramentas") e "modelo" (ou "o padrão"), e a sessão registra "✓ <nome>.md salvo · n de 5 partes".
-4. **Dado** a conversa em andamento, **então** a sessão mostra `você ›` e `jarvis ›` com horário, desde 5 minutos antes de a janela abrir, sem passar de "Nova conversa". Respostas longas são cortadas em 420 caracteres.
-
-### US2 — Revisar e rodar uma vez (P1)
-
-Quero que o JARVIS me mostre o agente para revisão e só o rode depois que eu disser "pode rodar".
-
-**Por que P1:** nenhum agente roda sem revisão e confirmação.
-**Teste independente:** o mesmo teste de `tests/agent.spec.ts`.
-
-**Aceite**
-
-1. **Dado** um rascunho sem revisão, **quando** o JARVIS chama `agent_run`, **então** a resposta é `ok: false` ("Mostre o agente com agent_review antes de rodar.").
-2. **Dado** um rascunho sem problemas, **quando** o JARVIS chama `agent_review` com a tarefa, **então** o cartão entra em revisão (`data-state="review"`), o robô fica âmbar, a barra mostra 6/6, a pasta de trabalho padrão é `Agentes\<nome>`, e a linha de prompt sugere "diga “pode rodar” ou clique em Rodar uma vez". A resposta ao JARVIS começa com "Em revisão no jv_agent: <nome>" e termina pedindo a confirmação antes de `agent_run`.
-3. **Dado** o agente editado à mão depois da revisão, **quando** o JARVIS chama `agent_run`, **então** a resposta é "O agente mudou depois da revisão: chame agent_review de novo.", e o cartão fica `changed`.
-4. **Dado** o agente revisado de novo, **quando** o JARVIS chama `agent_run`, **então** o agente é instalado, o jv_sh abre uma aba "Agente <nome>" na pasta escolhida, a resposta é "Rodando o agente <nome> numa aba do jv_sh, em <pasta>", o robô fica `running`, e a sessão registra "▶ claude --agent <nome> “<tarefa>” · <pasta>".
-
-### US3 — Ver o que falta (P1)
-
-Quero saber o que impede o agente de rodar.
-
-**Por que P1:** evita instalar um subagente inválido.
-**Teste independente:** `tests/agent.spec.ts` — "what is missing is listed and keeps the agent from running".
-
-**Aceite**
-
-1. **Dado** um rascunho só com `name`, **então** o cartão lista "⚠ Falta a descrição (description) no cabeçalho" e "⚠ Falta o prompt do agente depois do cabeçalho", "Rodar uma vez" fica desabilitado, e o robô fica `problem`, com olhos ocos `○`, sem braços nem pernas e com a antena em alerta.
-2. **Dado** problemas no rascunho, **quando** o JARVIS chama `agent_review`, **então** a resposta é `ok: false`, com "O agente ainda tem problemas: …".
-3. **Dado** um nome sem arquivo, **quando** o JARVIS chama `agent_review`, **então** a resposta é "Não achei Agentes/<nome>.md".
-
-### US4 — Rodar pelo botão, com pasta e tarefa escolhidas (P2)
-
-Quero escolher onde o agente trabalha e qual é a primeira tarefa, e rodar com um clique.
-
-**Por que P2:** atalho manual ao fluxo por voz.
-**Teste independente:** `tests/agent.spec.ts` — "the Rodar button runs the open agent in the folder and with the task chosen there".
-
-**Aceite**
-
-1. **Dado** um rascunho sem problemas, **quando** preencho "Pasta de trabalho" e "Tarefa da primeira execução" e clico em "Rodar uma vez", **então** o jv_sh abre a aba `agent:<nome>` nessa pasta. O botão "Escolher pasta" abre o diálogo nativo (só no desktop).
-
-### US5 — Editar o rascunho à mão (P2)
-
-Quero corrigir o arquivo diretamente, e o JARVIS deve ler minha versão.
-
-**Por que P2:** completa a entrevista quando falar não basta.
-**Teste independente:** o primeiro teste de UI abre a aba `[2]`, confere o texto e digita nela.
-
-**Aceite**
-
-1. **Dado** um rascunho aberto, **quando** clico na aba `[2] <nome>.md`, **então** um editor CodeMirror (Markdown) mostra o texto. O que digito vai para o disco depois de 600 ms sem digitar, e a barra inferior alterna entre "Salvando…" e "Salvo".
-2. **Dado** a lista "Agentes", **quando** clico num nome, **então** esse rascunho abre, e as edições pendentes do anterior são gravadas antes.
-
 ## Critérios de sucesso
 
 - **SC-001**: Do pedido por voz até a aba do jv_sh rodando o agente, o usuário não precisa abrir nenhum arquivo.
 - **SC-002**: Nenhum agente roda sem uma revisão do texto exato que vai rodar.
 - **SC-003**: Um subagente que o usuário criou fora do JARVIS nunca é sobrescrito.
 
-## Fora de escopo e limitações
-
-- O app não executa o agente sozinho: a execução e as permissões ficam na aba do jv_sh (ver [jv_sh](../jv_sh/spec.md)).
-- A entrevista é conduzida pela persona do JARVIS (ver [persona](../../domain/jarvis-persona.md) e [assistente](../../features/assistant/spec.md)), não pelo app.
-- Os eventos da sessão vivem só na memória da janela.
-- O "Rodar uma vez" do botão não exige revisão prévia: o clique do usuário já é a confirmação.
-
-## Código
+## Entregáveis
 
 O JARVIS (Claude Code, confinado a `Documentos\JARVIS`) escreve o rascunho com suas próprias ferramentas de arquivo. O `App` percebe os arquivos `.md` em `Agentes` e os repassa ao jv_agent pelo canal `draftRequests`. As ferramentas MCP `agent_review` e `agent_run` chegam à janela pelo canal `agentRequests`, via `useAssistantActions`. O `AgentApp` deriva tudo do texto do rascunho: ficha, figura, etapas e problemas. Para rodar, ele chama o lançador registrado pelo `App`, que instala o agente com `agent_install` e pede uma aba ao jv_sh (`requestTab`). A aba abre com `terminal_open_agent`, que só sabe montar `claude --agent <nome> [tarefa]`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`AgentApp`, `AgentFigure`, `AgentSession`, `AgentEditor`) · libs `agents.ts`, `agentFigure.ts`, `requests.ts` · `useAssistantActions` · comandos `agent_drafts`, `agent_problems`, `agent_install`, `terminal_open_agent` · módulo `src-tauri/src/agents.rs` |
-| **Dependências** | Claude Code (`claude.exe`) instalado; CodeMirror (`@codemirror/lang-markdown`) só na aba `[2]`; jv_sh (`TerminalView`, ConPTY) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/agent.spec.ts` (1 teste puro da figura + 3 de UI); Rust `mod tests` em `src-tauri/src/agents.rs` |
 | **Plataforma** | Windows 11 · WebView2. Fora do Tauri: rascunhos em memória (`memoryDrafts`), `agentProblems` em TS, sem `agent_install`, jv_sh com o fake `__JARVIS_TERMINAL__`, JARVIS com o fake `__JARVIS_ASSISTANT__` (`files`) |
 
@@ -364,7 +449,7 @@ O JARVIS (Claude Code, confinado a `Documentos\JARVIS`) escreve o rascunho com s
 | `agent_drafts` | — | `string[]` | Nomes válidos de `Agentes\*.md`, em ordem |
 | `agent_problems` | `{ name, text }` | `string[]` | Vazio = pronto |
 | `agent_install` | `{ name }` | `string` (caminho instalado) | `blocking()`. Checa os problemas de novo; recusa sobrescrever um agente que não está em `.instalados.json` |
-| `terminal_open_agent` | `{ name, task, cwd, cols, rows }` | `u32` (id da sessão) | Exige `agents::installed(name)`; cria `cwd` se estiver sob `Agentes`, senão a pasta precisa existir; argv = `claude.exe --agent <nome> [tarefa sem aspas nem quebras]`; perfil `agent:<nome>` / "Agente <nome>". Detalhes do PTY em [jv_sh](../jv_sh/spec.md#código) |
+| `terminal_open_agent` | `{ name, task, cwd, cols, rows }` | `u32` (id da sessão) | Exige `agents::installed(name)`; cria `cwd` se estiver sob `Agentes`, senão a pasta precisa existir; argv = `claude.exe --agent <nome> [tarefa sem aspas nem quebras]`; perfil `agent:<nome>` / "Agente <nome>". Detalhes do PTY em [jv_sh](../jv_sh/spec.md#entregáveis) |
 
 #### Eventos e Channels
 
@@ -409,6 +494,20 @@ sequenceDiagram
   G-->>J: "Rodando o agente … numa aba do jv_sh, em …"
 ```
 
+### Testes
+
+- `npx playwright test tests/agent.spec.ts --project ui`: a figura ASCII montada parte por parte (teste puro), a escrita do JARVIS, a revisão, `agent_run` recusado sem revisão e depois de uma edição, a aba no jv_sh, os problemas listados e o botão "Rodar uma vez" com pasta e tarefa, contra os fakes `__JARVIS_ASSISTANT__` e `__JARVIS_TERMINAL__` (critérios 1–12 e a aba `[2]` do 13).
+- `cargo test --lib agents::` (em `src-tauri`): nomes do Claude Code, leitura do cabeçalho, as mensagens de problema e a instalação que nunca sobrescreve um agente do usuário (RF-004, RF-007).
+- Sem teste automatizado: a gravação em disco 600 ms depois da edição e a troca de rascunho pela lista "Agentes" (parte do critério 13 e o 14).
+
+### Reversão
+
+- Tirar o kind `agent` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` em `commands.ts`, o `case "agent"` de `Desktop.tsx` e o `AgentApp` de `lazyApps.tsx`; `window:agent` de `src-tauri/voice-commands.json` e `"agent"` do `WINDOW_KINDS` de `settings.rs`.
+- **Não** é ignorado sem ajuste: as tools `agent_review`/`agent_run` (`mcp.rs`, `useAssistantActions.ts` com `openAgents`) e a seção "Agentes do Claude Code" de `src-tauri/assistant-persona.md` saem juntas; sem isso, o JARVIS continua entrevistando e chamando tools que abrem uma janela que não existe.
+- Tirar também o ramo `Agentes` de `onAssistantFile` (`draftRequests`) e `setAgentLauncher` em `App.tsx`, os comandos `agent_drafts`, `agent_problems`, `agent_install` e `terminal_open_agent` com `agents.rs`, o campo `agent` de `TerminalProfile`, e `agent` do `testMatch` com `tests/agent.spec.ts`.
+- Fica órfão e é ignorado: os rascunhos e `.instalados.json` em `Documentos\JARVIS\Agentes`, a janela `agent` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos) e o comando de voz gravado no `settings.json` (descartado ao carregar).
+- **Fica ativo:** os agentes já instalados em `~/.claude/agents` continuam no Claude Code do usuário; para tirá-los, apague à mão os nomes listados em `.instalados.json`.
+
 ### Constituição
 
 - [x] P1 Offline-first — a oficina é local; só o Claude Code usa rede, como em todo o assistente.
@@ -433,9 +532,15 @@ sequenceDiagram
 - [ADR-0012 — apps lazy com preload](../../arch/adr/0012-apps-lazy-com-preload.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 
+## Dependências
+
+- **Vendor:** [Tauri](../../foundation/vendor/tauri/spec.md) (`@tauri-apps/api` e o diálogo de pasta), [React](../../foundation/vendor/react/spec.md), [lucide](../../foundation/vendor/lucide/spec.md), [CodeMirror 6](../../foundation/vendor/codemirror/spec.md) (`@codemirror/lang-markdown`, só na aba `[2]`), [serde](../../foundation/vendor/serde/spec.md) (`.instalados.json`), [portable-pty](../../foundation/vendor/terminal/spec.md) (a aba de `terminal_open_agent`), [Claude Code](../../foundation/vendor/claude-code/spec.md) (o JARVIS que escreve e o `claude --agent` que roda)
+- **Specs:** [jv_sh](../../apps/jv_sh/spec.md) (a aba que roda o agente), [assistant](../../features/assistant/spec.md) (a entrevista e a `conversation` da sessão), [assistant-tools](../../features/assistant-tools/spec.md) (`agent_review` e `agent_run` no servidor MCP), [desktop-windows](../../features/desktop-windows/spec.md) (janela, app lazy e preload), [voice-commands](../../features/voice-commands/spec.md) (`window:agent`), [search](../../features/search/spec.md) (palavras de `WINDOW_KEYWORDS`), [jarvis-mark](../../apps/jarvis-mark/spec.md) (o `CodeMirror` compartilhado e `read_text_file`/`write_text_file`)
+- **Sistema:** WebView2; `claude.exe` instalado; `Documentos\JARVIS\Agentes`; a pasta de subagentes `~/.claude/agents` (ou `CLAUDE_CONFIG_DIR\agents`); o diálogo nativo de pasta; rede só pelo Claude Code.
+
 ## Tarefas
 
-Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec. As tarefas foram reconstruídas do código, do commit de origem `750ebd0` e das mudanças não commitadas (`AgentFigure`, `AgentSession`, `AgentEditor`, `agentFigure.ts`).
+Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec. As tarefas foram reconstruídas do código, do commit de origem `750ebd0` e das mudanças do `e7151cf` (`AgentFigure`, `AgentSession`, `AgentEditor`, `agentFigure.ts`).
 
 ### Fase 1 — Base
 

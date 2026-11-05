@@ -1,4 +1,4 @@
-# Mini player
+# Widget: Mini player
 
 Widget com o controle compacto do jv_T4p3: a faixa que toca, o tempo, uma barra de progresso clicável, anterior, tocar/pausar, próxima e o volume.
 
@@ -10,9 +10,109 @@ Widget com o controle compacto do jv_T4p3: a faixa que toca, o tempo, uma barra 
 | **Window kind** | `miniplayer` em `src/lib/desktop.ts` (360 × 150, mínimo 300 × 140, grupo `widgets`) |
 | **Voz** | `window:miniplayer` ("mini player", "miniplayer", "controle de música") |
 
-## Visão geral
+## Objetivo
 
 O Mini player é o controle compacto do jv_T4p3. Mostra a faixa que está tocando, o tempo, o artista e a playlist, uma barra de progresso clicável, os três botões que importam (anterior, tocar/pausar, próxima) e o volume. Ele não tem player próprio: comanda o player do app inteiro, descrito em [jv_T4p3](../../apps/jv_t4p3/spec.md), que continua tocando com a janela do jv_T4p3 fechada.
+
+## Não-objetivos
+
+- Não escolhe playlists nem edita a fila. Isso é do [jv_T4p3](../../apps/jv_t4p3/spec.md).
+- A cor da barra (`TAPE_MAGENTA`) é a mesma do jv_T4p3 e não segue o tema.
+
+## Histórias de usuário
+
+### US1 — Ver o que está tocando (P1)
+
+Como usuário, quero saber qual música toca, de quem é, de qual playlist e em que ponto está.
+
+**Por que P1:** é a informação principal do widget.
+**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
+
+**Aceite:** [critérios 1 a 3](#critérios-de-aceite).
+
+### US2 — Controlar a música (P1)
+
+Como usuário, quero pular, pausar, tocar e mudar de ponto na música sem abrir o player.
+
+**Por que P1:** é o motivo de ter um mini player.
+**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed` e `voice plays playlists, skips, pauses and opens or closes the player and its widgets`.
+
+**Aceite:** [critérios 4 a 8](#critérios-de-aceite).
+
+### US3 — Escolher o que aparece (P2)
+
+**Teste independente:** `tests/widgets.spec.ts` — `Mini player: right click turns parts of the widget off, and it stays so`.
+
+**Aceite:** [critério 9](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** uma música tocando com o jv_T4p3 fechado
+- **Quando** abro "Mini player"
+- **Então** vejo `♪ Out of Touch`, o tempo `m:ss / m:ss` e `Hall and Oates · Flash FM` na linha de baixo.
+
+### Critério 2 (US1)
+
+- **Dado** nada tocando
+- **Então** vejo "Nada tocando" e "jv_T4p3 · espaço toca a playlist escolhida".
+
+### Critério 3 (US1)
+
+- **Dado** o player resolvendo a música
+- **Então** o título diz "sintonizando…". Com erro, aparece a mensagem do player na cor de alerta.
+
+### Critério 4 (US2)
+
+- **Dado** uma música tocando
+- **Quando** clico em "Próxima música"
+- **Então** o widget e a barra superior passam a mostrar a faixa seguinte.
+
+### Critério 5 (US2)
+
+- **Dado** a música pausada pela barra superior
+- **Então** o botão central do widget vira "Tocar".
+
+### Critério 6 (US2)
+
+- **Dado** a barra de progresso ("Posição na música")
+- **Quando** pressiono num ponto dela
+- **Então** a música salta para essa fração. Arrastar ali não move a janela.
+
+### Critério 7 (US2)
+
+- **Dado** o widget em foco
+- **Quando** aperto Espaço, `n` ou `b`
+- **Então** a música toca/pausa, avança ou volta. `-` e `+` (ou `=`) mudam o volume em 5%.
+
+### Critério 8 (US2)
+
+- **Dado** comandos de voz de música ("pausa a música", "próxima música", "toca a Fever")
+- **Então** o widget reflete o novo estado.
+
+### Critério 9 (US3)
+
+- **Dado** o menu "Opções do widget Mini player"
+- **Quando** desmarco "Controles"
+- **Então** os botões somem, e isso vale depois de recarregar. Os outros itens são "Tempo", "Artista e playlist", "Barra de progresso" e "Volume".
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Nada tocando → "Nada tocando" e "jv_T4p3 · espaço toca a playlist escolhida". Espaço, "tocar" ou `n` tocam a playlist escolhida; `b` não faz nada.
+  - Duração desconhecida → a barra fica em 0, o tempo mostra `0:00`, e um clique na barra não faz nada (`seekTo` ignora).
+  - O player com erro → a mensagem dele aparece na cor de alerta, e tocar de novo refaz a mesma faixa.
+  - "Controles" e "Volume" desligados → a linha de baixo some.
+  - `jarvis.widget.miniplayer` ausente, inválido ou com uma chave não booleana → essa opção vale `true`.
+- **Duplicidade/idempotência:**
+  - Espaço ou Enter com um botão do widget em foco → só o clique do botão roda, e a música não alterna duas vezes.
+  - `-` com o volume em 0% ou `+` em 100% → o volume não passa do limite (`setVolume` fica entre 0 e 1).
+- **Concorrência/corrida:**
+  - O player muda por fora (voz, barra superior, jv_T4p3, Fita) → o widget mostra o novo estado na hora, porque lê o mesmo `MusicPlayer` do `App`.
+  - Arrastar a partir da barra "Posição na música" → só busca um ponto; a janela não se move.
+  - O jv_T4p3 fecha com a música tocando → o widget continua controlando o player, que segue tocando.
+- **Permissões/visibilidade:** o widget não chama Tauri nem rede. O stream (YouTube via `yt-dlp`) é do player do [jv_T4p3](../../apps/jv_t4p3/spec.md); no modo web, a música vem do fake `__JARVIS_MUSIC__`. As opções ficam no `localStorage`.
 
 ## Dados
 
@@ -89,62 +189,19 @@ O menu do clique direito, com a seção "Exibir".
 - **RNF-002**: No modo web, a música vem do fake `__JARVIS_MUSIC__` (ver [jv_T4p3](../../apps/jv_t4p3/spec.md)).
 - O volume anda em passos de 0,05.
 
-## Histórias de usuário
-
-### US1 — Ver o que está tocando (P1)
-
-Como usuário, quero saber qual música toca, de quem é, de qual playlist e em que ponto está.
-
-**Por que P1:** é a informação principal do widget.
-**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
-
-**Aceite**
-
-1. **Dado** uma música tocando com o jv_T4p3 fechado, **quando** abro "Mini player", **então** vejo `♪ Out of Touch`, o tempo `m:ss / m:ss` e `Hall and Oates · Flash FM` na linha de baixo.
-2. **Dado** nada tocando, **então** vejo "Nada tocando" e "jv_T4p3 · espaço toca a playlist escolhida".
-3. **Dado** o player resolvendo a música, **então** o título diz "sintonizando…". Com erro, aparece a mensagem do player na cor de alerta.
-
-### US2 — Controlar a música (P1)
-
-Como usuário, quero pular, pausar, tocar e mudar de ponto na música sem abrir o player.
-
-**Por que P1:** é o motivo de ter um mini player.
-**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed` e `voice plays playlists, skips, pauses and opens or closes the player and its widgets`.
-
-**Aceite**
-
-1. **Dado** uma música tocando, **quando** clico em "Próxima música", **então** o widget e a barra superior passam a mostrar a faixa seguinte.
-2. **Dado** a música pausada pela barra superior, **então** o botão central do widget vira "Tocar".
-3. **Dado** a barra de progresso ("Posição na música"), **quando** pressiono num ponto dela, **então** a música salta para essa fração. Arrastar ali não move a janela.
-4. **Dado** o widget em foco, **quando** aperto Espaço, `n` ou `b`, **então** a música toca/pausa, avança ou volta. `-` e `+` (ou `=`) mudam o volume em 5%.
-5. **Dado** comandos de voz de música ("pausa a música", "próxima música", "toca a Fever"), **então** o widget reflete o novo estado.
-
-### US3 — Escolher o que aparece (P2)
-
-**Teste independente:** `tests/widgets.spec.ts` — `Mini player: right click turns parts of the widget off, and it stays so`.
-
-**Aceite**
-
-1. **Dado** o menu "Opções do widget Mini player", **quando** desmarco "Controles", **então** os botões somem, e isso vale depois de recarregar. Os outros itens são "Tempo", "Artista e playlist", "Barra de progresso" e "Volume".
-
 ## Critérios de sucesso
 
 - **SC-001**: Qualquer mudança no player (voz, barra superior, jv_T4p3) aparece no widget sem recarregar.
 - **SC-002**: Pular, pausar e buscar um ponto funcionam com o jv_T4p3 fechado.
 
-## Fora de escopo e limitações
-
-- Não escolhe playlists nem edita a fila. Isso é do [jv_T4p3](../../apps/jv_t4p3/spec.md).
-- A cor da barra (`TAPE_MAGENTA`) é a mesma do jv_T4p3 e não segue o tema.
-
-## Código
+## Entregáveis
 
 `MiniPlayer` é uma visão fina sobre o `MusicPlayer` do `App`. Ele lê `current`, `status`, `volume` e `error`, pega posição e duração de `useMusicTime` e reaproveita de `musicParts.tsx` o relógio `m:ss` (`clock`), a barra magenta clicável (`ProgressBar`) e o mapa de teclas (`musicKeys`). Os botões são `KeyHint` do kit TUI.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`MiniPlayer.tsx`) · partes compartilhadas (`musicParts.tsx`) |
-| **Dependências** | player app-wide `useMusicPlayer` / `useMusicTime` ([jv_T4p3](../../apps/jv_t4p3/spec.md)); kit TUI (`KeyHint`) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/music.spec.ts`, `tests/widgets.spec.ts` |
 | **Plataforma** | Windows 11 · WebView2; no modo web a música vem do fake `__JARVIS_MUSIC__` |
 
@@ -172,6 +229,23 @@ sequenceDiagram
   P-->>M: position atualizada (useMusicTime)
 ```
 
+### Testes
+
+- `npx playwright test tests/music.spec.ts --project ui -g "Mini player widgets follow the music"`: com o jv_T4p3 fechado, o widget mostra a faixa e "Hall and Oates · Flash FM", "Próxima música" pula junto com a barra superior, e a pausa pela barra vira "Tocar" (critérios 1, 4 e 5).
+- `npx playwright test tests/music.spec.ts --project ui -g "voice plays playlists"`: a voz abre e fecha o widget, e ele acompanha pular, pausar e tocar uma playlist (critério 8).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Mini player"`: "Controles" desmarcado esconde os botões e continua assim depois de recarregar (critério 9).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "sliders inside a widget"`: arrastar a partir da barra "Posição na música" não move a janela (critério 6, sem conferir o salto).
+- `cargo test --lib opens_and_closes_jarvis_windows` (em `src-tauri`): "abre o mini player" e "fecha o miniplayer" viram `window:miniplayer`.
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `miniplayer`.
+- Sem teste automatizado: critérios 2, 3 e 7, e o salto da barra no critério 6.
+
+### Reversão
+
+- Tirar `miniplayer` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:miniplayer` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Tirar o `case "miniplayer"` de `Desktop.tsx`, `WINDOW_KEYWORDS.miniplayer` de `commands.ts` e apagar `MiniPlayer.tsx`. O `musicParts.tsx` fica: o jv_T4p3 e a Fita também o usam.
+- O player do `App` não depende do widget e continua igual. Os testes que abrem o Mini player (`music.spec.ts`, `widgets.spec.ts` e o `matcher.rs`) precisam sair ou mudar.
+- Fica órfão e é ignorado: `jarvis.widget.miniplayer`; `miniplayer` em `jarvis.desktop` (o `parseDesktop` descarta); `window:miniplayer` e os `custom-*` com alvo `miniplayer` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: o widget não usa rede. O streaming é do player.
@@ -187,6 +261,12 @@ sequenceDiagram
 
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md)
+- **Specs:** [jv_t4p3](../../apps/jv_t4p3/spec.md) (o player app-wide `useMusicPlayer` / `useMusicTime`, que o widget só lê e comanda), [appearance](../../features/appearance/spec.md) (kit TUI: `KeyHint`), [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [voice-commands](../../features/voice-commands/spec.md) (`window:miniplayer` e `music:*`), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** nenhum direto; a rede e o `yt-dlp` são do player do jv_T4p3.
 
 ## Tarefas
 

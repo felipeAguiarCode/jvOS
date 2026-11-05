@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Aceito (no working tree, ainda não commitado) |
+| **Status** | Aceito · remoção commitada em `e7151cf` (2026-11-05) |
 | **Data** | 2026-10-27 |
 | **Origem** | remoção staged de `src/components/SceneBackground.tsx` e `src/shaders/background/*` (274 linhas) |
 

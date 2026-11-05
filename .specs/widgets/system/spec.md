@@ -1,4 +1,4 @@
-# Sistema
+# Widget: Sistema
 
 Widget monitor de recursos no estilo Rainmeter, com uma barra fina por medidor, lido do Windows pelo Rust.
 
@@ -10,9 +10,130 @@ Widget monitor de recursos no estilo Rainmeter, com uma barra fina por medidor, 
 | **Window kind** | `system` em `src/lib/desktop.ts` (300 × 290, mínimo 220 × 110, grupo `widgets`) |
 | **Voz** | `window:system` ("sistema", "monitor do sistema", "desempenho", "uso do sistema") |
 
-## Visão geral
+## Objetivo
 
 O widget Sistema é um monitor de recursos no estilo Rainmeter: uma barra fina por medidor (CPU, GPU, HDD, WLAN, RAM e memória virtual), cada uma com o nome sublinhado, um detalhe esmaecido e a porcentagem, que muda para a cor de alerta quando o recurso aperta. O botão direito escolhe as barras, os detalhes e qual disco o HDD mostra. As leituras vêm do Windows por um comando Rust (`system_stats`), lido a cada 2 s por um único poll compartilhado com a barra de menu do [jv_ide](../../apps/jv_ide/spec.md). O mesmo comando alimenta o status falado pelo JARVIS ([voice-shortcuts](../../features/voice-shortcuts/spec.md)).
+
+## Não-objetivos
+
+- A vazão da rede (`net`) é lida, mas o widget não a mostra. Quem usa é o jv_ide.
+- Não há histórico nem gráfico no tempo, só o valor atual.
+- O widget não usa `useWidgetOptions`: as preferências ficam em `jarvis.meters`, com parser próprio.
+
+## Histórias de usuário
+
+### US1 — Ver o uso da máquina num relance (P1)
+
+Como usuário, quero ver CPU, GPU, disco, Wi-Fi, RAM e memória virtual atualizando sozinhos.
+
+**Por que P1:** é a função do widget.
+**Teste independente:** `tests/meters.spec.ts` — `one widget holds every bar; right click picks the bars and the HDD's drive`.
+
+**Aceite:** [critérios 1 a 4](#critérios-de-aceite).
+
+### US2 — Escolher barras, detalhes e disco (P2)
+
+Como usuário, quero mostrar só o que me interessa e escolher qual drive o HDD acompanha.
+
+**Por que P2:** adapta o monitor a cada máquina.
+**Teste independente:** `tests/meters.spec.ts` — `one widget holds every bar; right click picks the bars and the HDD's drive`.
+
+**Aceite:** [critérios 5 a 10](#critérios-de-aceite).
+
+### US3 — Fora do app desktop (P2)
+
+**Teste independente:** `tests/meters.spec.ts` — `the monitor is in the widgets launcher, and says so outside the desktop app`.
+
+**Aceite:** [critérios 11 a 12](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o app desktop
+- **Quando** abro "Sistema"
+- **Então** vejo seis barras, nesta ordem: "Uso da CPU", "Uso da GPU", "Espaço usado em C:", "Sinal do Wi-Fi", "Uso da RAM" e "Memória virtual em uso".
+
+### Critério 2 (US1)
+
+- **Dado** as leituras
+- **Então** cada linha mostra o detalhe: `N núcleos` (CPU), `motor 3D` ou `sem contadores` (GPU), `228 / 476 GB` (HDD), o SSID ou `desconectado` (WLAN), `17,2 / 31,8 GB` (RAM) e `virtual · 41 / 45 GB` (memória).
+
+### Critério 3 (US1)
+
+- **Dado** um uso de 90% ou mais (ou um sinal de Wi-Fi de 25% ou menos)
+- **Então** a porcentagem e a barra ficam na cor de alerta.
+
+### Critério 4 (US1)
+
+- **Dado** o widget aberto
+- **Então** os valores se renovam a cada 2 s, e a barra anima a largura em 700 ms.
+
+### Critério 5 (US2)
+
+- **Dado** o widget
+- **Quando** clico com o botão direito
+- **Então** abre "Opções do widget Sistema" com a seção "Barras" (seis caixas: CPU, GPU, HDD, WLAN, RAM, Memória), a seção "Exibir" ("Detalhes") e, se houver mais de um disco fixo, "Disco do HDD", com um rádio por drive e o tamanho ao lado.
+
+### Critério 6 (US2)
+
+- **Dado** o menu aberto
+- **Quando** desmarco GPU e Memória
+- **Então** o menu continua aberto e sobram quatro barras.
+
+### Critério 7 (US2)
+
+- **Dado** "Detalhes" desmarcado
+- **Então** os textos esmaecidos somem e as barras ficam.
+
+### Critério 8 (US2)
+
+- **Dado** o rádio `D:`
+- **Quando** escolho
+- **Então** a barra vira "Espaço usado em D:".
+
+### Critério 9 (US2)
+
+- **Dado** essas escolhas
+- **Quando** fecho o menu (Esc ou clique fora) e recarrego
+- **Então** `jarvis.meters` guarda `{ bars: ["cpu","disk","wlan","ram"], disk: "D:", details: true }` e o widget volta igual.
+
+### Critério 10 (US2)
+
+- **Dado** todas as barras desmarcadas
+- **Então** o widget diz "Nenhuma barra · botão direito para escolher".
+
+### Critério 11 (US3)
+
+- **Dado** o modo web sem o fake `__JARVIS_SYSTEM__`
+- **Quando** abro "Sistema" pelo lançador de Widgets
+- **Então** o widget mostra `$ Indisponível neste ambiente`.
+
+### Critério 12 (US3)
+
+- **Dado** a primeira leitura ainda em andamento
+- **Então** mostra `$ Lendo o sistema…`.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Fora do Tauri e sem `__JARVIS_SYSTEM__` → "$ Indisponível neste ambiente".
+  - Um medidor que vem `null` → `--` e a barra vazia. A GPU sem contadores diz "sem contadores", a máquina sem Wi-Fi diz "desconectado", a RAM e a memória sem leitura dizem `indisponível`, e o HDD sem discos diz `nenhum disco`.
+  - Nenhuma barra escolhida → "Nenhuma barra · botão direito para escolher".
+  - `jarvis.meters` com ids desconhecidos, disco fora de `^[A-Z]:$` ou `details` não booleano → os ids saem, o disco vira `C:` e `details` vira `true`.
+  - Fora do Windows → o `Sampler` devolve `SystemStats::default()`, e todas as barras ficam `--`.
+- **Duplicidade/idempotência:**
+  - O widget e a barra de menu do jv_ide na tela juntos → um só poll de 2 s para os dois.
+  - Barras marcadas em qualquer ordem → `bars` é gravado sempre na ordem fixa `cpu`, `gpu`, `disk`, `wlan`, `ram`, `memory`.
+- **Concorrência/corrida:**
+  - O comando falha numa leitura → $leitura vira `unavailable` até a próxima leitura bem-sucedida.
+  - O disco escolhido some (pendrive, drive desmontado) → o HDD mostra o primeiro disco fixo; a escolha em `jarvis.meters` continua e volta a valer quando o drive voltar.
+  - Uma chamada extra de `system_stats` entre dois polls (o `readMachine()` do JARVIS) → o `Mutex` do `Sampler` serializa as leituras, e a taxa seguinte de CPU, GPU e rede cobre só o tempo desde essa chamada (RNF-003).
+  - O app fica oculto (`paused`) → o assinante sai do poll, a última leitura fica na tela, e o `setInterval` para quando sai o último assinante.
+- **Permissões/visibilidade:**
+  - As leituras são só locais, por Win32 no Rust (`system_stats`), sem rede.
+  - O fake `__JARVIS_SYSTEM__` só vale no modo de desenvolvimento (`import.meta.env.DEV`); num build de release ele é ignorado.
+  - As escolhas ficam no `localStorage` (`jarvis.meters`), fora do `settings.json`.
 
 ## Dados
 
@@ -121,67 +242,20 @@ O menu de botão direito, feito com `useWidgetMenu` e `WidgetMenu`, mas sem `use
 - **RNF-003**: As taxas (CPU, GPU, rede) cobrem o intervalo desde a leitura anterior. A rede é `None` na primeira.
 - Poll de 2 s (`POLL_MS`); alerta ≥ 0,9; Wi-Fi fraco ≤ 0,25.
 
-## Histórias de usuário
-
-### US1 — Ver o uso da máquina num relance (P1)
-
-Como usuário, quero ver CPU, GPU, disco, Wi-Fi, RAM e memória virtual atualizando sozinhos.
-
-**Por que P1:** é a função do widget.
-**Teste independente:** `tests/meters.spec.ts` — `one widget holds every bar; right click picks the bars and the HDD's drive`.
-
-**Aceite**
-
-1. **Dado** o app desktop, **quando** abro "Sistema", **então** vejo seis barras, nesta ordem: "Uso da CPU", "Uso da GPU", "Espaço usado em C:", "Sinal do Wi-Fi", "Uso da RAM" e "Memória virtual em uso".
-2. **Dado** as leituras, **então** cada linha mostra o detalhe: `N núcleos` (CPU), `motor 3D` ou `sem contadores` (GPU), `228 / 476 GB` (HDD), o SSID ou `desconectado` (WLAN), `17,2 / 31,8 GB` (RAM) e `virtual · 41 / 45 GB` (memória).
-3. **Dado** um uso de 90% ou mais (ou um sinal de Wi-Fi de 25% ou menos), **então** a porcentagem e a barra ficam na cor de alerta.
-4. **Dado** o widget aberto, **então** os valores se renovam a cada 2 s, e a barra anima a largura em 700 ms.
-
-### US2 — Escolher barras, detalhes e disco (P2)
-
-Como usuário, quero mostrar só o que me interessa e escolher qual drive o HDD acompanha.
-
-**Por que P2:** adapta o monitor a cada máquina.
-**Teste independente:** `tests/meters.spec.ts` — `one widget holds every bar; right click picks the bars and the HDD's drive`.
-
-**Aceite**
-
-1. **Dado** o widget, **quando** clico com o botão direito, **então** abre "Opções do widget Sistema" com a seção "Barras" (seis caixas: CPU, GPU, HDD, WLAN, RAM, Memória), a seção "Exibir" ("Detalhes") e, se houver mais de um disco fixo, "Disco do HDD", com um rádio por drive e o tamanho ao lado.
-2. **Dado** o menu aberto, **quando** desmarco GPU e Memória, **então** o menu continua aberto e sobram quatro barras.
-3. **Dado** "Detalhes" desmarcado, **então** os textos esmaecidos somem e as barras ficam.
-4. **Dado** o rádio `D:`, **quando** escolho, **então** a barra vira "Espaço usado em D:".
-5. **Dado** essas escolhas, **quando** fecho o menu (Esc ou clique fora) e recarrego, **então** `jarvis.meters` guarda `{ bars: ["cpu","disk","wlan","ram"], disk: "D:", details: true }` e o widget volta igual.
-6. **Dado** todas as barras desmarcadas, **então** o widget diz "Nenhuma barra · botão direito para escolher".
-
-### US3 — Fora do app desktop (P2)
-
-**Teste independente:** `tests/meters.spec.ts` — `the monitor is in the widgets launcher, and says so outside the desktop app`.
-
-**Aceite**
-
-1. **Dado** o modo web sem o fake `__JARVIS_SYSTEM__`, **quando** abro "Sistema" pelo lançador de Widgets, **então** o widget mostra `$ Indisponível neste ambiente`.
-2. **Dado** a primeira leitura ainda em andamento, **então** mostra `$ Lendo o sistema…`.
-
 ## Critérios de sucesso
 
 - **SC-001**: Os números do widget ficam próximos dos do Gerenciador de Tarefas nos mesmos instantes.
   > ⚠ inferido — confirmar: o código só afirma isso para a GPU ("their sum is what Task Manager shows").
 - **SC-002**: Com o app oculto, nenhuma leitura é feita.
 
-## Fora de escopo e limitações
-
-- A vazão da rede (`net`) é lida, mas o widget não a mostra. Quem usa é o jv_ide.
-- Não há histórico nem gráfico no tempo, só o valor atual.
-- O widget não usa `useWidgetOptions`: as preferências ficam em `jarvis.meters`, com parser próprio.
-
-## Código
+## Entregáveis
 
 O Rust mantém um `system::Sampler` no `AppState`, atrás de um `Mutex`. Ele guarda o que as taxas comparam (tempos de CPU, a query PDH da GPU, contadores de rede) e o handle do WLAN. O comando `system_stats` lê tudo de uma vez em `spawn_blocking`. Na UI, `useSystemStats` é um store externo (`useSyncExternalStore`) com um único `setInterval` de 2 s para todos os assinantes: o widget e a barra de menu do jv_ide. O widget transforma cada medidor em uma `Reading` (rótulo, nome acessível, valor 0..1, detalhe, alerta) e guarda as escolhas em `jarvis.meters`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`SystemMeters.tsx`) · hook/store (`useSystemStats`) · comando Tauri `system_stats` · módulo Rust `system.rs` |
-| **Dependências** | Win32 por FFI: `GetSystemTimes`, `GlobalMemoryStatusEx`, `GetLogicalDrives`/`GetDriveTypeW`/`GetDiskFreeSpaceExW`, PDH (`\GPU Engine(*engtype_3D)\Utilization Percentage`), `wlanapi`, `GetIfTable2` |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/meters.spec.ts`; Rust `mod tests` em `src-tauri/src/system.rs` |
 | **Plataforma** | Windows 11 · WebView2; fora do Windows o `Sampler` devolve `SystemStats::default()`; no modo web, fake `__JARVIS_SYSTEM__` ou "Indisponível neste ambiente" |
 
@@ -234,6 +308,21 @@ sequenceDiagram
   W->>W: read(id) → barras
 ```
 
+### Testes
+
+- `npx playwright test tests/meters.spec.ts --project ui -g "one widget holds every bar"`: com o fake `__JARVIS_SYSTEM__`, as seis barras com os valores e os detalhes, a memória a 91% em alerta, o menu com seis caixas, GPU e Memória desmarcadas, "Detalhes", o rádio `D:`, o `jarvis.meters` gravado e relido, e "Nenhuma barra" (critérios 1 a 3 e 5 a 10).
+- `npx playwright test tests/meters.spec.ts --project ui -g "says so outside the desktop app"`: sem o fake, o widget abre pelo lançador e diz "Indisponível neste ambiente" (critério 11).
+- `cargo test --lib system::tests` (em `src-tauri`): `busy_share` e `throughput` puros, e `reads_this_machine`, que lê a máquina de verdade (só no Windows; exige o drive `C:`).
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `system`.
+- Sem teste automatizado: critério 4 (poll de 2 s e animação de 700 ms) e critério 12 (`$ Lendo o sistema…`).
+
+### Reversão
+
+- Tirar `system` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:system` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Tirar o `case "system"` de `Desktop.tsx`, as palavras de busca de `commands.ts`, apagar `SystemMeters.tsx` e tirar `tests/meters.spec.ts` (e `meters` do `testMatch` do projeto `ui`).
+- Ficam `useSystemStats.ts`, o comando `system_stats` e `system.rs`: a barra de menu do jv_ide e o `readMachine()` do `App` também os usam.
+- Fica órfão e é ignorado: `jarvis.meters`, que só o widget lê; `system` em `jarvis.desktop` (o `parseDesktop` descarta); `window:system` e os `custom-*` com alvo `system` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: só lê a máquina local.
@@ -253,6 +342,12 @@ sequenceDiagram
 - [ADR-0009 — tipos espelhados TS ↔ Rust](../../arch/adr/0009-tipos-espelhados-ts-rust.md)
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [Tauri](../../foundation/vendor/tauri/spec.md) (comando `system_stats` e `AppState`), [serde](../../foundation/vendor/serde/spec.md) (`SystemStats` serializado, `Disk` com `#[serde(flatten)]`)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela e `WidgetMenu`), [jv_ide](../../apps/jv_ide/spec.md) (outro assinante do mesmo poll), [voice-shortcuts](../../features/voice-shortcuts/spec.md) (status da máquina falado pelo JARVIS), [voice-commands](../../features/voice-commands/spec.md) (`window:system`), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** Windows, com Win32 por FFI direta: `GetSystemTimes`, `GlobalMemoryStatusEx`, `GetLogicalDrives` / `GetDriveTypeW` / `GetDiskFreeSpaceExW`, PDH (`\GPU Engine(*engtype_3D)\Utilization Percentage`), `wlanapi` (serviço WLAN, quando há Wi-Fi) e `GetIfTable2`.
 
 ## Tarefas
 

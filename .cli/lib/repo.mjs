@@ -93,7 +93,7 @@ export function readRepo(root) {
   for (const command of voice) for (const phrase of command.phrases ?? []) phrases.set(searchForm(phrase), [...(phrases.get(searchForm(phrase)) ?? []), command.id]);
 
   const templates = {};
-  for (const name of ["spec", "adr"]) templates[name] = readText(root, `${PATHS.templates}/${name}.md`);
+  for (const name of ["spec", "feature", "adr"]) templates[name] = readText(root, `${PATHS.templates}/${name}.md`);
 
   const pkg = JSON.parse(readText(root, "package.json"));
   const lucide = join(root, "node_modules", "lucide-react", "dist", "esm", "icons");

@@ -1,4 +1,4 @@
-# jv_ide
+# App: jv_ide
 
 A IDE em modo texto do JARVIS OS, no molde do termide: abre uma pasta do disco e mostra editor, arquivos, Git, outline, busca e terminais em painéis TUI.
 
@@ -10,13 +10,379 @@ A IDE em modo texto do JARVIS OS, no molde do termide: abre uma pasta do disco e
 | **Window kind** | `ide` em `src/lib/desktop.ts` (substituiu o antigo `code`, o Jarvis Code) |
 | **Voz** | `window:ide` (frases "jv ide", "IDE", "Jarvis Code", "código") |
 
-## Visão geral
+## Objetivo
 
 O jv_ide é a IDE em modo texto do JARVIS OS, no molde do termide. Ela abre uma pasta do disco como projeto e mostra tudo em painéis TUI: editor com abas, gerenciador de arquivos, Git, outline, busca no projeto e terminais. É para quem programa sem sair do desktop do JARVIS, usando teclado primeiro e mouse quando quiser. O jv_ide nunca estraga o arquivo do usuário: guarda a codificação e o fim de linha de cada um, percebe mudanças feitas por fora, manda exclusões para a Lixeira e guarda rascunhos de tudo que ainda não foi salvo. Ele substituiu o Jarvis Code, e a janela e o rascunho antigos migram sozinhos.
 
 > ⚠ inferido — confirmar: o objetivo de "nunca estragar o arquivo do usuário" resume decisões espalhadas pelo código (temporário + `ReplaceFileW`, `file-changed`, Lixeira, rascunhos). Não há uma frase única do autor dizendo isso.
 
 O chrome da janela (arrastar, redimensionar, snap, maximizar e carregamento lazy) é de [desktop-windows](../../features/desktop-windows/spec.md). O tamanho vem de `WINDOW_SPECS`: 1180×700, mínimo 640×360, grupo `apps`.
+
+## Não-objetivos
+
+- Não há autocompletar nem servidor de linguagem. O editor usa só o básico do CodeMirror: números de linha, histórico, colchetes, busca no arquivo e realce.
+- O jv_ide abre um projeto por vez, numa única janela (uma por `WindowKind`).
+- No menu Branches, os branches remotos aparecem desativados. Não há `--amend` na UI.
+- A raiz da árvore pode subir acima do projeto com "..". Cada chamada `workspace_*` usa como `root` a pasta do próprio arquivo, então o confinamento vale abaixo da pasta que a UI informa.
+- UTF-16 sem BOM não é suportado e abre como binário.
+- O terminal integrado não muda de pasta quando o projeto muda: o shell em execução fica onde começou.
+- As lacunas abertas estão em [Pendências](#pendências).
+
+## Histórias de usuário
+
+### US1 — Abrir uma pasta e navegar pelos arquivos (P1)
+
+Como programador, quero abrir uma pasta e percorrer a árvore pelo teclado ou pelo mouse para chegar ao arquivo certo.
+
+**Por que P1:** sem projeto aberto, nada mais funciona.
+**Teste independente:** `tests/ide.spec.ts` — "Ctrl+O opens a folder: the tree in termide's order, the drive on the status bar, the project in the recents" e "the tree goes by keyboard and mouse; / and m stay in the IDE".
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Editar e salvar sem estragar o arquivo (P1)
+
+Como programador, quero editar em abas e salvar mantendo a codificação, o fim de linha e a indentação de cada arquivo.
+
+**Por que P1:** é a função principal de um editor.
+**Teste independente:** "each language gets its highlighter, indentation, line ending and encoding", "saving keeps each file's line endings and encoding", "each tab keeps its own undo history", "binary and huge files are not opened as text" e "tabs cycle and close; with no tab left Ctrl+W closes the window".
+
+**Aceite:** [critérios 6 a 10](#critérios-de-aceite).
+
+### US3 — Não perder trabalho (P1)
+
+Como programador, quero que rascunhos, sessão e mudanças feitas por fora sejam tratados sem que eu perca nada.
+
+**Por que P1:** perder edição é a pior falha de um editor.
+**Teste independente:** "the session comes back after a reload: tabs, cursor, folders, panels and unsaved edits", "changes made outside reload clean tabs and raise a conflict on edited ones" e "Jarvis Code's open window and unsaved draft move into jv_ide".
+
+**Aceite:** [critérios 11 a 15](#critérios-de-aceite).
+
+### US4 — Encontrar rápido: paleta e busca no projeto (P2)
+
+Como programador, quero achar arquivos, comandos, linhas, símbolos e texto sem tirar as mãos do teclado.
+
+**Por que P2:** acelera o uso diário, mas o editor funciona sem isso.
+**Teste independente:** "Ctrl+P finds files fuzzily and opens at a line; Ctrl+Shift+P runs commands" e "Ctrl+Shift+F searches the project and opens a match where it is".
+
+**Aceite:** [critérios 16 a 20](#critérios-de-aceite).
+
+### US5 — Git sem sair do editor (P2)
+
+Como programador, quero ver o status, preparar, commitar, enviar e navegar no histórico do repositório do projeto.
+
+**Por que P2:** completa o ciclo de trabalho dentro do jv_ide.
+**Teste independente:** "git: status, stage, commit, push, log and diff" e "git: revert, stash and switching branches".
+
+**Aceite:** [critérios 21 a 25](#critérios-de-aceite).
+
+### US6 — Outline do arquivo (P2)
+
+Como programador, quero ver os símbolos do arquivo atual, acompanhar o cursor e pular para eles.
+
+**Por que P2:** ajuda a navegar arquivos grandes.
+**Teste independente:** "the outline lists the file's symbols, follows the cursor and jumps" e os 16 testes de `tests/outline.spec.ts`.
+
+**Aceite:** [critérios 26 a 28](#critérios-de-aceite).
+
+### US7 — Painéis, layout e terminais (P2)
+
+Como programador, quero fechar, reabrir, focar, redimensionar e ampliar painéis, e ter shells do projeto ao lado do editor.
+
+**Por que P2:** o layout livre e o terminal integrado fazem parte do molde termide.
+**Teste independente:** "panels close with [x], come back from Janelas, take Alt+N and resize" e "the terminal panel opens a shell in the project, keeps its keys and never mixes with jv_sh".
+
+**Aceite:** [critérios 29 a 33](#critérios-de-aceite).
+
+### US8 — Gerenciar arquivos na árvore (P2)
+
+Como programador, quero criar, renomear e excluir arquivos e pastas na própria árvore, com segurança.
+
+**Por que P2:** evita sair para o Explorer.
+**Teste independente:** "the tree creates, renames and sends files to the Recycle Bin" e "names are edited in place in the tree: Esc, a taken name, clicking away, the menu".
+
+**Aceite:** [critérios 34 a 38](#critérios-de-aceite).
+
+### US9 — Favoritos e projetos recentes (P3)
+
+Como programador, quero marcar arquivos e pastas como favoritos e alternar entre projetos sem perder as abas de cada um.
+
+**Por que P3:** é conveniência.
+**Teste independente:** "favourites and recent projects".
+
+**Aceite:** [critérios 39 a 40](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o jv_ide aberto sem projeto
+- **Quando** a janela abre
+- **Então** aparecem os menus Favoritos, Comandos, Projetos, Janelas e Opções, a linha de sistema (rede, CPU, RAM e hora), os painéis Editor, Arquivos, Git e Outline e a tela de boas-vindas com "Ctrl+O".
+
+### Critério 2 (US1)
+
+- **Dado** o jv_ide
+- **Quando** o usuário aperta Ctrl+O e escolhe uma pasta
+- **Então** a árvore lista "..", depois as pastas e depois os arquivos, em ordem alfabética. A barra de status mostra a unidade (ex.: "C: 475/487GB (98%)") e o projeto entra em Projetos → Recentes, marcado como atual.
+
+### Critério 3 (US1)
+
+- **Dado** a árvore com o foco (Alt+2)
+- **Quando** o usuário digita letras
+- **Então** a seleção pula para o próximo nome que começa com elas. Seta → abre a pasta e Enter abre o arquivo numa aba fixa, com o cursor no editor. `/` e `m` não abrem a busca global nem mexem no microfone.
+
+### Critério 4 (US1)
+
+- **Dado** um arquivo aberto num clique simples (aba de prévia, em itálico)
+- **Quando** outro arquivo recebe um clique simples
+- **Então** ele substitui a prévia. Um duplo clique na aba a fixa.
+
+### Critério 5 (US1)
+
+- **Dado** a árvore na raiz do projeto
+- **Quando** o usuário clica em ".."
+- **Então** a árvore sobe para a pasta acima, mesmo fora do projeto.
+
+### Critério 6 (US2)
+
+- **Dado** um projeto
+- **Quando** o usuário abre `report.py`, `app.tsx`, `server.go`, `build.ps1` ou `latin1.txt`
+- **Então** a barra de status mostra a linguagem ("Sintaxe: Python", "TSX", "Go", "PowerShell", "Texto"), a indentação detectada ("Tab: 4", "Tab: 2", "Tab: tab"), o fim de linha ("EOL: CRLF") e a codificação ("Windows-1252").
+
+### Critério 7 (US2)
+
+- **Dado** um arquivo CRLF editado
+- **Quando** o usuário aperta Ctrl+S
+- **Então** o arquivo volta ao disco só com CRLF, o ponto de "não salvo" some e o status diz "Salvo às HH:MM". Um arquivo Windows-1252 é salvo em `windows1252`.
+
+### Critério 8 (US2)
+
+- **Dado** duas abas editadas
+- **Quando** o usuário volta à primeira e aperta Ctrl+Z
+- **Então** desfaz só a edição dela, e a outra aba continua com a própria edição.
+
+### Critério 9 (US2)
+
+- **Dado** um PNG ou um arquivo acima de 5 MB
+- **Quando** é aberto
+- **Então** a aba mostra "arquivo binário (2 KB) — não editável" ou "arquivo grande demais (12.0 MB) — o jv_ide abre até 5 MB", com "Modo: Binário | Edição: Não".
+
+### Critério 10 (US2)
+
+- **Dado** duas abas
+- **Quando** o usuário aperta Ctrl+Tab
+- **Então** ativa a outra aba. Ctrl+W fecha a aba, e Ctrl+Shift+T reabre a última fechada. Sem nenhuma aba, Ctrl+W segue adiante e fecha a janela.
+
+### Critério 11 (US3)
+
+- **Dado** abas abertas, um cursor na linha 9, uma pasta expandida, o painel Outline fechado e uma edição não salva
+- **Quando** a página recarrega
+- **Então** voltam as abas, a aba ativa, o cursor ("Pos: 9:1"), a pasta expandida, o layout e o texto não salvo, com o ponto de "sujo".
+
+### Critério 12 (US3)
+
+- **Dado** uma aba limpa
+- **Quando** o arquivo muda no disco por fora
+- **Então** a aba recarrega o texto sozinha.
+
+### Critério 13 (US3)
+
+- **Dado** uma aba com edições
+- **Quando** o arquivo muda por fora
+- **Então** aparece o aviso "models.py mudou fora do jv_ide." com [Recarregar], [Manter as minhas] e [Comparar]. [Comparar] abre a aba "models.py (disco ↔ aba)" com "Sintaxe: Diff".
+
+### Critério 14 (US3)
+
+- **Dado** uma aba cujo arquivo foi apagado por fora
+- **Quando** a aba aparece
+- **Então** o título traz "(excluído)" e o aviso diz "Ctrl+S cria de novo". Ctrl+S recria o arquivo.
+
+### Critério 15 (US3)
+
+- **Dado** um desktop antigo com a janela `code` aberta e o rascunho `jarvis.editor.code` não salvo
+- **Quando** o app carrega
+- **Então** o jv_ide abre com a aba "sem título 1" contendo o rascunho, e a chave antiga é apagada.
+
+### Critério 16 (US4)
+
+- **Dado** um projeto
+- **Quando** o usuário aperta Ctrl+P e digita "rprt"
+- **Então** o primeiro resultado é `inventory/report.py`. "models.py:5" abre o arquivo na linha 5.
+
+### Critério 17 (US4)
+
+- **Dado** Ctrl+P sem texto
+- **Quando** a paleta abre
+- **Então** os arquivos recentes vêm primeiro, marcados "recente". Começar com ">" troca para os comandos, que mostram o atalho (ex.: "Arquivos" com "Ctrl+B").
+
+### Critério 18 (US4)
+
+- **Dado** Ctrl+Shift+P
+- **Quando** o usuário escolhe "Ir para linha…" e digita 12
+- **Então** o cursor vai para "Pos: 12:1".
+
+### Critério 19 (US4)
+
+- **Dado** Ctrl+Shift+F
+- **Quando** o usuário digita "reorder_rows"
+- **Então** os resultados chegam agrupados por arquivo ("… resultados em 2 arquivos"). Seta ↓ abre o resultado em prévia, e Enter leva o foco ao editor na posição do resultado.
+
+### Critério 20 (US4)
+
+- **Dado** o botão "Expressão regular" ligado
+- **Quando** a consulta é `def \w+\(store`
+- **Então** a busca roda como regex.
+
+### Critério 21 (US5)
+
+- **Dado** um projeto num repositório
+- **Quando** o painel Git aparece
+- **Então** mostra "inventory (main)", os contadores "✱3 ↑8 ↓0" e as seções "Alterações (2)" e "Em stage (1)", agrupadas por pasta.
+
+### Critério 22 (US5)
+
+- **Dado** um arquivo selecionado no painel
+- **Quando** o usuário aperta Espaço
+- **Então** o arquivo entra no stage (ou sai dele). A árvore pinta o arquivo pela letra do git (`data-git="M"`).
+
+### Critério 23 (US5)
+
+- **Dado** alterações no stage
+- **Quando** o usuário clica em [Commit] e escreve a mensagem
+- **Então** o status mostra "Commit <hash>", e [Push] zera o ahead.
+
+### Critério 24 (US5)
+
+- **Dado** um repositório
+- **Quando** o usuário clica em [Log] ou [Diff]
+- **Então** abre a aba somente leitura "git log" ou "diff (tudo)", com "Sintaxe: Diff".
+
+### Critério 25 (US5)
+
+- **Dado** alterações
+- **Quando** o usuário guarda e depois aplica um stash, reverte tudo ("[s] só os rastreados") ou troca de branch pelo menu Branches
+- **Então** os contadores e o título refletem cada operação.
+
+### Critério 26 (US6)
+
+- **Dado** `report.py` aberto
+- **Quando** o Outline atualiza
+- **Então** lista "f reorder_rows :9", "f to_csv :18" e "f render :26", sem as variáveis locais.
+
+### Critério 27 (US6)
+
+- **Dado** o Outline
+- **Quando** o usuário clica em "render"
+- **Então** o cursor vai para "Pos: 26:5" e o símbolo fica aceso como atual.
+
+### Critério 28 (US6)
+
+- **Dado** `models.py`
+- **Quando** o Outline atualiza
+- **Então** a classe `Store` aparece e o método `total` aparece com o tipo `m`.
+
+### Critério 29 (US7)
+
+- **Dado** o painel Outline
+- **Quando** o usuário clica em [x]
+- **Então** o painel some. Janelas → Outline (caixa de seleção) traz o painel de volta.
+
+### Critério 30 (US7)
+
+- **Dado** o painel Arquivos
+- **Quando** o usuário aperta Ctrl+B
+- **Então** o painel fecha, e outro Ctrl+B o reabre. Alt+3 dá o foco ao terceiro painel na ordem de leitura (o Git).
+
+### Critério 31 (US7)
+
+- **Dado** o divisor entre colunas
+- **Quando** o usuário arrasta o divisor 160 px
+- **Então** o editor fica mais de 140 px mais largo.
+
+### Critério 32 (US7)
+
+- **Dado** um projeto
+- **Quando** o usuário aperta Ctrl+`
+- **Então** abre o painel "Terminal 1" com o perfil padrão na pasta do projeto, já com o foco. Dentro do terminal, Ctrl+W vai para o shell (apaga uma palavra).
+
+### Critério 33 (US7)
+
+- **Dado** o jv_sh aberto junto
+- **Quando** o usuário digita em cada um
+- **Então** cada tela mostra só o próprio shell. `exit` com código 0 fecha o painel.
+
+### Critério 34 (US8)
+
+- **Dado** a pasta `inventory` selecionada
+- **Quando** o usuário aperta Insert e digita "novo.py"
+- **Então** o arquivo é criado e aberto numa aba ativa.
+
+### Critério 35 (US8)
+
+- **Dado** um arquivo selecionado
+- **Quando** o usuário aperta F2
+- **Então** o nome vira uma caixa na própria linha, selecionada até a extensão. Enter renomeia, e a aba aberta acompanha o novo nome.
+
+### Critério 36 (US8)
+
+- **Dado** a caixa de renomear
+- **Quando** o usuário aperta Esc
+- **Então** nada muda e o foco volta à árvore. Um nome já usado é recusado com "Já existe um item com esse nome", e a caixa fica aberta. Clicar fora mantém o que foi digitado.
+
+### Critério 37 (US8)
+
+- **Dado** um arquivo selecionado
+- **Quando** o usuário aperta Delete e depois "s" em "Mover outro.py para a Lixeira?"
+- **Então** o arquivo vai para a Lixeira e a aba aberta fica marcada "(excluído)".
+
+### Critério 38 (US8)
+
+- **Dado** o menu de contexto ou um duplo clique
+- **Quando** o usuário escolhe renomear
+- **Então** abre a mesma caixa. Numa pasta, o duplo clique desfaz a expansão causada pelo primeiro clique.
+
+### Critério 39 (US9)
+
+- **Dado** a pasta `docs`
+- **Quando** o usuário escolhe "Adicionar aos favoritos" no menu de contexto
+- **Então** Favoritos (Alt+F) lista "▶ /docs".
+
+### Critério 40 (US9)
+
+- **Dado** abas abertas no projeto A
+- **Quando** o usuário abre o projeto B (que não é repositório) e depois volta a A por Projetos → Recentes
+- **Então** B abre sem abas, com "Não é um repositório git", e A volta com as abas dele.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Sem projeto → boas-vindas no Editor, "Nenhuma pasta aberta." com "[Ctrl+O] abrir pasta" em Arquivos, "abra uma pasta" no Git e na Busca, "abra um arquivo" no Outline; "Salvar como" → "Abra uma pasta (Ctrl+O) para salvar dentro dela".
+  - Paleta sem resultado → "nada encontrado"; linha fora da faixa → "Digite um número entre 1 e <total>".
+  - Linguagem sem leitor ou documento acima de 2 MB → Outline com "nenhum símbolo".
+  - Commit sem nada no stage → "Nenhuma alteração em stage: …"; sem mensagem → "Escreva a mensagem do commit".
+  - Push sem upstream: com um remoto → `push -u <remoto> HEAD`; sem remoto → "Nenhum remoto configurado"; com vários → "Este branch não tem upstream".
+  - Todos os painéis fechados → "[Restaurar os painéis]"; nenhum perfil de terminal → "Nenhum perfil de terminal encontrado".
+  - `jarvis.ide` ou `jarvis.ide.drafts` inválidos → validados campo a campo; um layout inválido vira `DEFAULT_LAYOUT`.
+- **Duplicidade/idempotência:**
+  - Criar ou renomear para um nome já usado → "Já existe um item com esse nome", e a caixa fica aberta.
+  - O nosso próprio save voltando pelo watcher → sem conflito, porque o texto do disco é igual ao último salvo.
+  - Migração do Jarvis Code → roda uma vez: só sem `jarvis.ide`, e `jarvis.editor.code` é apagado depois.
+  - "Restaurar layout padrão" → os terminais abertos ficam.
+- **Concorrência/corrida:**
+  - Save sobre uma mudança externa → o Rust responde `file-changed`, a aba vira conflito e o status diz "<arquivo> mudou no disco: recarregue, mantenha as suas ou compare".
+  - Mudança externa: aba limpa → recarrega com a mudança mínima; aba suja → conflito; arquivo apagado → "(excluído)". Um rascunho cuja base mudou no disco abre já como conflito.
+  - Rajada de mudanças (mais de 500 caminhos ou 2000 eventos) → o lote vira `rescan`, e a árvore e as abas são relidas.
+  - Nova busca, [Parar] ou Esc com uma busca em curso → a anterior é cancelada.
+  - Operações de git → uma escrita por vez (trava global), botões desativados enquanto uma roda; passou do timeout → "O Git demorou demais e foi interrompido".
+  - Item renomeado, movido ou apagado por fora com a caixa de renomear aberta → a caixa fecha.
+  - Troca de projeto com um terminal aberto → o shell em execução fica na pasta onde começou.
+- **Permissões/visibilidade:**
+  - Caminhos da UI relativos ao `root`, sem `..`, `.`, `:`, nomes de dispositivo nem links para fora (RNF-006); a raiz de uma unidade → "Abra uma pasta de projeto, não a raiz da unidade".
+  - O `root` é qualquer pasta absoluta que a UI mande, e a árvore sobe acima do projeto com ".." → o confinamento só vale abaixo dessa pasta (ver [Pendências](#pendências) e [security.md](../../arch/security.md)).
+  - Arquivo somente leitura → edição desligada e "Arquivo somente leitura" no save.
+  - Exclusões e descartes de arquivos novos → Lixeira, nunca definitivo nem `git clean`.
+  - Sem `git.exe` → "Git não encontrado — instale o Git for Windows"; rede só em push, pull e fetch pedidos pelo usuário, com `GIT_TERMINAL_PROMPT=0` (RNF-008).
+- **Fora do Tauri e sem fake.** O jv_ide mostra "Disponível no app desktop". O painel de terminal também.
 
 ## Dados
 
@@ -351,10 +717,6 @@ A linha de baixo do termide: "Modo: Texto | Edição: Sim | Sintaxe: Python | Ta
   - O aviso fica em `text-hud-light/85`, e um erro em `text-hud-alert`.
   - A unidade fica em `text-hud-light/80`, e em `text-hud-alert` a partir de 95% de uso.
 
-## Casos de borda
-
-- **Fora do Tauri e sem fake.** O jv_ide mostra "Disponível no app desktop". O painel de terminal também.
-
 ## Voz e teclado
 
 - **RF-019**: Os atalhos do jv_ide DEVEM valer antes do CodeMirror, do xterm e da janela. Dentro de um terminal, só os atalhos marcados para terminal valem. O elemento raiz leva `data-plain-keys` para que os atalhos globais sem modificador (`/`, `m`) não disparem.
@@ -397,138 +759,6 @@ A linha de baixo do termide: "Modo: Texto | Edição: Sim | Sintaxe: Python | Ta
 - **RNF-007**: Debounces da UI: sessão em 400 ms, rascunhos em 1 s, refresh de git em 400 ms, recarga de pastas em 100 ms, Outline em 200 ms e avisos visíveis por 4 s. O uso do disco é relido a cada 30 s, e o poll para com a janela pausada.
 - **RNF-008**: Rede só em push, pull e fetch, e só quando o usuário pede. O resto é local.
 
-## Histórias de usuário
-
-### US1 — Abrir uma pasta e navegar pelos arquivos (P1)
-
-Como programador, quero abrir uma pasta e percorrer a árvore pelo teclado ou pelo mouse para chegar ao arquivo certo.
-
-**Por que P1:** sem projeto aberto, nada mais funciona.
-**Teste independente:** `tests/ide.spec.ts` — "Ctrl+O opens a folder: the tree in termide's order, the drive on the status bar, the project in the recents" e "the tree goes by keyboard and mouse; / and m stay in the IDE".
-
-**Aceite**
-
-1. **Dado** o jv_ide aberto sem projeto, **quando** a janela abre, **então** aparecem os menus Favoritos, Comandos, Projetos, Janelas e Opções, a linha de sistema (rede, CPU, RAM e hora), os painéis Editor, Arquivos, Git e Outline e a tela de boas-vindas com "Ctrl+O".
-2. **Dado** o jv_ide, **quando** o usuário aperta Ctrl+O e escolhe uma pasta, **então** a árvore lista "..", depois as pastas e depois os arquivos, em ordem alfabética. A barra de status mostra a unidade (ex.: "C: 475/487GB (98%)") e o projeto entra em Projetos → Recentes, marcado como atual.
-3. **Dado** a árvore com o foco (Alt+2), **quando** o usuário digita letras, **então** a seleção pula para o próximo nome que começa com elas. Seta → abre a pasta e Enter abre o arquivo numa aba fixa, com o cursor no editor. `/` e `m` não abrem a busca global nem mexem no microfone.
-4. **Dado** um arquivo aberto num clique simples (aba de prévia, em itálico), **quando** outro arquivo recebe um clique simples, **então** ele substitui a prévia. Um duplo clique na aba a fixa.
-5. **Dado** a árvore na raiz do projeto, **quando** o usuário clica em "..", **então** a árvore sobe para a pasta acima, mesmo fora do projeto.
-
-### US2 — Editar e salvar sem estragar o arquivo (P1)
-
-Como programador, quero editar em abas e salvar mantendo a codificação, o fim de linha e a indentação de cada arquivo.
-
-**Por que P1:** é a função principal de um editor.
-**Teste independente:** "each language gets its highlighter, indentation, line ending and encoding", "saving keeps each file's line endings and encoding", "each tab keeps its own undo history", "binary and huge files are not opened as text" e "tabs cycle and close; with no tab left Ctrl+W closes the window".
-
-**Aceite**
-
-1. **Dado** um projeto, **quando** o usuário abre `report.py`, `app.tsx`, `server.go`, `build.ps1` ou `latin1.txt`, **então** a barra de status mostra a linguagem ("Sintaxe: Python", "TSX", "Go", "PowerShell", "Texto"), a indentação detectada ("Tab: 4", "Tab: 2", "Tab: tab"), o fim de linha ("EOL: CRLF") e a codificação ("Windows-1252").
-2. **Dado** um arquivo CRLF editado, **quando** o usuário aperta Ctrl+S, **então** o arquivo volta ao disco só com CRLF, o ponto de "não salvo" some e o status diz "Salvo às HH:MM". Um arquivo Windows-1252 é salvo em `windows1252`.
-3. **Dado** duas abas editadas, **quando** o usuário volta à primeira e aperta Ctrl+Z, **então** desfaz só a edição dela, e a outra aba continua com a própria edição.
-4. **Dado** um PNG ou um arquivo acima de 5 MB, **quando** é aberto, **então** a aba mostra "arquivo binário (2 KB) — não editável" ou "arquivo grande demais (12.0 MB) — o jv_ide abre até 5 MB", com "Modo: Binário | Edição: Não".
-5. **Dado** duas abas, **quando** o usuário aperta Ctrl+Tab, **então** ativa a outra aba. Ctrl+W fecha a aba, e Ctrl+Shift+T reabre a última fechada. Sem nenhuma aba, Ctrl+W segue adiante e fecha a janela.
-
-### US3 — Não perder trabalho (P1)
-
-Como programador, quero que rascunhos, sessão e mudanças feitas por fora sejam tratados sem que eu perca nada.
-
-**Por que P1:** perder edição é a pior falha de um editor.
-**Teste independente:** "the session comes back after a reload: tabs, cursor, folders, panels and unsaved edits", "changes made outside reload clean tabs and raise a conflict on edited ones" e "Jarvis Code's open window and unsaved draft move into jv_ide".
-
-**Aceite**
-
-1. **Dado** abas abertas, um cursor na linha 9, uma pasta expandida, o painel Outline fechado e uma edição não salva, **quando** a página recarrega, **então** voltam as abas, a aba ativa, o cursor ("Pos: 9:1"), a pasta expandida, o layout e o texto não salvo, com o ponto de "sujo".
-2. **Dado** uma aba limpa, **quando** o arquivo muda no disco por fora, **então** a aba recarrega o texto sozinha.
-3. **Dado** uma aba com edições, **quando** o arquivo muda por fora, **então** aparece o aviso "models.py mudou fora do jv_ide." com [Recarregar], [Manter as minhas] e [Comparar]. [Comparar] abre a aba "models.py (disco ↔ aba)" com "Sintaxe: Diff".
-4. **Dado** uma aba cujo arquivo foi apagado por fora, **quando** a aba aparece, **então** o título traz "(excluído)" e o aviso diz "Ctrl+S cria de novo". Ctrl+S recria o arquivo.
-5. **Dado** um desktop antigo com a janela `code` aberta e o rascunho `jarvis.editor.code` não salvo, **quando** o app carrega, **então** o jv_ide abre com a aba "sem título 1" contendo o rascunho, e a chave antiga é apagada.
-
-### US4 — Encontrar rápido: paleta e busca no projeto (P2)
-
-Como programador, quero achar arquivos, comandos, linhas, símbolos e texto sem tirar as mãos do teclado.
-
-**Por que P2:** acelera o uso diário, mas o editor funciona sem isso.
-**Teste independente:** "Ctrl+P finds files fuzzily and opens at a line; Ctrl+Shift+P runs commands" e "Ctrl+Shift+F searches the project and opens a match where it is".
-
-**Aceite**
-
-1. **Dado** um projeto, **quando** o usuário aperta Ctrl+P e digita "rprt", **então** o primeiro resultado é `inventory/report.py`. "models.py:5" abre o arquivo na linha 5.
-2. **Dado** Ctrl+P sem texto, **quando** a paleta abre, **então** os arquivos recentes vêm primeiro, marcados "recente". Começar com ">" troca para os comandos, que mostram o atalho (ex.: "Arquivos" com "Ctrl+B").
-3. **Dado** Ctrl+Shift+P, **quando** o usuário escolhe "Ir para linha…" e digita 12, **então** o cursor vai para "Pos: 12:1".
-4. **Dado** Ctrl+Shift+F, **quando** o usuário digita "reorder_rows", **então** os resultados chegam agrupados por arquivo ("… resultados em 2 arquivos"). Seta ↓ abre o resultado em prévia, e Enter leva o foco ao editor na posição do resultado.
-5. **Dado** o botão "Expressão regular" ligado, **quando** a consulta é `def \w+\(store`, **então** a busca roda como regex.
-
-### US5 — Git sem sair do editor (P2)
-
-Como programador, quero ver o status, preparar, commitar, enviar e navegar no histórico do repositório do projeto.
-
-**Por que P2:** completa o ciclo de trabalho dentro do jv_ide.
-**Teste independente:** "git: status, stage, commit, push, log and diff" e "git: revert, stash and switching branches".
-
-**Aceite**
-
-1. **Dado** um projeto num repositório, **quando** o painel Git aparece, **então** mostra "inventory (main)", os contadores "✱3 ↑8 ↓0" e as seções "Alterações (2)" e "Em stage (1)", agrupadas por pasta.
-2. **Dado** um arquivo selecionado no painel, **quando** o usuário aperta Espaço, **então** o arquivo entra no stage (ou sai dele). A árvore pinta o arquivo pela letra do git (`data-git="M"`).
-3. **Dado** alterações no stage, **quando** o usuário clica em [Commit] e escreve a mensagem, **então** o status mostra "Commit <hash>", e [Push] zera o ahead.
-4. **Dado** um repositório, **quando** o usuário clica em [Log] ou [Diff], **então** abre a aba somente leitura "git log" ou "diff (tudo)", com "Sintaxe: Diff".
-5. **Dado** alterações, **quando** o usuário guarda e depois aplica um stash, reverte tudo ("[s] só os rastreados") ou troca de branch pelo menu Branches, **então** os contadores e o título refletem cada operação.
-
-### US6 — Outline do arquivo (P2)
-
-Como programador, quero ver os símbolos do arquivo atual, acompanhar o cursor e pular para eles.
-
-**Por que P2:** ajuda a navegar arquivos grandes.
-**Teste independente:** "the outline lists the file's symbols, follows the cursor and jumps" e os 16 testes de `tests/outline.spec.ts`.
-
-**Aceite**
-
-1. **Dado** `report.py` aberto, **quando** o Outline atualiza, **então** lista "f reorder_rows :9", "f to_csv :18" e "f render :26", sem as variáveis locais.
-2. **Dado** o Outline, **quando** o usuário clica em "render", **então** o cursor vai para "Pos: 26:5" e o símbolo fica aceso como atual.
-3. **Dado** `models.py`, **quando** o Outline atualiza, **então** a classe `Store` aparece e o método `total` aparece com o tipo `m`.
-
-### US7 — Painéis, layout e terminais (P2)
-
-Como programador, quero fechar, reabrir, focar, redimensionar e ampliar painéis, e ter shells do projeto ao lado do editor.
-
-**Por que P2:** o layout livre e o terminal integrado fazem parte do molde termide.
-**Teste independente:** "panels close with [x], come back from Janelas, take Alt+N and resize" e "the terminal panel opens a shell in the project, keeps its keys and never mixes with jv_sh".
-
-**Aceite**
-
-1. **Dado** o painel Outline, **quando** o usuário clica em [x], **então** o painel some. Janelas → Outline (caixa de seleção) traz o painel de volta.
-2. **Dado** o painel Arquivos, **quando** o usuário aperta Ctrl+B, **então** o painel fecha, e outro Ctrl+B o reabre. Alt+3 dá o foco ao terceiro painel na ordem de leitura (o Git).
-3. **Dado** o divisor entre colunas, **quando** o usuário arrasta o divisor 160 px, **então** o editor fica mais de 140 px mais largo.
-4. **Dado** um projeto, **quando** o usuário aperta Ctrl+`, **então** abre o painel "Terminal 1" com o perfil padrão na pasta do projeto, já com o foco. Dentro do terminal, Ctrl+W vai para o shell (apaga uma palavra).
-5. **Dado** o jv_sh aberto junto, **quando** o usuário digita em cada um, **então** cada tela mostra só o próprio shell. `exit` com código 0 fecha o painel.
-
-### US8 — Gerenciar arquivos na árvore (P2)
-
-Como programador, quero criar, renomear e excluir arquivos e pastas na própria árvore, com segurança.
-
-**Por que P2:** evita sair para o Explorer.
-**Teste independente:** "the tree creates, renames and sends files to the Recycle Bin" e "names are edited in place in the tree: Esc, a taken name, clicking away, the menu".
-
-**Aceite**
-
-1. **Dado** a pasta `inventory` selecionada, **quando** o usuário aperta Insert e digita "novo.py", **então** o arquivo é criado e aberto numa aba ativa.
-2. **Dado** um arquivo selecionado, **quando** o usuário aperta F2, **então** o nome vira uma caixa na própria linha, selecionada até a extensão. Enter renomeia, e a aba aberta acompanha o novo nome.
-3. **Dado** a caixa de renomear, **quando** o usuário aperta Esc, **então** nada muda e o foco volta à árvore. Um nome já usado é recusado com "Já existe um item com esse nome", e a caixa fica aberta. Clicar fora mantém o que foi digitado.
-4. **Dado** um arquivo selecionado, **quando** o usuário aperta Delete e depois "s" em "Mover outro.py para a Lixeira?", **então** o arquivo vai para a Lixeira e a aba aberta fica marcada "(excluído)".
-5. **Dado** o menu de contexto ou um duplo clique, **quando** o usuário escolhe renomear, **então** abre a mesma caixa. Numa pasta, o duplo clique desfaz a expansão causada pelo primeiro clique.
-
-### US9 — Favoritos e projetos recentes (P3)
-
-Como programador, quero marcar arquivos e pastas como favoritos e alternar entre projetos sem perder as abas de cada um.
-
-**Por que P3:** é conveniência.
-**Teste independente:** "favourites and recent projects".
-
-**Aceite**
-
-1. **Dado** a pasta `docs`, **quando** o usuário escolhe "Adicionar aos favoritos" no menu de contexto, **então** Favoritos (Alt+F) lista "▶ /docs".
-2. **Dado** abas abertas no projeto A, **quando** o usuário abre o projeto B (que não é repositório) e depois volta a A por Projetos → Recentes, **então** B abre sem abas, com "Não é um repositório git", e A volta com as abas dele.
-
 ## Critérios de sucesso
 
 - **SC-001**: Salvar um arquivo nunca muda a codificação nem o fim de linha que ele tinha, salvo quando o usuário pede.
@@ -537,24 +767,14 @@ Como programador, quero marcar arquivos e pastas como favoritos e alternar entre
 - **SC-004**: Nenhum arquivo é apagado de forma definitiva pela UI: exclusões e descartes de arquivos novos vão para a Lixeira.
 - **SC-005**: Todos os 21 cenários de `tests/ide.spec.ts` e os 16 de `tests/outline.spec.ts` passam no modo web.
 
-## Fora de escopo e limitações
-
-- Não há autocompletar nem servidor de linguagem. O editor usa só o básico do CodeMirror: números de linha, histórico, colchetes, busca no arquivo e realce.
-- O jv_ide abre um projeto por vez, numa única janela (uma por `WindowKind`).
-- No menu Branches, os branches remotos aparecem desativados. Não há `--amend` na UI.
-- A raiz da árvore pode subir acima do projeto com "..". Cada chamada `workspace_*` usa como `root` a pasta do próprio arquivo, então o confinamento vale abaixo da pasta que a UI informa.
-- UTF-16 sem BOM não é suportado e abre como binário.
-- O terminal integrado não muda de pasta quando o projeto muda: o shell em execução fica onde começou.
-- As lacunas abertas estão em [Pendências](#pendências).
-
-## Código
+## Entregáveis
 
 Uma classe `IdeStore` (fora do React) guarda todo o estado e as ações do jv_ide. Os componentes leem esse estado por `useSyncExternalStore` (`context.ts`). O texto das abas fica fora do estado React: cada aba tem o próprio `EditorState`, e uma única `EditorView` troca de estado ao trocar de aba. Toda a parte nativa passa por um `WorkspaceBackend` com duas implementações: os comandos Tauri `workspace_*` e `git_*` (módulos Rust `workspace` e `git`) ou o fake em memória `__JARVIS_FS__` usado em DEV e nos testes.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`apps/ide/*`) → `IdeStore` → `src/lib/workspace.ts` / `src/lib/git.ts` → comandos Tauri em `lib.rs` → `src-tauri/src/workspace/*` e `src-tauri/src/git/*` |
-| **Dependências** | CodeMirror 6 (`@codemirror/*`, `language-data`, `legacy-modes`), `@tauri-apps/plugin-dialog` (seletor de pasta), xterm.js via `TerminalView` do jv_sh; no Rust: `ignore`, `regex`, `notify`, `trash`, `dunce`, `ReplaceFileW` (kernel32) e o `git.exe` do usuário |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/ide.spec.ts` (21), `tests/outline.spec.ts` (16); Rust `mod tests` em `workspace/{mod,paths,text,watch,search}.rs` e `git/{mod,status}.rs` |
 | **Plataforma** | Windows 11 · WebView2. Fora do Tauri: fake `window.__JARVIS_FS__` (só DEV; `true` carrega os projetos de demonstração `C:\projetos\…`) ou a mensagem "Disponível no app desktop" |
 
@@ -679,6 +899,21 @@ sequenceDiagram
   S-->>P: "N resultados em M arquivos"
 ```
 
+### Testes
+
+- `npx playwright test tests/ide.spec.ts --project ui`: os 21 cenários contra o fake `__JARVIS_FS__` (e `__JARVIS_TERMINAL__`): layout, pasta e árvore, abas, linguagens, EOL e codificação, binário e grande, save, desfazer por aba, painéis, sessão após recarregar, mudanças externas, Lixeira, renomear na linha, migração do Jarvis Code, terminal, paleta, busca, outline, git, favoritos e recentes (critérios 1–40).
+- `npx playwright test tests/outline.spec.ts --project ui`: os 16 leitores de símbolos por linguagem (Lezer e modos legados), `symbolAt` e os limites (critérios 26 e 28; RF-016).
+- `cargo test --lib workspace::` (em `src-tauri`): caminhos confinados ao `root`, codificações e EOL, save atômico com `file-changed`, atributos e somente leitura, junções, raiz de unidade, watcher com lotes e `rescan`, busca com `.gitignore`, opções e cancelamento (RF-002, RF-006, RF-007, RF-009, RF-014; RNF-002, RNF-003, RNF-006).
+- `cargo test --lib workspace:: -- --ignored` (em `src-tauri`): `deletes_to_the_recycle_bin`, que usa a Lixeira de verdade do usuário (RF-020).
+- `cargo test --lib git::` (em `src-tauri`): erros em PT-BR, caminhos que parecem opções, uma sessão inteira num repositório real, subpasta e status sem tocar o índice, porcelain v2 com limite (RF-015; RNF-004, RNF-005). Sem `git.exe`, os testes de repositório real retornam sem checar nada.
+
+### Reversão
+
+- Tirar o kind `ide` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS` e `RENAMED = { code: "ide" }`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` em `commands.ts`, o `case "ide"` de `Desktop.tsx` e o `IdeApp` de `lazyApps.tsx`; `window:ide` de `src-tauri/voice-commands.json` e, em `settings.rs`, `"ide"` do `WINDOW_KINDS` e a migração `window:code` → `window:ide` (`OLD_CODE_PHRASES`, teste `jarvis_code_moves_to_the_ide`), junto com os asserts de `window("ide", …)` em `voice/matcher.rs`.
+- No Rust, tirar os 15 `workspace_*` e os 20 `git_*` de `lib.rs`, `Workspaces` do `AppState` (com o `close_all` na saída) e o módulo `workspace/`. **Não** dá para apagar `src-tauri/src/git/` inteiro: `assistant.rs` usa `git::kill_tree`.
+- Tirar `src/components/desktop/apps/ide/`, `src/lib/workspace.ts`, `workspaceFake.ts`, `git.ts`, `fuzzy.ts`, `lineDiff.ts` e `paths.ts`, e `ide` e `outline` do `testMatch` do projeto `ui` com os dois specs. Ficam `CodeMirror.tsx` e `editorTheme.ts` (Jarvis Mark, jv_agent) e o backend de terminal (jv_sh).
+- Fica órfão e é ignorado: `jarvis.ide` e `jarvis.ide.drafts` no localStorage (os rascunhos não salvos ficam inacessíveis pela UI), a janela `ide` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos) e o comando `window:ide` gravado no `settings.json` (descartado ao carregar). Os arquivos dos projetos não são tocados.
+
 ### Constituição
 
 - [x] P1 Offline-first — tudo é local. Só `git push`, `pull` e `fetch` usam a rede, e só quando o usuário pede ("Nothing touches the network unless the user asks").
@@ -703,6 +938,12 @@ sequenceDiagram
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - [ADR-0017 — UI PT-BR, código EN](../../arch/adr/0017-ui-pt-br-codigo-en.md)
 - Ver também [testing.md](../../arch/testing.md) e [security.md](../../arch/security.md).
+
+## Dependências
+
+- **Vendor:** [Tauri](../../foundation/vendor/tauri/spec.md) (`@tauri-apps/api` e `@tauri-apps/plugin-dialog`, o seletor de pasta), [React](../../foundation/vendor/react/spec.md), [CodeMirror 6](../../foundation/vendor/codemirror/spec.md) (`@codemirror/*`, `language-data`, `legacy-modes`, `@lezer/*`), [xterm.js](../../foundation/vendor/terminal/spec.md) (via `TerminalView` do jv_sh), [workspace-fs](../../foundation/vendor/workspace-fs/spec.md) (`ignore`, `regex`, `notify`, `trash`, `dunce`), [serde](../../foundation/vendor/serde/spec.md), [git](../../foundation/vendor/git/spec.md) (o `git.exe` do usuário)
+- **Specs:** [jv_sh](../../apps/jv_sh/spec.md) (perfis, `TerminalView` e o backend dos terminais), [desktop-windows](../../features/desktop-windows/spec.md) (janela, app lazy e `RENAMED`), [keyboard-shortcuts](../../features/keyboard-shortcuts/spec.md) (`data-plain-keys` e os atalhos globais), [voice-commands](../../features/voice-commands/spec.md) (`window:ide`), [search](../../features/search/spec.md) (palavras de `WINDOW_KEYWORDS`), [appearance](../../features/appearance/spec.md) (tema e "Efeitos TUI no editor"), [system](../../widgets/system/spec.md) (`useSystemStats` da linha de sistema)
+- **Sistema:** WebView2; o disco e a Lixeira do Windows; `ReplaceFileW` (kernel32) no save atômico; `explorer.exe` em "Mostrar no Explorer"; o `git.exe` do usuário; rede só em push, pull e fetch.
 
 ## Tarefas
 

@@ -87,5 +87,6 @@ Componentes não chamam `invoke` direto se já existe adaptador em `lib/`.
 - [ ] Novo estado persistido com parser tolerante e listado em [persistence](../domain/persistence.md).
 - [ ] O adaptador funciona fora do Tauri (fake, fallback ou mensagem).
 - [ ] Teste Playwright novo **incluído no `testMatch`** do projeto `ui` (`playwright.config.ts`).
-- [ ] `spec.md` da pasta atualizado (componente, aceite, Código e Tarefas; Layout e Estilo se o TSX mudou). ADR novo se houve decisão.
+- [ ] `spec.md` da pasta atualizado (componente, Critérios de aceite, Casos de borda, Entregáveis com Testes e Reversão, Tarefas; Layout e Estilo se o TSX mudou; numa feature, as seções equivalentes do formato Feature Specification). ADR novo se houve decisão.
+- [ ] Dependência nova ou trocada registrada na spec de `foundation/vendor/` da família e na de [stack](../foundation/stack/spec.md).
 - [ ] README intocado, salvo no máximo um bullet em "O que faz".

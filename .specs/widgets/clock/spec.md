@@ -1,4 +1,4 @@
-# Relógio
+# Widget: Relógio
 
 Widget com a hora local em destaque e, embaixo, a data por extenso e o fuso horário.
 
@@ -10,9 +10,138 @@ Widget com a hora local em destaque e, embaixo, a data por extenso e o fuso hor�
 | **Window kind** | `clock` em `src/lib/desktop.ts` (300 × 160, mínimo 220 × 120, grupo `widgets`) |
 | **Voz** | `window:clock` ("relógio", "clock") |
 
-## Visão geral
+## Objetivo
 
 O Relógio é o relógio de parede do desktop. Ele mostra a hora local grande e, abaixo, linhas no estilo neofetch com a data por extenso e o fuso horário. Ele abre pelo lançador de Widgets, pela busca, pela voz, pelo módulo "Data e hora" da barra superior e pela cena "acorda, querido, papai chegou". O único estado que ele guarda são as opções de exibição.
+
+## Não-objetivos
+
+- Não tem alarme, cronômetro nem outros fusos. Timer e lembretes são de [reminders](../../features/reminders/spec.md), e o Pomodoro tem widget próprio.
+- "Que horas são" por voz é respondido pelo JARVIS ([voice-shortcuts](../../features/voice-shortcuts/spec.md)), não pelo widget.
+- O chrome da janela e o menu de opções são de [desktop-windows](../../features/desktop-windows/spec.md).
+
+## Histórias de usuário
+
+### US1 — Ver a hora, a data e o fuso (P1)
+
+Como usuário, quero olhar para o widget e saber a hora exata, o dia e o fuso em que estou.
+
+**Por que P1:** é todo o conteúdo do widget.
+**Teste independente:** `tests/desktop.spec.ts` — `a widget opens once, shows the time and closes`.
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Escolher o que aparece (P2)
+
+Como usuário, quero esconder os segundos, a data ou o fuso pelo botão direito e que a escolha continue depois de recarregar.
+
+**Por que P2:** deixa o widget mais limpo sem perder a função principal.
+**Teste independente:** `tests/widgets.spec.ts` — `Relógio: right click turns parts of the widget off, and it stays so`.
+
+**Aceite:** [critérios 6 a 8, 12 e 13](#critérios-de-aceite).
+
+### US3 — Abrir o relógio por outros caminhos (P3)
+
+Como usuário, quero abrir o relógio pela voz, pela barra superior ou na chegada em casa.
+
+**Por que P3:** são atalhos para algo que o lançador já resolve.
+**Teste independente:** `tests/desktop.spec.ts` — `voice commands open and close windows (engine event stand-in)`; `tests/taskbar.spec.ts` — `the top bar is on by default, turns off and on in the settings and drives the windows`.
+
+**Aceite:** [critérios 9 a 11](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o desktop sem janelas
+- **Quando** abro "Relógio" no lançador de Widgets
+- **Então** vejo a hora no formato `HH:MM` seguida de `:SS` em tom esmaecido.
+
+### Critério 2 (US1)
+
+- **Dado** o relógio aberto
+- **Quando** o segundo vira
+- **Então** o número muda junto com a virada do segundo, sem deriva.
+
+### Critério 3 (US1)
+
+- **Dado** o relógio aberto
+- **Então** vejo `data ~ <dia da semana>, <dia> de <mês>` e `fuso ~ <fuso IANA>`, com `_` trocado por espaço (ex.: `America/Sao Paulo`).
+
+### Critério 4 (US1)
+
+- **Dado** o relógio já aberto
+- **Quando** o escolho de novo no lançador
+- **Então** ele vem para a frente e continua havendo uma só janela "Relógio".
+
+### Critério 5 (US1)
+
+- **Dado** o relógio aberto
+- **Quando** clico em "Fechar Relógio"
+- **Então** a janela some e a ordem salva fica vazia.
+
+### Critério 6 (US2)
+
+- **Dado** o relógio aberto
+- **Quando** clico com o botão direito
+- **Então** abre o menu "Opções do widget Relógio" com a seção "Exibir" e os itens "Segundos", "Data" e "Fuso horário", todos marcados.
+
+### Critério 7 (US2)
+
+- **Dado** o menu aberto
+- **Quando** desmarco "Fuso horário"
+- **Então** a linha `fuso` some na hora e `jarvis.widget.clock` passa a ter `zone: false`.
+
+### Critério 8 (US2)
+
+- **Dado** essa escolha salva
+- **Quando** recarrego a página
+- **Então** o relógio volta sem a linha `fuso` e o item continua desmarcado.
+
+### Critério 9 (US3)
+
+- **Dado** o motor de voz ativo
+- **Quando** digo "abre o relógio"
+- **Então** o Relógio abre, o dock mostra "Abrindo Relógio" e o JARVIS confirma.
+
+### Critério 10 (US3)
+
+- **Dado** a barra superior ligada
+- **Quando** clico no módulo "Data e hora"
+- **Então** o Relógio abre.
+
+### Critério 11 (US3)
+
+- **Dado** o atalho "acorda, querido, papai chegou"
+- **Quando** a cena roda
+- **Então** o Relógio é o primeiro widget a acender, antes de Agenda e Tarefas (ver [voice-shortcuts](../../features/voice-shortcuts/spec.md)).
+
+### Critério 12 (US2)
+
+- **Dado** `jarvis.widget.clock` salvo com `zone: "não"` (um valor que não é booleano)
+- **Quando** abro o Relógio
+- **Então** a linha `fuso` aparece e "Fuso horário" vem marcado, porque só essa chave volta ao padrão.
+
+### Critério 13 (US2)
+
+- **Dado** o menu "Opções do widget Relógio" aberto
+- **Quando** desmarco "Segundos", "Data" e "Fuso horário"
+- **Então** sobra só a hora `HH:MM`, e o bloco de linhas some inteiro.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - `jarvis.widget.clock` ausente, com JSON inválido ou com o `localStorage` indisponível → as três opções valem `true`.
+  - Uma chave salva que não é booleana → só ela volta a `true` (`parseToggles`).
+  - Todas as opções desligadas → sobra só `HH:MM`, que não tem opção.
+- **Duplicidade/idempotência:**
+  - Escolher "Relógio" com ele aberto (lançador, busca ou "abre o relógio") → ele só vem para a frente, e continua havendo uma janela.
+  - "Fecha o relógio" com ele fechado → o dock diz "Relógio não está aberto" e nada muda.
+- **Concorrência/corrida:**
+  - O app fica oculto entre dois ticks (`paused`) → o `clearTimeout` cancela o próximo; ao reaparecer, o tick grava a hora atual e se realinha à virada do segundo.
+  - Recarregar menos de 250 ms depois de mudar uma opção → o `beforeunload` grava o valor pendente.
+  - O fuso do Windows muda com o app aberto → o widget segue no fuso lido ao carregar o módulo (ver [Pendências](#pendências)).
+- **Permissões/visibilidade:** não se aplica: é só UI, sem comando Tauri, rede ou arquivo; as opções ficam no `localStorage` (`jarvis.widget.clock`), fora do `settings.json`.
 
 ## Dados
 
@@ -87,68 +216,19 @@ O menu de botão direito do widget, feito com `useWidgetMenu`, `WidgetMenu` e `t
 - **RNF-003**: O widget roda igual no modo web e no Tauri, sem backend.
 - Para de atualizar com `paused` (app oculto ou minimizado).
 
-## Histórias de usuário
-
-### US1 — Ver a hora, a data e o fuso (P1)
-
-Como usuário, quero olhar para o widget e saber a hora exata, o dia e o fuso em que estou.
-
-**Por que P1:** é todo o conteúdo do widget.
-**Teste independente:** `tests/desktop.spec.ts` — `a widget opens once, shows the time and closes`.
-
-**Aceite**
-
-1. **Dado** o desktop sem janelas, **quando** abro "Relógio" no lançador de Widgets, **então** vejo a hora no formato `HH:MM` seguida de `:SS` em tom esmaecido.
-2. **Dado** o relógio aberto, **quando** o segundo vira, **então** o número muda junto com a virada do segundo, sem deriva.
-3. **Dado** o relógio aberto, **então** vejo `data ~ <dia da semana>, <dia> de <mês>` e `fuso ~ <fuso IANA>`, com `_` trocado por espaço (ex.: `America/Sao Paulo`).
-4. **Dado** o relógio já aberto, **quando** o escolho de novo no lançador, **então** ele vem para a frente e continua havendo uma só janela "Relógio".
-5. **Dado** o relógio aberto, **quando** clico em "Fechar Relógio", **então** a janela some e a ordem salva fica vazia.
-
-### US2 — Escolher o que aparece (P2)
-
-Como usuário, quero esconder os segundos, a data ou o fuso pelo botão direito e que a escolha continue depois de recarregar.
-
-**Por que P2:** deixa o widget mais limpo sem perder a função principal.
-**Teste independente:** `tests/widgets.spec.ts` — `Relógio: right click turns parts of the widget off, and it stays so`.
-
-**Aceite**
-
-1. **Dado** o relógio aberto, **quando** clico com o botão direito, **então** abre o menu "Opções do widget Relógio" com a seção "Exibir" e os itens "Segundos", "Data" e "Fuso horário", todos marcados.
-2. **Dado** o menu aberto, **quando** desmarco "Fuso horário", **então** a linha `fuso` some na hora e `jarvis.widget.clock` passa a ter `zone: false`.
-3. **Dado** essa escolha salva, **quando** recarrego a página, **então** o relógio volta sem a linha `fuso` e o item continua desmarcado.
-
-### US3 — Abrir o relógio por outros caminhos (P3)
-
-Como usuário, quero abrir o relógio pela voz, pela barra superior ou na chegada em casa.
-
-**Por que P3:** são atalhos para algo que o lançador já resolve.
-**Teste independente:** `tests/desktop.spec.ts` — `voice commands open and close windows (engine event stand-in)`; `tests/taskbar.spec.ts` — `the top bar is on by default, turns off and on in the settings and drives the windows`.
-
-**Aceite**
-
-1. **Dado** o motor de voz ativo, **quando** digo "abre o relógio", **então** o Relógio abre, o dock mostra "Abrindo Relógio" e o JARVIS confirma.
-2. **Dado** a barra superior ligada, **quando** clico no módulo "Data e hora", **então** o Relógio abre.
-3. **Dado** o atalho "acorda, querido, papai chegou", **quando** a cena roda, **então** o Relógio é o primeiro widget a acender, antes de Agenda e Tarefas (ver [voice-shortcuts](../../features/voice-shortcuts/spec.md)).
-
 ## Critérios de sucesso
 
 - **SC-001**: A hora mostrada nunca fica mais de um segundo atrás do relógio do sistema enquanto o app está visível.
 - **SC-002**: Uma opção desligada continua desligada depois de recarregar.
 
-## Fora de escopo e limitações
-
-- Não tem alarme, cronômetro nem outros fusos. Timer e lembretes são de [reminders](../../features/reminders/spec.md), e o Pomodoro tem widget próprio.
-- "Que horas são" por voz é respondido pelo JARVIS ([voice-shortcuts](../../features/voice-shortcuts/spec.md)), não pelo widget.
-- O chrome da janela e o menu de opções são de [desktop-windows](../../features/desktop-windows/spec.md).
-
-## Código
+## Entregáveis
 
 Um componente React sem backend. Um `setTimeout` encadeado, alinhado à virada do segundo, atualiza `Date.now()`. Três `Intl.DateTimeFormat` em `pt-BR` formatam hora, segundos e data, e o fuso sai de `resolvedOptions().timeZone`. As opções de exibição usam `useWidgetOptions("clock", …)` e o menu `WidgetMenu`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`Clock.tsx`) · hook de opções (`useWidgetOptions`) |
-| **Dependências** | `Intl.DateTimeFormat`; kit TUI (`KeyValue`) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/desktop.spec.ts`, `tests/widgets.spec.ts`, `tests/taskbar.spec.ts` |
 | **Plataforma** | Windows 11 · WebView2; no modo web funciona igual (não depende do Tauri) |
 
@@ -179,6 +259,25 @@ sequenceDiagram
   C->>LS: toggle(zone) → jarvis.widget.clock (250 ms)
 ```
 
+### Testes
+
+- `npx playwright test tests/desktop.spec.ts --project ui -g "a widget opens once"`: abre pelo lançador com `HH:MM:SS`, escolher de novo não duplica a janela e "Fechar Relógio" esvazia a ordem salva (critérios 1, 4 e 5).
+- `npx playwright test tests/desktop.spec.ts --project ui -g "voice commands open and close windows"`: `window:clock` abre e fecha o widget, com "Abrindo Relógio" no dock (critério 9).
+- `npx playwright test tests/personality.spec.ts --project ui -g "short spoken confirmation"`: o JARVIS confirma a abertura em voz (critério 9).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Relógio"`: o menu "Opções do widget Relógio", a linha `fuso` some ao desmarcar "Fuso horário" e continua assim depois de recarregar (critérios 3, 6 a 8).
+- `npx playwright test tests/taskbar.spec.ts --project ui -g "the top bar is on by default"`: o módulo "Data e hora" abre o Relógio (critério 10).
+- `npx playwright test tests/tasks.spec.ts --project ui -g "papai chegou"`: a cena de chegada acende Relógio, Agenda e Tarefas (critério 11; a ordem não é conferida).
+- `cargo test --lib opens_and_closes_jarvis_windows` (em `src-tauri`): "abre o relógio" e "Fecha o relógio." viram `window:clock` (critério 9).
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `clock` (T003).
+- Sem teste automatizado: critérios 2, 12 e 13.
+
+### Reversão
+
+- Tirar `clock` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`, o tamanho do array muda junto) e a entrada `window:clock` de `src-tauri/voice-commands.json`. Os três andam juntos: o `default_voice_commands_are_valid` exige frases para cada kind do Rust e um kind válido para cada comando `window`.
+- Tirar o `case "clock"` de `Desktop.tsx`, `WINDOW_KEYWORDS.clock` de `commands.ts` e apagar `Clock.tsx`. Antes, dar outro destino ao módulo "Data e hora" (`Taskbar.tsx`) e tirar `clock` do `comeHome` (`App.tsx`), senão o `tsc` falha.
+- Vários testes de outras features usam o Relógio como janela de exemplo (`desktop`, `dock`, `search`, `voice`, `voicetab`, `taskbar`, `tasks`, os testes do `matcher.rs` e do `mcp.rs`). Eles precisam trocar de kind.
+- Fica órfão e é ignorado: `jarvis.widget.clock`; `clock` em `jarvis.desktop` (o `parseDesktop` descarta kinds desconhecidos); `window:clock` e os comandos `custom-*` com alvo `clock` no `settings.json` (o `sanitize_voice_commands` os descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: não usa rede.
@@ -197,6 +296,12 @@ sequenceDiagram
 - [ADR-0010 — settings.json vs localStorage](../../arch/adr/0010-persistencia-settings-vs-localstorage.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - [ADR-0017 — UI PT-BR, código EN](../../arch/adr/0017-ui-pt-br-codigo-en.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícone `Clock` em `WINDOW_SPECS`)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [appearance](../../features/appearance/spec.md) (kit TUI: `KeyValue`), [voice-commands](../../features/voice-commands/spec.md) (`window:clock`), [search](../../features/search/spec.md) (palavras da busca), [dock-taskbar](../../features/dock-taskbar/spec.md) (módulo "Data e hora"), [voice-shortcuts](../../features/voice-shortcuts/spec.md) (cena de chegada)
+- **Sistema:** WebView2 com `Intl.DateTimeFormat` em `pt-BR`; a hora e o fuso do Windows.
 
 ## Tarefas
 

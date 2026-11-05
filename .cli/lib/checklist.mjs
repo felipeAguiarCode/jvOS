@@ -397,7 +397,7 @@ export function adrSteps(repo, item) {
       tag: "DOC",
       file: ".specs/<grupo>/<pasta>/spec.md",
       title: "Specs afetadas citam o ADR",
-      parts: [{ where: 'em "Código › Decisões relacionadas" de cada spec afetada', code: [`- [ADR-${item.number} — ${item.title}](../../arch/adr/${item.file})`] }],
+      parts: [{ where: 'em "Entregáveis › Decisões relacionadas" de cada spec afetada', code: [`- [ADR-${item.number} — ${item.title}](../../arch/adr/${item.file})`] }],
     },
   ];
   if (item.replaces) {
@@ -417,5 +417,6 @@ export function adrSteps(repo, item) {
 
 /** The steps as `- [ ] T0nn …` lines for the spec's tasks, numbered from `first`. */
 export function asTasks(steps, first) {
-  return steps.map((step, index) => `- [ ] T${String(first + index).padStart(3, "0")} ${step.title.replace(/\s*\([^)]*\)$/, "")} — \`${step.file}\``);
+  // The spec-coding.dev Tasks Plan shape: the task, then the files it may touch.
+  return steps.map((step, index) => `- [ ] T${String(first + index).padStart(3, "0")} ${step.title.replace(/\s*\([^)]*\)$/, "")}\n  - Arquivos permitidos: \`${step.file}\``);
 }

@@ -1,4 +1,4 @@
-# Jarvis Mark
+# App: Jarvis Mark
 
 O editor de Markdown do jvOS, com a visualização ao lado, formatação, ditado e arquivos de verdade no app desktop.
 
@@ -10,9 +10,201 @@ O editor de Markdown do jvOS, com a visualização ao lado, formatação, ditado
 | **Window kind** | `markdown` em `src/lib/desktop.ts` (880×560, mínimo 480×300) |
 | **Voz** | `window:markdown` ("Jarvis Mark", "markdown", "editor de markdown") |
 
-## Visão geral
+## Objetivo
 
 O Jarvis Mark é o editor de Markdown do jvOS. O usuário escreve com a visualização ao lado, formata com botões ou atalhos e dita texto com o próprio microfone do editor. No app desktop, ele abre e salva arquivos de verdade. No navegador, guarda só o rascunho. O editor também é onde aparecem as notas que o JARVIS escreve em `Documentos\JARVIS\Notas`: o texto chega enquanto é escrito e depois vira o arquivo salvo. O rascunho fica guardado sozinho, e fechar a janela nunca descarta nada.
+
+## Não-objetivos
+
+- Só há um documento por vez; o editor não tem abas.
+- O editor não detecta mudanças externas no arquivo aberto (o jv_ide detecta; ver [jv_ide](../jv_ide/spec.md)).
+- A gravação não aplica o limite de 2 MB, só a leitura.
+- Os comandos de arquivo aceitam qualquer caminho absoluto, sem raiz confinada. Ver [Pendências](#pendências) e [segurança](../../arch/security.md).
+- A nota diária do atalho "anota" (`assistant_note`) só abre no editor; o fluxo é de [quick-notes](../../features/quick-notes/spec.md).
+
+## Histórias de usuário
+
+### US1 — Escrever com visualização ao vivo (P1)
+
+Quero escrever Markdown e ver o resultado formatado ao lado enquanto digito.
+
+**Por que P1:** é a função central do editor.
+**Teste independente:** `tests/desktop.spec.ts` — "the markdown editor previews what is typed, formats with Ctrl+B and keeps the draft".
+
+**Aceite:** [critérios 1 a 3](#critérios-de-aceite).
+
+### US2 — Formatar pelo teclado ou pela barra (P1)
+
+Quero aplicar negrito, itálico, títulos, listas, link, código e citação sem digitar a sintaxe.
+
+**Por que P1:** é o que diferencia o editor de um campo de texto.
+**Teste independente:** mesmo teste de `tests/desktop.spec.ts` (Ctrl+B sobre "item" vira `**item**`).
+
+**Aceite:** [critérios 4 a 5](#critérios-de-aceite).
+
+### US3 — Rascunho que sobrevive (P1)
+
+Quero fechar a janela ou recarregar o app sem perder o que escrevi.
+
+**Por que P1:** o editor promete que fechar nunca descarta nada.
+**Teste independente:** o mesmo teste recarrega a página e confere o título e o `●`.
+
+**Aceite:** [critério 6](#critérios-de-aceite).
+
+### US4 — Abrir e salvar arquivos no desktop (P2)
+
+Quero abrir um `.md` do disco, editar e salvar no mesmo lugar ou em outro.
+
+**Por que P2:** só existe no app desktop; no navegador o rascunho já cobre o uso básico.
+**Teste independente:** no modo web, o teste confere que "Abrir" está desabilitado e que "Salvar" tem o título "Disponível no app desktop". O fluxo com arquivos reais não tem teste Playwright.
+
+**Aceite:** [critérios 7 a 10, 16 e 17](#critérios-de-aceite).
+
+### US5 — Ver a nota que o JARVIS escreve (P2)
+
+Quero ver no editor a nota que o JARVIS está escrevendo, à medida que ela é escrita.
+
+**Por que P2:** liga o assistente ao editor, mas depende do Claude Code.
+**Teste independente:** `tests/assistant.spec.ts` — "a note JARVIS writes opens in Jarvis Mark, its text arriving as it is written".
+
+**Aceite:** [critérios 11 a 13](#critérios-de-aceite).
+
+### US6 — Ditar no cursor (P3)
+
+Quero segurar o microfone do editor, falar e ver o texto inserido onde está o cursor.
+
+**Por que P3:** é um atalho; depende do motor de voz do app desktop.
+**Teste independente:** no modo web, o teste só confere que "Ditar (segure para falar)" está desabilitado. A ditação real não tem teste.
+
+**Aceite:** [critérios 14 a 15](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o Jarvis Mark aberto
+- **Quando** digito `# Olá JARVIS`, uma linha vazia e `- item`
+- **Então** a visualização mostra um título de nível 1 "Olá JARVIS" e um item de lista "item".
+
+### Critério 2 (US1)
+
+- **Dado** texto digitado
+- **Quando** olho a barra de status
+- **Então** ela mostra "Ln 3", a contagem de palavras, "UTF-8", "Markdown" e o marcador `●` de não salvo.
+
+### Critério 3 (US1)
+
+- **Dado** o editor aberto
+- **Quando** clico nos botões de modo ("Só o editor", "Editor e visualização", "Só a visualização") ou aperto Ctrl+P
+- **Então** a área alterna entre editor, dividido e só visualização. O modo inicial é dividido.
+
+### Critério 4 (US2)
+
+- **Dado** uma seleção
+- **Quando** aperto Ctrl+B
+- **Então** ela fica entre `**` e a visualização mostra `<strong>`. Repetir sobre o trecho já marcado remove a marcação.
+
+### Critério 5 (US2)
+
+- **Dado** várias linhas selecionadas
+- **Quando** clico em "Lista numerada"
+- **Então** cada linha ganha `1. `, `2. `… Clicar de novo, com todas as linhas já prefixadas, remove os prefixos.
+
+### Critério 6 (US3)
+
+- **Dado** texto digitado
+- **Quando** a página recarrega
+- **Então** o Jarvis Mark reabre com o mesmo texto e continua marcado como não salvo.
+
+### Critério 7 (US4)
+
+- **Dado** o app desktop
+- **Quando** clico em "Abrir" ou aperto Ctrl+O
+- **Então** abre o diálogo nativo com o filtro "Markdown" (`md`, `markdown`, `txt`), e o arquivo escolhido substitui o rascunho com a mensagem "Aberto <nome>".
+
+### Critério 8 (US4)
+
+- **Dado** um documento sem caminho
+- **Quando** aperto Ctrl+S
+- **Então** abre o diálogo "Salvar arquivo" sugerindo `sem-titulo.md`. Depois de salvar, a barra mostra "Salvo às HH:MM".
+
+### Critério 9 (US4)
+
+- **Dado** alterações não salvas
+- **Quando** peço Novo (Ctrl+N) ou Abrir
+- **Então** aparece a barra "Descartar as alterações não salvas?" com "Descartar" e "Cancelar".
+
+### Critério 10 (US4)
+
+- **Dado** um documento com caminho
+- **Quando** aperto Ctrl+Shift+S
+- **Então** o diálogo de salvar abre mesmo assim (Salvar como).
+
+### Critério 11 (US5)
+
+- **Dado** o JARVIS escrevendo um arquivo em `Documentos\JARVIS\Notas`
+- **Quando** o texto chega em partes
+- **Então** o Jarvis Mark abre sozinho, o texto cresce aos poucos e a barra mostra "JARVIS escrevendo…".
+
+### Critério 12 (US5)
+
+- **Dado** a escrita concluída
+- **Quando** o arquivo está no disco
+- **Então** o editor carrega o arquivo salvo, mostra "Nota salva pelo JARVIS · <nome>" e guarda o caminho no rascunho.
+
+### Critério 13 (US5)
+
+- **Dado** alterações não salvas do usuário
+- **Quando** chega uma nota do JARVIS
+- **Então** o texto do usuário fica intacto e a barra avisa "JARVIS salvou <nome> · salve ou descarte suas alterações para ver". Se for o mesmo arquivo, a palavra é "alterou".
+
+### Critério 14 (US6)
+
+- **Dado** o app desktop
+- **Quando** seguro o botão de microfone (clique, Espaço ou Enter)
+- **Então** a barra mostra "Ditando… solte para inserir". Ao soltar, mostra "Transcrevendo…".
+
+### Critério 15 (US6)
+
+- **Dado** a transcrição pronta
+- **Quando** o texto chega
+- **Então** ele entra no cursor, com espaço antes se o caractere anterior não for espaço e um espaço no fim. Se só a visualização estiver na tela, o texto vai para o fim do documento.
+
+### Critério 16 (US4)
+
+- **Dado** o modo navegador (fora do Tauri)
+- **Quando** olho "Abrir" e "Salvar" ou aperto Ctrl+S
+- **Então** "Abrir" fica desabilitado, "Salvar" tem a dica "Disponível no app desktop" e Ctrl+S mostra "Disponível no app desktop · o rascunho fica guardado".
+
+### Critério 17 (US4)
+
+- **Dado** o app desktop
+- **Quando** abro um arquivo com mais de 2 MB, que não é UTF-8 ou que não existe mais
+- **Então** a barra de status mostra "Arquivo grande demais (máx. 2 MB)", "O arquivo não é texto UTF-8" ou "Arquivo não encontrado", e o rascunho não muda.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Documento sem texto → o placeholder "# Escreva em Markdown…"; sem caminho, a barra mostra "sem título".
+  - Diálogo de abrir ou salvar cancelado → nada muda.
+  - Campo faltando ou inválido em `jarvis.editor.markdown` → `parseDraft` usa o padrão daquele campo.
+  - Pedido parcial do JARVIS sem texto (`content: null`) → ignorado; no navegador, sem disco, o fim da nota usa o último texto recebido.
+- **Duplicidade/idempotência:**
+  - Ctrl+B, Ctrl+I ou Ctrl+K sobre um trecho já envolvido → a marcação sai; um prefixo de linha já presente em todas as linhas → sai de todas.
+  - Ditado com as mesmas palavras do anterior → entra de novo, porque o `id` de $ditado muda a cada ditado.
+  - Vários pedidos de nota com a janela fechada → só o último fica guardado até o editor abrir.
+  - Salvar de novo no mesmo arquivo → grava `<nome>.tmp` e renomeia por cima, sem deixar o `.tmp`.
+- **Concorrência/corrida:**
+  - Nota do JARVIS chegando com alterações não salvas do usuário → o texto dele fica intacto e a barra avisa "JARVIS salvou <nome> · salve ou descarte suas alterações para ver" ("alterou", se for o mesmo arquivo).
+  - Novo ou Abrir sobre alterações não salvas → a `ConfirmBar` "Descartar as alterações não salvas?".
+  - Rascunho grande demais para o localStorage → "Rascunho grande demais para guardar automaticamente".
+  - Arquivo aberto alterado fora do editor → não é detectado (ver [Não-objetivos](#não-objetivos)).
+- **Permissões/visibilidade:**
+  - Caminho relativo → "Caminho inválido"; sem permissão → "Sem permissão para acessar o arquivo".
+  - `read_text_file` e `write_text_file` aceitam qualquer caminho absoluto, sem raiz confinada (exceção a P10, em [Pendências](#pendências)); as notas do JARVIS só chegam de `Documentos\JARVIS\Notas`, dentro da pasta a que ele está confinado ([ADR-0007](../../arch/adr/0007-jarvis-confinado-a-documentos.md)).
+  - O ditado precisa do microfone e do motor de voz do app desktop; fora do Tauri, ver o item abaixo.
+- **Fora do Tauri:** "Abrir" e "Salvar" ficam desabilitados com o título "Disponível no app desktop". Ctrl+S mostra "Disponível no app desktop · o rascunho fica guardado". O botão de ditar fica desabilitado.
+- **Arrastar dentro do conteúdo:** não move a janela (`tests/widgets.spec.ts`).
 
 ## Dados
 
@@ -172,11 +364,6 @@ A nota que o JARVIS escreve em `Documentos\JARVIS\Notas`, aparecendo no editor e
   - Se a janela estiver fechada, então o pedido fica guardado (só o último) até o editor abrir e pegá-lo.
   - Se for no navegador, então, sem disco, o editor usa o último texto recebido como conteúdo salvo.
 
-## Casos de borda
-
-- **Fora do Tauri:** "Abrir" e "Salvar" ficam desabilitados com o título "Disponível no app desktop". Ctrl+S mostra "Disponível no app desktop · o rascunho fica guardado". O botão de ditar fica desabilitado.
-- **Arrastar dentro do conteúdo:** não move a janela (`tests/widgets.spec.ts`).
-
 ## Voz e teclado
 
 - **RF-008**: Ctrl+N, Ctrl+O, Ctrl+S e Ctrl+Shift+S DEVEM executar Novo, Abrir, Salvar e Salvar como.
@@ -194,105 +381,20 @@ A nota que o JARVIS escreve em `Documentos\JARVIS\Notas`, aparecendo no editor e
 - **RNF-002**: Leitura limitada a 2 MB (`MAX_BYTES` em `src-tauri/src/files.rs`).
 - **RNF-003**: A ditação roda offline no motor de voz local (ver [motor de voz](../../features/voice-engine/spec.md)).
 
-## Histórias de usuário
-
-### US1 — Escrever com visualização ao vivo (P1)
-
-Quero escrever Markdown e ver o resultado formatado ao lado enquanto digito.
-
-**Por que P1:** é a função central do editor.
-**Teste independente:** `tests/desktop.spec.ts` — "the markdown editor previews what is typed, formats with Ctrl+B and keeps the draft".
-
-**Aceite**
-
-1. **Dado** o Jarvis Mark aberto, **quando** digito `# Olá JARVIS`, uma linha vazia e `- item`, **então** a visualização mostra um título de nível 1 "Olá JARVIS" e um item de lista "item".
-2. **Dado** texto digitado, **quando** olho a barra de status, **então** ela mostra "Ln 3", a contagem de palavras, "UTF-8", "Markdown" e o marcador `●` de não salvo.
-3. **Dado** o editor aberto, **quando** clico nos botões de modo ("Só o editor", "Editor e visualização", "Só a visualização") ou aperto Ctrl+P, **então** a área alterna entre editor, dividido e só visualização. O modo inicial é dividido.
-
-### US2 — Formatar pelo teclado ou pela barra (P1)
-
-Quero aplicar negrito, itálico, títulos, listas, link, código e citação sem digitar a sintaxe.
-
-**Por que P1:** é o que diferencia o editor de um campo de texto.
-**Teste independente:** mesmo teste de `tests/desktop.spec.ts` (Ctrl+B sobre "item" vira `**item**`).
-
-**Aceite**
-
-1. **Dado** uma seleção, **quando** aperto Ctrl+B, **então** ela fica entre `**` e a visualização mostra `<strong>`. Repetir sobre o trecho já marcado remove a marcação.
-2. **Dado** várias linhas selecionadas, **quando** clico em "Lista numerada", **então** cada linha ganha `1. `, `2. `… Clicar de novo, com todas as linhas já prefixadas, remove os prefixos.
-
-### US3 — Rascunho que sobrevive (P1)
-
-Quero fechar a janela ou recarregar o app sem perder o que escrevi.
-
-**Por que P1:** o editor promete que fechar nunca descarta nada.
-**Teste independente:** o mesmo teste recarrega a página e confere o título e o `●`.
-
-**Aceite**
-
-1. **Dado** texto digitado, **quando** a página recarrega, **então** o Jarvis Mark reabre com o mesmo texto e continua marcado como não salvo.
-
-### US4 — Abrir e salvar arquivos no desktop (P2)
-
-Quero abrir um `.md` do disco, editar e salvar no mesmo lugar ou em outro.
-
-**Por que P2:** só existe no app desktop; no navegador o rascunho já cobre o uso básico.
-**Teste independente:** no modo web, o teste confere que "Abrir" está desabilitado e que "Salvar" tem o título "Disponível no app desktop". O fluxo com arquivos reais não tem teste Playwright.
-
-**Aceite**
-
-1. **Dado** o app desktop, **quando** clico em "Abrir" ou aperto Ctrl+O, **então** abre o diálogo nativo com o filtro "Markdown" (`md`, `markdown`, `txt`), e o arquivo escolhido substitui o rascunho com a mensagem "Aberto <nome>".
-2. **Dado** um documento sem caminho, **quando** aperto Ctrl+S, **então** abre o diálogo "Salvar arquivo" sugerindo `sem-titulo.md`. Depois de salvar, a barra mostra "Salvo às HH:MM".
-3. **Dado** alterações não salvas, **quando** peço Novo (Ctrl+N) ou Abrir, **então** aparece a barra "Descartar as alterações não salvas?" com "Descartar" e "Cancelar".
-4. **Dado** um documento com caminho, **quando** aperto Ctrl+Shift+S, **então** o diálogo de salvar abre mesmo assim (Salvar como).
-
-### US5 — Ver a nota que o JARVIS escreve (P2)
-
-Quero ver no editor a nota que o JARVIS está escrevendo, à medida que ela é escrita.
-
-**Por que P2:** liga o assistente ao editor, mas depende do Claude Code.
-**Teste independente:** `tests/assistant.spec.ts` — "a note JARVIS writes opens in Jarvis Mark, its text arriving as it is written".
-
-**Aceite**
-
-1. **Dado** o JARVIS escrevendo um arquivo em `Documentos\JARVIS\Notas`, **quando** o texto chega em partes, **então** o Jarvis Mark abre sozinho, o texto cresce aos poucos e a barra mostra "JARVIS escrevendo…".
-2. **Dado** a escrita concluída, **quando** o arquivo está no disco, **então** o editor carrega o arquivo salvo, mostra "Nota salva pelo JARVIS · <nome>" e guarda o caminho no rascunho.
-3. **Dado** alterações não salvas do usuário, **quando** chega uma nota do JARVIS, **então** o texto do usuário fica intacto e a barra avisa "JARVIS salvou <nome> · salve ou descarte suas alterações para ver". Se for o mesmo arquivo, a palavra é "alterou".
-
-### US6 — Ditar no cursor (P3)
-
-Quero segurar o microfone do editor, falar e ver o texto inserido onde está o cursor.
-
-**Por que P3:** é um atalho; depende do motor de voz do app desktop.
-**Teste independente:** no modo web, o teste só confere que "Ditar (segure para falar)" está desabilitado. A ditação real não tem teste.
-
-**Aceite**
-
-1. **Dado** o app desktop, **quando** seguro o botão de microfone (clique, Espaço ou Enter), **então** a barra mostra "Ditando… solte para inserir". Ao soltar, mostra "Transcrevendo…".
-2. **Dado** a transcrição pronta, **quando** o texto chega, **então** ele entra no cursor, com espaço antes se o caractere anterior não for espaço e um espaço no fim. Se só a visualização estiver na tela, o texto vai para o fim do documento.
-
 ## Critérios de sucesso
 
 - **SC-001**: O que é digitado aparece formatado na visualização sem ação extra.
 - **SC-002**: Depois de recarregar o app, o texto e o estado "não salvo" voltam iguais.
 - **SC-003**: Uma nota do JARVIS aparece crescendo no editor antes de estar completa e termina com o caminho do arquivo guardado.
 
-## Fora de escopo e limitações
-
-- Só há um documento por vez; o editor não tem abas.
-- O editor não detecta mudanças externas no arquivo aberto (o jv_ide detecta; ver [jv_ide](../jv_ide/spec.md)).
-- A gravação não aplica o limite de 2 MB, só a leitura.
-- Os comandos de arquivo aceitam qualquer caminho absoluto, sem raiz confinada. Ver [Pendências](#pendências) e [segurança](../../arch/security.md).
-- A nota diária do atalho "anota" (`assistant_note`) só abre no editor; o fluxo é de [quick-notes](../../features/quick-notes/spec.md).
-
-## Código
+## Entregáveis
 
 Um componente React (`MarkdownEditor`) junta o wrapper CodeMirror compartilhado, com a linguagem Markdown e realce de blocos de código via `@codemirror/language-data`, e a visualização do `react-markdown` + `remark-gfm`. O hook `useEditorDocument` cuida do documento: rascunho em localStorage, estado "não salvo", diálogos nativos (`@tauri-apps/plugin-dialog`) e os pedidos do JARVIS. Os arquivos passam por dois comandos Rust finos (`read_text_file`, `write_text_file`). A ditação usa o motor de voz Rust por meio de um contexto React fornecido pelo `App`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`MarkdownEditor`, `editorChrome`) · hook `useEditorDocument` · libs `files`, `dictation`, `requests` · comandos `read_text_file`, `write_text_file`, `voice_dictate` · módulo `src-tauri/src/files.rs` |
-| **Dependências** | CodeMirror 6 (`@codemirror/lang-markdown`, `@codemirror/language-data`), `react-markdown`, `remark-gfm`, `@tauri-apps/plugin-dialog`, `lucide-react` |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/desktop.spec.ts`, `tests/assistant.spec.ts`, `tests/search.spec.ts`, `tests/widgets.spec.ts`; Rust `mod tests` em `src-tauri/src/files.rs` |
 | **Plataforma** | Windows 11 · WebView2. Fora do Tauri, `canUseFiles = isTauri()` é falso: Abrir e Salvar ficam desabilitados com "Disponível no app desktop", e o ditado fica indisponível (`available: false`) |
 
@@ -349,6 +451,22 @@ sequenceDiagram
   E->>E: setDraft(salvo) · "Nota salva pelo JARVIS"
 ```
 
+### Testes
+
+- `npx playwright test tests/desktop.spec.ts --project ui -g "markdown editor"`: visualização ao vivo, "Ln 3" e `●`, Ctrl+B, "Abrir"/"Salvar"/ditar indisponíveis no navegador e o rascunho depois de recarregar (critérios 1, 2, 4, 6 e 16, menos o Ctrl+S).
+- `npx playwright test tests/assistant.spec.ts --project ui -g "a note JARVIS writes"`: a nota abre o Jarvis Mark, cresce aos poucos, termina com "Nota salva pelo JARVIS" e o caminho no rascunho (critérios 11–12).
+- `npx playwright test tests/search.spec.ts --project ui -g "inside a text field just types"`: "/" no editor é só um caractere.
+- `npx playwright test tests/widgets.spec.ts --project ui -g "keep the pointer"`: arrastar dentro do conteúdo não move a janela.
+- `cargo test --lib files::` (em `src-tauri`): ida e volta com gravação atômica, caminho relativo, limite de 2 MB, UTF-8 e arquivo ausente (RF-009; critério 17 no backend).
+- Sem teste automatizado: modos e Ctrl+P, prefixos de linha, arquivos reais pelo diálogo, a `ConfirmBar`, a nota sobre alterações não salvas e o ditado real (critérios 3, 5, 7–10, 13–15).
+
+### Reversão
+
+- Tirar o kind `markdown` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` em `commands.ts`, o `case "markdown"` de `Desktop.tsx` e o `MarkdownEditor` de `lazyApps.tsx`; `window:markdown` de `src-tauri/voice-commands.json`, `"markdown"` do `WINDOW_KINDS` de `settings.rs` e os asserts de `window("markdown", …)` em `voice/matcher.rs`.
+- **Não** é ignorado sem ajuste: `App.tsx` abre `markdown` e manda `noteRequests` em `onAssistantFile` (notas do JARVIS) e no atalho "anota" de [quick-notes](../../features/quick-notes/spec.md); o ditado de [dictation](../../features/dictation/spec.md) (`target: "editor"`) fica sem destino.
+- Ficam, porque outros usam: `CodeMirror.tsx` (jv_ide, jv_agent), `markdownComponents.tsx` (jv_lab, histórico do assistente), `editorChrome.tsx` (jv_lab), `src/lib/files.ts` e os comandos `read_text_file`/`write_text_file` (jv_agent, via `src/lib/agents.ts`).
+- Fica órfão e é ignorado: `jarvis.editor.markdown` no localStorage, a janela `markdown` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos) e o comando de voz gravado no `settings.json` (descartado ao carregar). As notas em `Documentos\JARVIS\Notas` continuam sendo arquivos do usuário.
+
 ### Constituição
 
 - [x] P1 Offline-first — edição, rascunho e ditação (whisper local) funcionam sem rede.
@@ -371,6 +489,12 @@ sequenceDiagram
 - [ADR-0010 — settings.json vs localStorage](../../arch/adr/0010-persistencia-settings-vs-localstorage.md)
 - [ADR-0012 — apps lazy com preload](../../arch/adr/0012-apps-lazy-com-preload.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [Tauri](../../foundation/vendor/tauri/spec.md) (`@tauri-apps/api` e `@tauri-apps/plugin-dialog`), [React](../../foundation/vendor/react/spec.md), [CodeMirror 6](../../foundation/vendor/codemirror/spec.md) (`@codemirror/lang-markdown`, `@codemirror/language-data`), [Markdown](../../foundation/vendor/markdown/spec.md) (`react-markdown`, `remark-gfm`), [lucide](../../foundation/vendor/lucide/spec.md)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela e app lazy), [voice-commands](../../features/voice-commands/spec.md) (`window:markdown`), [search](../../features/search/spec.md) (palavras de `WINDOW_KEYWORDS`), [dictation](../../features/dictation/spec.md) e [voice-engine](../../features/voice-engine/spec.md) (`voice_dictate` e `voice:dictation`), [assistant](../../features/assistant/spec.md) (notas que o JARVIS escreve em `Notas`), [quick-notes](../../features/quick-notes/spec.md) (a nota do dia do "anota"), [appearance](../../features/appearance/spec.md) (tema HUD e acento TUI do editor)
+- **Sistema:** WebView2; os diálogos nativos de abrir e salvar do Windows; o disco (qualquer caminho absoluto escolhido) e `Documentos\JARVIS\Notas`; o microfone, para o ditado. Nenhuma rede.
 
 ## Tarefas
 

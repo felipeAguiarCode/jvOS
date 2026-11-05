@@ -1,4 +1,4 @@
-# jv_lab
+# App: jv_lab
 
 O laboratório de IA do jvOS: lições curtas com o texto à esquerda e um terminal simulado à direita, que espera os comandos de cada desafio.
 
@@ -10,7 +10,7 @@ O laboratório de IA do jvOS: lições curtas com o texto à esquerda e um termi
 | **Window kind** | `lab` em `src/lib/desktop.ts` (1180×700, mínimo 720×420) |
 | **Voz** | `window:lab` ("jv lab", "laboratório", "lições", "aulas") |
 
-## Visão geral
+## Objetivo
 
 O jv_lab é o laboratório de IA do jvOS: lições curtas sobre inteligência artificial, cada uma com o texto à esquerda e um terminal simulado à direita. O terminal espera os comandos de cada desafio. É para quem quer entender, na prática, conceitos como treino e inferência, tokens, temperatura, nível de esforço e harness de agentes. Tudo roda na própria página: nenhum modelo de verdade é chamado, e os números são ilustrativos. O progresso de cada lição e a divisão entre texto e terminal ficam guardados.
 
@@ -25,6 +25,155 @@ O jv_lab é o laboratório de IA do jvOS: lições curtas sobre inteligência ar
 | 05 | `harness` | Harness | O que transforma um modelo num agente: ferramentas, loop, permissões, contexto e hooks. | ~12 min |
 
 Cada lição tem 5 desafios (25 no total).
+
+## Não-objetivos
+
+- Não executa comandos de verdade nem chama o Claude Code ou qualquer modelo.
+- O estado de uma sessão de terminal (modelo treinado, execuções) vive só enquanto o terminal está aberto.
+- Não tem frases de voz próprias além de abrir e fechar a janela.
+
+## Histórias de usuário
+
+### US1 — Escolher uma lição e cumprir os desafios no terminal (P1)
+
+Quero abrir uma lição, ler o texto e digitar no terminal os comandos que cumprem cada desafio.
+
+**Por que P1:** é o propósito do app.
+**Teste independente:** `tests/lab.spec.ts` — "the catalog lists five lessons; a lesson shows its text beside a terminal that checks its challenges".
+
+**Aceite:** [critérios 1 a 6](#critérios-de-aceite).
+
+### US2 — Progresso que volta (P1)
+
+Quero fechar o app e, ao voltar, encontrar os desafios que já fiz.
+
+**Por que P1:** as lições são feitas em mais de uma sessão.
+**Teste independente:** `tests/lab.spec.ts` — "progress comes back from storage, Tab completes, Reiniciar clears the lesson and Voltar returns to its card".
+
+**Aceite:** [critérios 7 a 9](#critérios-de-aceite).
+
+### US3 — Terminal que se comporta como um shell (P2)
+
+Quero histórico, Tab, Ctrl+C e digitar adiantado como num terminal de verdade.
+
+**Por que P2:** dá a sensação de terminal real, mas as lições funcionam sem isso.
+**Teste independente:** `tests/lab.spec.ts` — "what is typed while a command still prints waits for the prompt, and Ctrl+C stops a command" e o teste de progresso (Tab).
+
+**Aceite:** [critérios 10 a 13](#critérios-de-aceite).
+
+### US4 — Ajustar a divisão entre texto e terminal (P3)
+
+Quero arrastar a divisória ou movê-la pelo teclado, e que ela fique onde deixei.
+
+**Por que P3:** conforto de leitura.
+**Teste independente:** `tests/lab.spec.ts` — "the divider moves with the keyboard and the split is remembered".
+
+**Aceite:** [critério 14](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o jv_lab aberto
+- **Quando** vejo o catálogo "Laboratório de IA"
+- **Então** há 5 cartões, cada um com número, título, tempo, resumo, barra `[████░░]` e "n/5 desafios" (ou "✔ concluída").
+
+### Critério 2 (US1)
+
+- **Dado** o catálogo
+- **Quando** abro "LLM por dentro"
+- **Então** o texto da lição aparece à esquerda com o título de nível 1, e o terminal à direita mostra o banner e "Desafio 1/5". O teclado vai direto para o terminal.
+
+### Critério 3 (US1)
+
+- **Dado** o desafio atual
+- **Quando** digito um comando que passa na checagem
+- **Então** o terminal mostra "✔ Desafio n/5 concluído" e o próximo objetivo. Na coluna "Desafios", o item fica `✔` e o seguinte vira o atual `▶`. A barra mostra "n/5 desafios".
+
+### Critério 4 (US1)
+
+- **Dado** um comando que não existe na lição
+- **Quando** o digito
+- **Então** o terminal responde "comando não encontrado: <nome> — digite help para ver os desta lição".
+
+### Critério 5 (US1)
+
+- **Dado** o desafio atual
+- **Quando** clico em "Mostrar dica"
+- **Então** aparece o comando exato, com o botão "copiar".
+
+### Critério 6 (US1)
+
+- **Dado** todos os desafios feitos
+- **Então** aparece "★ Lição concluída! Volte às lições para escolher a próxima.", e os comandos continuam disponíveis para praticar.
+
+### Critério 7 (US2)
+
+- **Dado** `jarvis.lab` com dois desafios feitos em `ia`
+- **Quando** abro o jv_lab
+- **Então** o cartão "O que é IA" mostra "2/5 desafios", e a lição abre já no "Desafio 3/5".
+
+### Critério 8 (US2)
+
+- **Dado** uma lição aberta
+- **Quando** clico em "Reiniciar lição"
+- **Então** os desafios voltam a zero, o terminal recomeça em "Desafio 1/5" e a lição sai de `jarvis.lab`.
+
+### Critério 9 (US2)
+
+- **Dado** uma lição aberta
+- **Quando** clico em "Voltar às lições"
+- **Então** o catálogo reaparece com o foco no cartão dessa lição.
+
+### Critério 10 (US3)
+
+- **Dado** o prompt
+- **Quando** digito `tra` e aperto Tab
+- **Então** a linha vira `train `. Com vários candidatos, Tab completa o prefixo comum e lista as opções.
+
+### Critério 11 (US3)
+
+- **Dado** comandos já rodados
+- **Quando** aperto ↑ e Enter
+- **Então** o último comando roda de novo.
+
+### Critério 12 (US3)
+
+- **Dado** um comando ainda imprimindo
+- **Quando** digito outro e Enter
+- **Então** o segundo espera o prompt voltar e roda depois.
+
+### Critério 13 (US3)
+
+- **Dado** um comando ainda imprimindo
+- **Quando** aperto Ctrl+C
+- **Então** a saída para, aparece `^C`, e o que foi digitado adiantado é descartado.
+
+### Critério 14 (US4)
+
+- **Dado** a divisória focada
+- **Quando** aperto → duas vezes
+- **Então** a coluna de texto passa de 50% para 60% (`aria-valuenow` = 60), e `jarvis.lab.split` fica ≈ 0,6.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - `jarvis.lab` ausente ou inválido → o padrão `{ done: {}, split: 0.5 }`; o que não é string sai da lista.
+  - `split` fora da faixa ou inválido → limitado a 30–70% ou de volta a 50%.
+  - Enter numa linha vazia → só um prompt novo; a linha não entra no histórico.
+  - `help <comando>` que não existe → "não há o comando <nome>"; aspas sem fechar → "aspas sem fechar".
+- **Duplicidade/idempotência:**
+  - Desafio já feito cumprido de novo → `markDone` não o grava duas vezes.
+  - A mesma linha duas vezes seguidas → o histórico guarda uma vez.
+  - Ids de desafios removidos em `jarvis.lab` → não contam (`doneCount`).
+  - Lição concluída → os comandos continuam para praticar, sem mudar o progresso.
+- **Concorrência/corrida:**
+  - Teclas durante a saída de um comando → guardadas até o prompt voltar; Ctrl+C para a saída e descarta o que foi digitado adiantado.
+  - Texto colado com várias linhas → uma linha por vez, cada uma depois do prompt da anterior.
+  - Desafio 3 cumprido antes do 2 → nada é marcado; só o desafio atual conta.
+  - "Reiniciar lição" ou troca de lição → backend novo (`generation`) ou `key` nova; os timers da sessão antiga param no `close`.
+- **Permissões/visibilidade:** não se aplica: o terminal é simulado na página, sem Tauri, rede, disco ou microfone; só `jarvis.lab` no localStorage. A única exceção é a área de transferência: sem acesso a ela, "copiar" não faz nada.
+- **Fora do Tauri:** funciona igual, porque o terminal é simulado na página e não precisa de fake.
 
 ## Dados
 
@@ -179,10 +328,6 @@ O "modelo" que as lições usam para gerar texto e imagens.
   - **RF-010**: O modelo de brinquedo DEVE ser determinístico: temperatura 0 dá sempre o mesmo texto, e a mesma seed reproduz uma amostra.
   - Usa `random` (mulberry32), `hash` (FNV-1a), um tokenizador e uma cadeia de palavras com logits.
 
-## Casos de borda
-
-- **Fora do Tauri:** funciona igual, porque o terminal é simulado na página e não precisa de fake.
-
 ## Voz e teclado
 
 - Voz `window:lab` ("jv lab", "laboratório", "lições", "aulas"): abre ou fecha a janela.
@@ -197,82 +342,20 @@ O "modelo" que as lições usam para gerar texto e imagens.
 - **RNF-003**: O app inteiro carrega sob demanda (ver [janelas](../../features/desktop-windows/spec.md)).
 - A sugestão de `hint` vem depois de 2 tentativas erradas (`MISSES_BEFORE_NUDGE`).
 
-## Histórias de usuário
-
-### US1 — Escolher uma lição e cumprir os desafios no terminal (P1)
-
-Quero abrir uma lição, ler o texto e digitar no terminal os comandos que cumprem cada desafio.
-
-**Por que P1:** é o propósito do app.
-**Teste independente:** `tests/lab.spec.ts` — "the catalog lists five lessons; a lesson shows its text beside a terminal that checks its challenges".
-
-**Aceite**
-
-1. **Dado** o jv_lab aberto, **quando** vejo o catálogo "Laboratório de IA", **então** há 5 cartões, cada um com número, título, tempo, resumo, barra `[████░░]` e "n/5 desafios" (ou "✔ concluída").
-2. **Dado** o catálogo, **quando** abro "LLM por dentro", **então** o texto da lição aparece à esquerda com o título de nível 1, e o terminal à direita mostra o banner e "Desafio 1/5". O teclado vai direto para o terminal.
-3. **Dado** o desafio atual, **quando** digito um comando que passa na checagem, **então** o terminal mostra "✔ Desafio n/5 concluído" e o próximo objetivo. Na coluna "Desafios", o item fica `✔` e o seguinte vira o atual `▶`. A barra mostra "n/5 desafios".
-4. **Dado** um comando que não existe na lição, **quando** o digito, **então** o terminal responde "comando não encontrado: <nome> — digite help para ver os desta lição".
-5. **Dado** o desafio atual, **quando** clico em "Mostrar dica", **então** aparece o comando exato, com o botão "copiar".
-6. **Dado** todos os desafios feitos, **então** aparece "★ Lição concluída! Volte às lições para escolher a próxima.", e os comandos continuam disponíveis para praticar.
-
-### US2 — Progresso que volta (P1)
-
-Quero fechar o app e, ao voltar, encontrar os desafios que já fiz.
-
-**Por que P1:** as lições são feitas em mais de uma sessão.
-**Teste independente:** `tests/lab.spec.ts` — "progress comes back from storage, Tab completes, Reiniciar clears the lesson and Voltar returns to its card".
-
-**Aceite**
-
-1. **Dado** `jarvis.lab` com dois desafios feitos em `ia`, **quando** abro o jv_lab, **então** o cartão "O que é IA" mostra "2/5 desafios", e a lição abre já no "Desafio 3/5".
-2. **Dado** uma lição aberta, **quando** clico em "Reiniciar lição", **então** os desafios voltam a zero, o terminal recomeça em "Desafio 1/5" e a lição sai de `jarvis.lab`.
-3. **Dado** uma lição aberta, **quando** clico em "Voltar às lições", **então** o catálogo reaparece com o foco no cartão dessa lição.
-
-### US3 — Terminal que se comporta como um shell (P2)
-
-Quero histórico, Tab, Ctrl+C e digitar adiantado como num terminal de verdade.
-
-**Por que P2:** dá a sensação de terminal real, mas as lições funcionam sem isso.
-**Teste independente:** `tests/lab.spec.ts` — "what is typed while a command still prints waits for the prompt, and Ctrl+C stops a command" e o teste de progresso (Tab).
-
-**Aceite**
-
-1. **Dado** o prompt, **quando** digito `tra` e aperto Tab, **então** a linha vira `train `. Com vários candidatos, Tab completa o prefixo comum e lista as opções.
-2. **Dado** comandos já rodados, **quando** aperto ↑ e Enter, **então** o último comando roda de novo.
-3. **Dado** um comando ainda imprimindo, **quando** digito outro e Enter, **então** o segundo espera o prompt voltar e roda depois.
-4. **Dado** um comando ainda imprimindo, **quando** aperto Ctrl+C, **então** a saída para, aparece `^C`, e o que foi digitado adiantado é descartado.
-
-### US4 — Ajustar a divisão entre texto e terminal (P3)
-
-Quero arrastar a divisória ou movê-la pelo teclado, e que ela fique onde deixei.
-
-**Por que P3:** conforto de leitura.
-**Teste independente:** `tests/lab.spec.ts` — "the divider moves with the keyboard and the split is remembered".
-
-**Aceite**
-
-1. **Dado** a divisória focada, **quando** aperto → duas vezes, **então** a coluna de texto passa de 50% para 60% (`aria-valuenow` = 60), e `jarvis.lab.split` fica ≈ 0,6.
-
 ## Critérios de sucesso
 
 - **SC-001**: Uma pessoa completa uma lição só com o texto, as dicas e o terminal, sem consultar nada fora do app.
 - **SC-002**: Depois de recarregar, o progresso e a divisória voltam iguais.
 - **SC-003**: Comandos digitados durante uma saída nunca se perdem nem se embaralham.
 
-## Fora de escopo e limitações
-
-- Não executa comandos de verdade nem chama o Claude Code ou qualquer modelo.
-- O estado de uma sessão de terminal (modelo treinado, execuções) vive só enquanto o terminal está aberto.
-- Não tem frases de voz próprias além de abrir e fechar a janela.
-
-## Código
+## Entregáveis
 
 O jv_lab é 100% front-end. Cada lição é um par `<id>.md` (texto, embutido via `import.meta.glob` com `?raw`) e `<id>.ts` (comandos e desafios). Um motor puro (`createSession`) interpreta as linhas e checa o desafio atual. `labBackend` embrulha esse motor na forma de `TerminalBackend`, a mesma interface dos terminais reais, e assim o lab reaproveita o `TerminalView` (xterm.js) do jv_sh sem nenhum comando Tauri. O progresso fica em `jarvis.lab` via `useStoredState`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`LabApp`, `LessonCatalog`, `LessonLab`) · lib `src/lib/lab/*` (motor, backend simulado, parser, progresso, ANSI, lições) · `TerminalView` compartilhado |
-| **Dependências** | xterm.js (via `TerminalView`), `react-markdown` + `remark-gfm`, `MARKDOWN_COMPONENTS`, `usePointerDrag` |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/lab.spec.ts` (UI), `tests/lab-engine.spec.ts` (motor puro, no projeto `ui`) |
 | **Plataforma** | Igual dentro e fora do Tauri: o terminal é simulado na página |
 
@@ -340,6 +423,18 @@ sequenceDiagram
   B-->>X: saída + "✔ Desafio 1/5 concluído" + prompt
 ```
 
+### Testes
+
+- `npx playwright test tests/lab.spec.ts --project ui`: catálogo com 5 lições, texto ao lado do terminal, desafio cumprido, comando inexistente, dica, ↑, progresso salvo, Tab, "Reiniciar lição", "Voltar às lições", divisória e digitação adiantada com Ctrl+C (critérios 1–5 e 7–14).
+- `npx playwright test tests/lab-engine.spec.ts --project ui`: o motor puro: `parseLine` e aspas sem fechar, ids e dicas únicos, built-ins e uso errado, só o desafio atual conta e a sugestão após 2 erros, Tab, o modelo de brinquedo e `parseLab` (critérios 4, 6 e 10; RF-003, RF-004, RF-010).
+
+### Reversão
+
+- Tirar o kind `lab` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` em `commands.ts`, o `case "lab"` de `Desktop.tsx` e o `LabApp` de `lazyApps.tsx`; `window:lab` de `src-tauri/voice-commands.json` e `"lab"` do `WINDOW_KINDS` de `settings.rs`.
+- Apagar `src/components/desktop/apps/lab/` e `src/lib/lab/`; tirar `lab` e `lab-engine` do `testMatch` do projeto `ui`, junto com os dois specs.
+- Ficam, porque outros usam: `TerminalView` (jv_sh, jv_ide), `markdownComponents.tsx` e `editorChrome.tsx` (Jarvis Mark) e `usePointerDrag` (janelas, jv_ide). Não há comando Tauri nem código Rust a tirar.
+- Fica órfão e é ignorado: `jarvis.lab` no localStorage, a janela `lab` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos) e o comando de voz gravado no `settings.json` (descartado ao carregar).
+
 ### Constituição
 
 - [x] P1 Offline-first — nada usa rede; o "modelo" é um brinquedo determinístico (`lessons/model.ts`).
@@ -357,6 +452,12 @@ sequenceDiagram
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - [ADR-0010 — settings.json vs localStorage](../../arch/adr/0010-persistencia-settings-vs-localstorage.md)
 - [ADR-0017 — UI PT-BR, código EN](../../arch/adr/0017-ui-pt-br-codigo-en.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [xterm.js](../../foundation/vendor/terminal/spec.md) (via `TerminalView`), [Markdown](../../foundation/vendor/markdown/spec.md) (`react-markdown`, `remark-gfm`), [lucide](../../foundation/vendor/lucide/spec.md), [Vite](../../foundation/vendor/vite-typescript/spec.md) (`import.meta.glob` com `?raw` em `lessonText.ts`)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela e app lazy), [voice-commands](../../features/voice-commands/spec.md) (`window:lab`), [search](../../features/search/spec.md) (palavras de `WINDOW_KEYWORDS`), [jv_sh](../../apps/jv_sh/spec.md) (o `TerminalView` reaproveitado), [jarvis-mark](../../apps/jarvis-mark/spec.md) (`MARKDOWN_COMPONENTS` e a `Toolbar` do `editorChrome`)
+- **Sistema:** WebView2 (ou o navegador no modo web, que funciona igual); a área de transferência para "copiar". Nenhuma rede.
 
 ## Tarefas
 

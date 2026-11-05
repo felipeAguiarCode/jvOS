@@ -197,4 +197,4 @@ O servidor fica em `src-tauri/src/mcp.rs`, e a mecânica está em [assistant-too
 1. Lógica no módulo do domínio, retornando `Result<T, String>`.
 2. Wrapper `#[tauri::command]` em `lib.rs`, nomeado `<domínio>_<verbo>` e com `blocking()` se bloquear. Registrar no `invoke_handler`.
 3. Tipo espelhado em `src/lib/<domínio>.ts`, com `Mirrors`, e adaptador com fallback ou fake ([P6](constitution.md#p6--funciona-fora-do-tauri)).
-4. Linha nova neste arquivo e em Código › Contratos do `spec.md` da spec dona.
+4. Linha nova neste arquivo e em Entregáveis › Contratos do `spec.md` da spec dona.

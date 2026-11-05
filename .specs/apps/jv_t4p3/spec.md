@@ -1,4 +1,4 @@
-# jv_T4p3
+# App: jv_T4p3
 
 O tocador de música do jvOS, um player de terminal que toca as rádios do GTA: Vice City e as playlists de links do YouTube do usuário.
 
@@ -6,13 +6,239 @@ O tocador de música do jvOS, um player de terminal que toca as rádios do GTA: 
 |---|---|
 | **ID** | `app/jv_t4p3` |
 | **Status** | Implementado |
-| **Origem** | `42e671a` (2026-10-23) · evoluída em não commitado (confirmação falada dos comandos de voz) |
+| **Origem** | `42e671a` (2026-10-23) · evoluída em `e7151cf` (2026-11-05): confirmação falada dos comandos de voz |
 | **Window kind** | `music` em `src/lib/desktop.ts` (920×620, mínimo 660×480, grupo `apps`) |
 | **Voz** | `window:music`, `music:resume`, `music:pause`, `music:next`, `music:previous`, `music:nextPlaylist`, `music:previousPlaylist`, `music:play` (verbos de tocar) |
 
-## Visão geral
+## Objetivo
 
 O jv_T4p3 é o tocador de música do jvOS, um player de terminal no estilo do youtube-music-cli/cmus. Suas playlists são as sete rádios musicais do GTA: Vice City, mais as playlists do próprio usuário, feitas de links do YouTube. Cada música é procurada no YouTube na hora de tocar, e só o áudio é reproduzido, sem baixar nada para o disco. O player é único para o app inteiro: a música continua com a janela fechada, e os widgets [Fita](../../widgets/tape/spec.md) e [Mini player](../../widgets/miniplayer/spec.md), a barra superior, a Busca e a voz controlam o mesmo player.
+
+## Não-objetivos
+
+- Não baixa músicas para ouvir offline; precisa de rede para o YouTube.
+- Não lê playlists do YouTube: cada link vira uma faixa (`--no-playlist`).
+- As rádios são fixas no código; só as playlists do usuário são editáveis.
+- Os caches de busca e de stream no Rust vivem só na memória da sessão, sem limite de tamanho.
+- Os widgets Fita e Mini player e o módulo de música da barra superior têm specs próprias; aqui só o player.
+- O chrome da janela e o carregamento lazy são de [desktop-windows](../../features/desktop-windows/spec.md).
+- As frases e o matcher de voz são de [voice-commands](../../features/voice-commands/spec.md); a lista de intents fica em [voice-intents.md](../../domain/voice-intents.md).
+
+## Histórias de usuário
+
+### US1 — Tocar uma rádio do Vice City (P1)
+
+Como usuário, abro o jv_T4p3, escolho uma rádio e uma música e ouço, vendo a fita girar.
+
+**Por que P1:** é o uso principal.
+**Teste independente:** `tests/music.spec.ts` — "jv_T4p3 lists the Vice City stations and plays one, with the cassette turning".
+
+**Aceite:** [critérios 1 a 6](#critérios-de-aceite).
+
+### US2 — Minhas playlists de links do YouTube (P1)
+
+Como usuário, crio uma playlist, colo links do YouTube, renomeio, apago e toco.
+
+**Por que P1:** é o que torna o player útil além das rádios.
+**Teste independente:** "playlists of YouTube links are created, edited, kept and played".
+
+**Aceite:** [critérios 7 a 11](#critérios-de-aceite).
+
+### US3 — A música continua fora da janela (P1)
+
+**Teste independente:** "the Fita and Mini player widgets follow the music, which goes on with the player closed".
+
+**Aceite:** [critérios 12 a 13](#critérios-de-aceite).
+
+### US4 — Comandar por voz (P2)
+
+**Teste independente:** "voice plays playlists, skips, pauses and opens or closes the player and its widgets".
+
+**Aceite:** [critérios 14 a 19](#critérios-de-aceite).
+
+### US5 — Tocar pela Busca (P3)
+
+**Teste independente:** "the search plays a station and opens the player".
+
+**Aceite:** [critérios 20 a 21](#critérios-de-aceite).
+
+### US6 — Instalar o yt-dlp (P2)
+
+Como usuário sem yt-dlp, quero que o player ofereça baixá-lo e toque a música assim que terminar.
+
+**Aceite:** [critérios 22 a 24](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o player aberto pela primeira vez
+- **Quando** olho a lista "Playlists"
+- **Então** vejo Wildstyle, Flash FM, Fever 105, V-Rock, Radio Espantoso, Emotion 98.3 e Wave 103, com Flash FM selecionada e suas 16 faixas.
+
+### Critério 2 (US1)
+
+- **Dado** o modo navegador sem o fake
+- **Quando** aperto Enter
+- **Então** a linha de status mostra "Erro: Disponível no app desktop".
+
+### Critério 3 (US1)
+
+- **Dado** uma música no cursor
+- **Quando** aperto Enter
+- **Então** o status mostra "Sintonizando:" e depois `Tocando agora: <título> — <artista>`, a faixa ganha "►", a fita mostra o nome da rádio e da música e gira, e o tempo e a barra avançam.
+
+### Critério 4 (US1)
+
+- **Dado** uma música tocando
+- **Quando** aperto espaço
+- **Então** o status vira "Pausado:" e a fita para; espaço de novo retoma.
+
+### Critério 5 (US1)
+
+- **Dado** uma música tocando
+- **Quando** aperto `n` / `b`
+- **Então** vai para a próxima / anterior; `-`/`+` mudam o volume em 5% e `s` liga o aleatório, e ambos ficam salvos.
+
+### Critério 6 (US1)
+
+- **Dado** uma música que termina
+- **Quando** acaba
+- **Então** a próxima começa sozinha.
+
+### Critério 7 (US2)
+
+- **Dado** o player
+- **Quando** aperto `p`, digito "Treino" e Enter
+- **Então** a playlist é criada e selecionada, aparece "Playlist vazia…", e o foco vai para o campo "Link do YouTube".
+
+### Critério 8 (US2)
+
+- **Dado** o campo de link
+- **Quando** colo `youtube.com/watch?v=…`, `youtu.be/…` ou `/shorts/…` e aperto Enter
+- **Então** o vídeo entra na lista e o campo esvazia.
+
+### Critério 9 (US2)
+
+- **Dado** um link de outro site
+- **Quando** aperto Enter
+- **Então** aparece "Isso não parece um link do YouTube"; um vídeo repetido dá "Esse vídeo já está na playlist".
+
+### Critério 10 (US2)
+
+- **Dado** uma faixa
+- **Quando** clico no × (ou Delete)
+- **Então** ela sai; "renomear" troca o nome; tudo continua após recarregar.
+
+### Critério 11 (US2)
+
+- **Dado** a playlist tocando
+- **Quando** clico "apagar" e confirmo "[s] sim"
+- **Então** a playlist some e a música dela para; "[n] não" cancela.
+
+### Critério 12 (US3)
+
+- **Dado** uma música tocando
+- **Quando** fecho a janela do jv_T4p3
+- **Então** a música segue e a barra superior mostra o título.
+
+### Critério 13 (US3)
+
+- **Dado** os widgets Fita e Mini player abertos
+- **Quando** pulo ou pauso em qualquer um deles ou na barra superior
+- **Então** todos refletem o mesmo estado.
+
+### Critério 14 (US4)
+
+- **Dado** o desktop
+- **Quando** digo "abre o player" ou "fecha o tape" (`window:music`)
+- **Então** a janela abre ou fecha.
+
+### Critério 15 (US4)
+
+- **Dado** o player fechado
+- **Quando** digo "toca a Fever" (ouvido como "fever cento e cinco")
+- **Então** toca Fever 105 desde a primeira música (ou uma aleatória com o aleatório ligado), a dock mostra "Tocando Fever 105" e a janela continua fechada.
+
+### Critério 16 (US4)
+
+- **Dado** uma música tocando
+- **Quando** digo "próxima música", "música anterior", "pausa a música" ou "continua a música"
+- **Então** o player obedece e a dock confirma ("Próxima música", "Música anterior", "Música pausada", "Tocando").
+
+### Critério 17 (US4)
+
+- **Dado** uma rádio tocando
+- **Quando** digo "muda a playlist" / "playlist anterior"
+- **Então** toca a próxima / anterior playlist que tem músicas.
+
+### Critério 18 (US4)
+
+- **Dado** um nome que não existe
+- **Quando** digo "toca samba de raiz"
+- **Então** a dock diz "Não achei a playlist “samba de raiz”" e nada muda.
+
+### Critério 19 (US4)
+
+- **Dado** uma playlist minha chamada "Treino pesado"
+- **Quando** digo "toca treino"
+- **Então** ela toca.
+
+### Critério 20 (US5)
+
+- **Dado** a Busca (`/`)
+- **Quando** digito "tocar emotion" e Enter
+- **Então** o player abre e toca Emotion 98.3 desde a primeira música.
+
+### Critério 21 (US5)
+
+- **Dado** algo tocando
+- **Quando** busco "pausar a musica" ou "proxima musica"
+- **Então** o player pausa ou pula.
+
+### Critério 22 (US6)
+
+- **Dado** uma máquina sem yt-dlp
+- **Quando** dou play
+- **Então** o quadro "Fita" vira o pedido "Baixar o yt-dlp" com "[ Baixar ]" e "[ Agora não ]".
+
+### Critério 23 (US6)
+
+- **Dado** o pedido
+- **Quando** clico "[ Baixar ]"
+- **Então** aparece "Baixando o yt-dlp oficial (GitHub) e conferindo o SHA-256…" com uma barra de progresso, e a música que esperava começa ao fim.
+
+### Critério 24 (US6)
+
+- **Dado** a cópia do JARVIS instalada
+- **Quando** olho o rodapé
+- **Então** há `atualizar yt-dlp (<versão>)`.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Enter no campo "Link do YouTube" vazio → nada acontece.
+  - Nome vazio no `NameField` → cancela; pela janela, nunca cria a playlist.
+  - Playlist do usuário sem músicas → "Playlist vazia: cole um link do YouTube acima (…)"; "muda a playlist" a pula e, sem nenhuma com músicas, diz "Nenhuma playlist com músicas".
+  - `music_resolve` sem `query` nem `videoId` → "Nada para tocar"; `music:play` sem nome → `resume`.
+  - `jarvis.music` inválido → cada campo volta ao padrão (Flash FM, cursor 0, volume 80%, aleatório desligado); um id de playlist que não existe mais mostra Wildstyle.
+- **Duplicidade/idempotência:**
+  - Vídeo que já está na playlist → "Esse vídeo já está na playlist".
+  - Enter, Esc e a perda de foco no `NameField` → respondem uma vez só.
+  - `music_install` com um download em andamento → "O yt-dlp já está sendo baixado".
+  - A mesma busca de novo → reusa o id do vídeo e o stream do cache enquanto ele estiver a mais de 120 s de expirar (RNF-002); a versão do yt-dlp fica em cache até o executável mudar.
+- **Concorrência/corrida:**
+  - Play sem yt-dlp → a música pedida fica guardada e toca quando `music:install-done` chega sem erro.
+  - Download interrompido ou com SHA-256 errado → o `yt-dlp.part` nunca vira `yt-dlp.exe`; "Arquivo corrompido (verificação SHA-256 falhou)" e o parcial é apagado.
+  - "[s] sim" em "apagar" na playlist que toca → a música para; trocar de playlist cancela um "renomear" ou "apagar" em andamento.
+  - Música que não carrega → pula para a próxima depois de 3 s, até 3 falhas seguidas; com uma faixa só, não pula.
+  - yt-dlp sem resposta em 40 s → "O YouTube demorou demais para responder" (RNF-001).
+- **Permissões/visibilidade:**
+  - Rede só para o YouTube e o GitHub; a WebView só toca `https://*.googlevideo.com` sem `@` (RF-008 e CSP `media-src`).
+  - O yt-dlp roda com argumentos fixos e `--no-config`; a busca vai como `ytsearch1:<texto>`, e um id de vídeo fora de 11 caracteres `[A-Za-z0-9_-]` → "Link do YouTube inválido".
+  - Link numa rádio → "Só dá para adicionar links às suas playlists".
+  - Fora do Tauri e sem `__JARVIS_MUSIC__` → "Disponível no app desktop", sem pular para a próxima.
+  - A cópia própria do yt-dlp fica em `%LOCALAPPDATA%\dev.jarvis.os\bin\`, fora de `Documentos\JARVIS`, e só é usada com o SHA-256 conferido.
 
 ## Dados
 
@@ -303,104 +529,20 @@ O `Music` acha, instala e roda o yt-dlp, e guarda os caches da sessão.
 - **RNF-005**: A fita gira a cada 125 ms só enquanto toca, com a janela visível e sem "movimento reduzido".
 - Cada playlist do usuário tem nome de até 40 caracteres e até 500 faixas.
 
-## Histórias de usuário
-
-### US1 — Tocar uma rádio do Vice City (P1)
-
-Como usuário, abro o jv_T4p3, escolho uma rádio e uma música e ouço, vendo a fita girar.
-
-**Por que P1:** é o uso principal.
-**Teste independente:** `tests/music.spec.ts` — "jv_T4p3 lists the Vice City stations and plays one, with the cassette turning".
-
-**Aceite**
-
-1. **Dado** o player aberto pela primeira vez, **quando** olho a lista "Playlists", **então** vejo Wildstyle, Flash FM, Fever 105, V-Rock, Radio Espantoso, Emotion 98.3 e Wave 103, com Flash FM selecionada e suas 16 faixas.
-2. **Dado** o modo navegador sem o fake, **quando** aperto Enter, **então** a linha de status mostra "Erro: Disponível no app desktop".
-3. **Dado** uma música no cursor, **quando** aperto Enter, **então** o status mostra "Sintonizando:" e depois `Tocando agora: <título> — <artista>`, a faixa ganha "►", a fita mostra o nome da rádio e da música e gira, e o tempo e a barra avançam.
-4. **Dado** uma música tocando, **quando** aperto espaço, **então** o status vira "Pausado:" e a fita para; espaço de novo retoma.
-5. **Dado** uma música tocando, **quando** aperto `n` / `b`, **então** vai para a próxima / anterior; `-`/`+` mudam o volume em 5% e `s` liga o aleatório, e ambos ficam salvos.
-6. **Dado** uma música que termina, **quando** acaba, **então** a próxima começa sozinha.
-
-### US2 — Minhas playlists de links do YouTube (P1)
-
-Como usuário, crio uma playlist, colo links do YouTube, renomeio, apago e toco.
-
-**Por que P1:** é o que torna o player útil além das rádios.
-**Teste independente:** "playlists of YouTube links are created, edited, kept and played".
-
-**Aceite**
-
-1. **Dado** o player, **quando** aperto `p`, digito "Treino" e Enter, **então** a playlist é criada e selecionada, aparece "Playlist vazia…", e o foco vai para o campo "Link do YouTube".
-2. **Dado** o campo de link, **quando** colo `youtube.com/watch?v=…`, `youtu.be/…` ou `/shorts/…` e aperto Enter, **então** o vídeo entra na lista e o campo esvazia.
-3. **Dado** um link de outro site, **quando** aperto Enter, **então** aparece "Isso não parece um link do YouTube"; um vídeo repetido dá "Esse vídeo já está na playlist".
-4. **Dado** uma faixa, **quando** clico no × (ou Delete), **então** ela sai; "renomear" troca o nome; tudo continua após recarregar.
-5. **Dado** a playlist tocando, **quando** clico "apagar" e confirmo "[s] sim", **então** a playlist some e a música dela para; "[n] não" cancela.
-
-### US3 — A música continua fora da janela (P1)
-
-**Teste independente:** "the Fita and Mini player widgets follow the music, which goes on with the player closed".
-
-**Aceite**
-
-1. **Dado** uma música tocando, **quando** fecho a janela do jv_T4p3, **então** a música segue e a barra superior mostra o título.
-2. **Dado** os widgets Fita e Mini player abertos, **quando** pulo ou pauso em qualquer um deles ou na barra superior, **então** todos refletem o mesmo estado.
-
-### US4 — Comandar por voz (P2)
-
-**Teste independente:** "voice plays playlists, skips, pauses and opens or closes the player and its widgets".
-
-**Aceite**
-
-1. **Dado** o desktop, **quando** digo "abre o player" ou "fecha o tape" (`window:music`), **então** a janela abre ou fecha.
-2. **Dado** o player fechado, **quando** digo "toca a Fever" (ouvido como "fever cento e cinco"), **então** toca Fever 105 desde a primeira música (ou uma aleatória com o aleatório ligado), a dock mostra "Tocando Fever 105" e a janela continua fechada.
-3. **Dado** uma música tocando, **quando** digo "próxima música", "música anterior", "pausa a música" ou "continua a música", **então** o player obedece e a dock confirma ("Próxima música", "Música anterior", "Música pausada", "Tocando").
-4. **Dado** uma rádio tocando, **quando** digo "muda a playlist" / "playlist anterior", **então** toca a próxima / anterior playlist que tem músicas.
-5. **Dado** um nome que não existe, **quando** digo "toca samba de raiz", **então** a dock diz "Não achei a playlist “samba de raiz”" e nada muda.
-6. **Dado** uma playlist minha chamada "Treino pesado", **quando** digo "toca treino", **então** ela toca.
-
-### US5 — Tocar pela Busca (P3)
-
-**Teste independente:** "the search plays a station and opens the player".
-
-**Aceite**
-
-1. **Dado** a Busca (`/`), **quando** digito "tocar emotion" e Enter, **então** o player abre e toca Emotion 98.3 desde a primeira música.
-2. **Dado** algo tocando, **quando** busco "pausar a musica" ou "proxima musica", **então** o player pausa ou pula.
-
-### US6 — Instalar o yt-dlp (P2)
-
-Como usuário sem yt-dlp, quero que o player ofereça baixá-lo e toque a música assim que terminar.
-
-**Aceite**
-
-1. **Dado** uma máquina sem yt-dlp, **quando** dou play, **então** o quadro "Fita" vira o pedido "Baixar o yt-dlp" com "[ Baixar ]" e "[ Agora não ]".
-2. **Dado** o pedido, **quando** clico "[ Baixar ]", **então** aparece "Baixando o yt-dlp oficial (GitHub) e conferindo o SHA-256…" com uma barra de progresso, e a música que esperava começa ao fim.
-3. **Dado** a cópia do JARVIS instalada, **quando** olho o rodapé, **então** há `atualizar yt-dlp (<versão>)`.
-
 ## Critérios de sucesso
 
 - **SC-001**: Uma rádio começa a tocar com uma tecla (Enter) ou uma frase ("toca a Flash FM").
 - **SC-002**: A música nunca para ao fechar a janela do player.
 - **SC-003**: Playlists do usuário sobrevivem a recarregar o app, sem perder faixas válidas.
 
-## Fora de escopo e limitações
-
-- Não baixa músicas para ouvir offline; precisa de rede para o YouTube.
-- Não lê playlists do YouTube: cada link vira uma faixa (`--no-playlist`).
-- As rádios são fixas no código; só as playlists do usuário são editáveis.
-- Os caches de busca e de stream no Rust vivem só na memória da sessão, sem limite de tamanho.
-- Os widgets Fita e Mini player e o módulo de música da barra superior têm specs próprias; aqui só o player.
-- O chrome da janela e o carregamento lazy são de [desktop-windows](../../features/desktop-windows/spec.md).
-- As frases e o matcher de voz são de [voice-commands](../../features/voice-commands/spec.md); a lista de intents fica em [voice-intents.md](../../domain/voice-intents.md).
-
-## Código
+## Entregáveis
 
 O hook `useMusicPlayer`, instanciado uma vez em `App.tsx`, guarda um único `HTMLAudioElement` e todo o estado de reprodução; a janela, os widgets, a barra superior, a Busca e a voz recebem o mesmo objeto `MusicPlayer`. Na hora de tocar, o Rust roda o yt-dlp (`music_resolve`) para achar o vídeo e devolver a URL assinada do stream só de áudio, e a WebView toca essa URL direto (a CSP libera `https://*.googlevideo.com` em `media-src`). O yt-dlp é o do `PATH` ou uma cópia própria baixada do GitHub e conferida por SHA-256.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`TapePlayer`, `musicParts`) · hook (`useMusicPlayer`, `useTapeTick`) · lib (`src/lib/music/*`) · comandos `music_*` · módulos Rust `music.rs` e `download.rs` |
-| **Dependências** | yt-dlp (processo externo); `ureq` 3 e `sha2` 0.10 no download; elemento `<audio>` do Chromium/WebView2 |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/music.spec.ts` (com `standInMusic` de `tests/helpers.ts`); Rust `mod tests` em `music.rs`, `download.rs` e `voice/matcher.rs` |
 | **Plataforma** | Windows 11 · WebView2. Fora do Tauri: fake `window.__JARVIS_MUSIC__` (só em DEV; o teste gera um WAV mudo); sem ele, erro "Disponível no app desktop" |
 
@@ -475,6 +617,22 @@ sequenceDiagram
 
 Nome falado → playlist: o matcher Rust reconhece o verbo de tocar e descarta palavras de enchimento ("a", "o", "da", "pra", "playlist", "radio", "estacao", "musica"…); a UI compara com `matchPlaylist`, que normaliza, ignora palavras genéricas ("fm", "radio", "playlist", "the", "de", "da", "do", "a", "o") e números, tolera uma letra de diferença em palavras de 5+ letras, compara também o nome sem espaços ("wildstyle" / "wild style") e escolhe a maior fração de palavras ouvidas, depois o casamento mais longo.
 
+### Testes
+
+- `npx playwright test tests/music.spec.ts --project ui`: rádios e fita, playlists de links, widgets com a janela fechada, voz e Busca, com o fake `standInMusic` (critérios 1–21).
+- `cargo test --lib music::` (em `src-tauri`): soma do SHA2-256SUMS, `parse_resolved` (id e URL `googlevideo`), busca normalizada e limitada, link sem id válido e erros do yt-dlp (RF-003, RF-007, RF-008, RNF-003).
+- `cargo test --lib music:: -- --ignored` (em `src-tauri`, com rede): baixa o yt-dlp numa pasta temporária e resolve uma música de verdade, com cache (critério 23 no backend real).
+- `cargo test --lib download::` (em `src-tauri`): o hex do SHA-256 do download verificado.
+- `cargo test --lib -- controls_the_music plays_pauses_and_goes_back_in_few_words` (em `src-tauri`): frases `music:*`, verbos de tocar com nome e "abre o player" (critérios 14–17 e 19 no matcher).
+- Sem teste automatizado: o pedido "Baixar o yt-dlp" e "atualizar yt-dlp" na UI (critérios 22 e 24).
+
+### Reversão
+
+- Tirar só a janela: o kind `music` de `src/lib/desktop.ts` (`WindowKind`, `WINDOW_KINDS`, `WINDOW_SPECS`), de `WINDOW_KEYWORDS`/`APP_SUBTITLES` e do `openWindow("music")` de `Tocar <playlist>` em `commands.ts`, o `case "music"` de `Desktop.tsx` e o `TapePlayer` de `lazyApps.tsx`; `window:music` de `src-tauri/voice-commands.json`, `"music"` do `WINDOW_KINDS` de `settings.rs` e os asserts de `window("music", …)` em `voice/matcher.rs`.
+- **Não** dá para tirar `useMusicPlayer` sozinho: os widgets [Fita](../../widgets/tape/spec.md) e [Mini player](../../widgets/miniplayer/spec.md), a barra superior, a Busca e `onMusic` usam o mesmo player. Tirar o player inteiro leva junto os `music:*` do catálogo de voz, `MUSIC_TARGETS` de `settings.rs`, os comandos `music_*`, `music.rs`, o `googlevideo` da CSP e `music` do `testMatch`.
+- `download.rs` fica: os downloads de modelos (`models.rs`, `speech.rs`) usam o mesmo `fetch_verified`.
+- Fica órfão e é ignorado: `jarvis.music` e `jarvis.music.playlists` no localStorage, a janela `music` em `jarvis.desktop` (`parseDesktop` descarta kinds desconhecidos), os comandos de voz gravados no `settings.json` (descartados ao carregar) e `%LOCALAPPDATA%\dev.jarvis.os\bin\yt-dlp.exe`.
+
 ### Constituição
 
 - [x] P1 Offline-first — a rede só é usada para o YouTube (online por natureza) e para baixar o yt-dlp do GitHub; nenhuma chave de API.
@@ -500,9 +658,15 @@ Nome falado → playlist: o matcher Rust reconhece o verbo de tocar e descarta p
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
 - Persistência: [persistence.md](../../domain/persistence.md) · Intents de voz: [voice-intents.md](../../domain/voice-intents.md) · Segurança: [security.md](../../arch/security.md)
 
+## Dependências
+
+- **Vendor:** [Tauri](../../foundation/vendor/tauri/spec.md), [React](../../foundation/vendor/react/spec.md), [motion](../../foundation/vendor/motion/spec.md) (`useReducedMotion` na fita), [serde](../../foundation/vendor/serde/spec.md), [HTTP](../../foundation/vendor/http/spec.md) (`ureq` 3 no download), [archives](../../foundation/vendor/archives/spec.md) (`sha2` 0.10), [yt-dlp](../../foundation/vendor/yt-dlp/spec.md) (processo externo)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela e app lazy), [voice-commands](../../features/voice-commands/spec.md) (`window:music`, `music:*` e verbos de tocar), [search](../../features/search/spec.md) (`Tocar <playlist>`, pausar e próxima), [dock-taskbar](../../features/dock-taskbar/spec.md) (aviso na dock), [tts](../../features/tts/spec.md) (confirmação falada), [assistant-tools](../../features/assistant-tools/spec.md) (`jvos_run`)
+- **Sistema:** WebView2 (elemento `<audio>`); rede: YouTube (streams `*.googlevideo.com`) e GitHub (`releases/latest` do yt-dlp); yt-dlp no `PATH` ou a cópia própria em `%LOCALAPPDATA%\dev.jarvis.os\bin\`.
+
 ## Tarefas
 
-Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec. As tarefas foram reconstruídas do código, do commit de origem `42e671a` e das mudanças não commitadas (confirmação falada).
+Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos diferentes) · `[USn]` história desta spec. As tarefas foram reconstruídas do código, do commit de origem `42e671a` e das mudanças do `e7151cf` (confirmação falada).
 
 ### Fase 1 — Base
 
@@ -537,7 +701,7 @@ Legenda: `[x]` feito · `[ ]` pendente · `[P]` pode rodar em paralelo (arquivos
 - [x] T017 [US4] Frases `window:music` e `music:*` — `src-tauri/voice-commands.json`
 - [x] T018 [US4] `matchPlaylist` (palavras distintivas, uma letra de tolerância, nome junto) e `playNamed`/`stepPlaylist` — `src/lib/music/match.ts`, `src/hooks/useMusicPlayer.ts`
 - [x] T019 [US4] `onMusic` com aviso na dock — `src/App.tsx`
-- [x] T020 [US4] Confirmação falada (`musicNext`, `musicStation`, `musicNotFound`…) — `src/lib/jarvisLines.ts`, `src/App.tsx` (não commitado)
+- [x] T020 [US4] Confirmação falada (`musicNext`, `musicStation`, `musicNotFound`…) — `src/lib/jarvisLines.ts`, `src/App.tsx` (`e7151cf`)
 - [x] T021 [US5] Comandos da Busca `Tocar <playlist>`, pausar/retomar e próxima — `src/lib/commands.ts`
 
 ### Fase 6 — US6 Instalar o yt-dlp (P2)

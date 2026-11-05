@@ -1,4 +1,4 @@
-# Fita
+# Widget: Fita
 
 Widget decorativo do jv_T4p3: a fita cassete desenhada em texto, girando enquanto a música toca.
 
@@ -10,9 +10,115 @@ Widget decorativo do jv_T4p3: a fita cassete desenhada em texto, girando enquant
 | **Window kind** | `tape` em `src/lib/desktop.ts` (380 × 250, mínimo 260 × 180, grupo `widgets`) |
 | **Voz** | `window:tape` ("fita", "cassete", "fita cassete") |
 
-## Visão geral
+## Objetivo
 
 A Fita é o widget decorativo do jv_T4p3: só a fita cassete desenhada em texto, girando enquanto a música toca. A etiqueta traz o nome da playlist e "Título — Artista", e os carretéis passam a fita da esquerda para a direita conforme a música avança. Um clique, ou Espaço, toca ou pausa. As teclas `n` e `b` pulam faixas. O widget não toca nada sozinho: segue o player do app inteiro, descrito em [jv_T4p3](../../apps/jv_t4p3/spec.md), que continua tocando com o player fechado.
+
+## Não-objetivos
+
+- O widget não escolhe playlist nem busca música. Isso é do [jv_T4p3](../../apps/jv_t4p3/spec.md).
+- A barra de progresso clicável fica no Mini player. A fita só mostra o avanço nos rolos.
+
+## Histórias de usuário
+
+### US1 — Ver a fita acompanhar a música (P1)
+
+Como usuário, quero um cassete na tela que gire com a música e mostre o que está tocando.
+
+**Por que P1:** é o propósito do widget.
+**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
+
+**Aceite:** [critérios 1 a 4, 9 e 10](#critérios-de-aceite).
+
+### US2 — Controlar a música pela fita (P2)
+
+Como usuário, quero tocar, pausar e pular sem abrir o player.
+
+**Por que P2:** é um controle rápido, mas o mini player faz o mesmo e mais.
+**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
+
+**Aceite:** [critérios 5 a 6](#critérios-de-aceite).
+
+### US3 — Abrir pela voz e escolher a etiqueta (P3)
+
+**Teste independente:** `tests/music.spec.ts` — `voice plays playlists, skips, pauses and opens or closes the player and its widgets`; `tests/widgets.spec.ts` — `Fita: right click turns parts of the widget off, and it stays so`.
+
+**Aceite:** [critérios 7 a 8](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** uma música tocando com o jv_T4p3 fechado
+- **Quando** abro "Fita" no lançador de Widgets
+- **Então** a etiqueta mostra o nome da playlist em maiúsculas (ex.: `FLASH FM`) com `LADO A C90` à direita.
+
+### Critério 2 (US1)
+
+- **Dado** a fita tocando
+- **Então** os dentes dos carretéis giram um passo a cada 125 ms e a fita entre as cabeças se move.
+
+### Critério 3 (US1)
+
+- **Dado** a música avançando
+- **Então** o rolo da esquerda diminui e o da direita cresce (de 1 a 5 blocos `▓` cada).
+
+### Critério 4 (US1)
+
+- **Dado** a música pausada (pela barra superior ou pelo mini player)
+- **Então** a fita para e o desenho fica em tom esmaecido.
+
+### Critério 5 (US2)
+
+- **Dado** a música pausada
+- **Quando** clico no cassete ("Tocar a música")
+- **Então** ela volta a tocar. Com ela tocando, o mesmo clique ("Pausar a música") pausa.
+
+### Critério 6 (US2)
+
+- **Dado** o widget em foco
+- **Quando** aperto Espaço, `n` ou `b`
+- **Então** a música toca/pausa, avança ou volta. `-` e `+` (ou `=`) mudam o volume em 5%.
+
+### Critério 7 (US3)
+
+- **Dado** o motor de voz
+- **Quando** digo "abre a fita" e depois "fecha a fita"
+- **Então** o widget abre e fecha.
+
+### Critério 8 (US3)
+
+- **Dado** o menu "Opções do widget Fita" (seção "Etiqueta")
+- **Quando** desmarco "Nome da playlist"
+- **Então** a primeira linha da etiqueta fica só com `LADO A C90`, e isso vale depois de recarregar. Os outros itens são "Música tocando" e "Lado da fita".
+
+### Critério 9 (US1)
+
+- **Dado** nada tocando
+- **Quando** abro "Fita"
+- **Então** a etiqueta mostra a playlist escolhida no player, a segunda linha diz "aperte Enter para tocar" e o desenho fica parado e esmaecido.
+
+### Critério 10 (US1)
+
+- **Dado** o player com erro ao resolver a música
+- **Então** a segunda linha da etiqueta mostra a mensagem de erro do player, e a fita não gira.
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Nada tocando → a etiqueta mostra a playlist escolhida no player e "aperte Enter para tocar". Se ela não estiver em `music.playlists`, mostra `JV_T4P3`.
+  - Duração desconhecida → o progresso é 0, e os rolos ficam na posição do começo.
+  - Nome longo → cortado com `…` nas 36 colunas da etiqueta (`fit()`).
+  - As três opções desligadas → a etiqueta fica vazia, e o cassete continua desenhado.
+  - `jarvis.widget.tape` ausente, inválido ou com uma chave não booleana → essa opção vale `true`.
+- **Duplicidade/idempotência:**
+  - O `tick` é só visual: um passo a mais ou a menos não muda os rolos, que vêm de `position / duration`.
+  - `-` com o volume em 0% ou `+` em 100% → o volume não passa do limite (`setVolume` fica entre 0 e 1).
+- **Concorrência/corrida:**
+  - A música pausa por fora (barra superior, Mini player, voz) → a fita para e esmaece no mesmo render, e o `setInterval` é desfeito.
+  - O app fica oculto (`paused`) → a animação para e volta ao reaparecer.
+  - Movimento reduzido (`prefers-reduced-motion`) → os carretéis ficam parados, mas os rolos seguem a música.
+- **Permissões/visibilidade:** o widget não chama Tauri nem rede. O stream é do player do [jv_T4p3](../../apps/jv_t4p3/spec.md); no modo web, a música vem do fake `__JARVIS_MUSIC__`. As opções ficam no `localStorage`.
 
 ## Dados
 
@@ -84,61 +190,19 @@ O menu do clique direito, com a seção "Etiqueta".
 - **RNF-002**: No modo web, a música vem do fake `__JARVIS_MUSIC__` do player (ver [jv_T4p3](../../apps/jv_t4p3/spec.md)).
 - 48 colunas fixas; tick de 125 ms; fonte limitada a 13px.
 
-## Histórias de usuário
-
-### US1 — Ver a fita acompanhar a música (P1)
-
-Como usuário, quero um cassete na tela que gire com a música e mostre o que está tocando.
-
-**Por que P1:** é o propósito do widget.
-**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
-
-**Aceite**
-
-1. **Dado** uma música tocando com o jv_T4p3 fechado, **quando** abro "Fita" no lançador de Widgets, **então** a etiqueta mostra o nome da playlist em maiúsculas (ex.: `FLASH FM`) com `LADO A C90` à direita.
-2. **Dado** a fita tocando, **então** os dentes dos carretéis giram um passo a cada 125 ms e a fita entre as cabeças se move.
-3. **Dado** a música avançando, **então** o rolo da esquerda diminui e o da direita cresce (de 1 a 5 blocos `▓` cada).
-4. **Dado** a música pausada (pela barra superior ou pelo mini player), **então** a fita para e o desenho fica em tom esmaecido.
-
-### US2 — Controlar a música pela fita (P2)
-
-Como usuário, quero tocar, pausar e pular sem abrir o player.
-
-**Por que P2:** é um controle rápido, mas o mini player faz o mesmo e mais.
-**Teste independente:** `tests/music.spec.ts` — `the Fita and Mini player widgets follow the music, which goes on with the player closed`.
-
-**Aceite**
-
-1. **Dado** a música pausada, **quando** clico no cassete ("Tocar a música"), **então** ela volta a tocar. Com ela tocando, o mesmo clique ("Pausar a música") pausa.
-2. **Dado** o widget em foco, **quando** aperto Espaço, `n` ou `b`, **então** a música toca/pausa, avança ou volta. `-` e `+` (ou `=`) mudam o volume em 5%.
-
-### US3 — Abrir pela voz e escolher a etiqueta (P3)
-
-**Teste independente:** `tests/music.spec.ts` — `voice plays playlists, skips, pauses and opens or closes the player and its widgets`; `tests/widgets.spec.ts` — `Fita: right click turns parts of the widget off, and it stays so`.
-
-**Aceite**
-
-1. **Dado** o motor de voz, **quando** digo "abre a fita" e depois "fecha a fita", **então** o widget abre e fecha.
-2. **Dado** o menu "Opções do widget Fita" (seção "Etiqueta"), **quando** desmarco "Nome da playlist", **então** a primeira linha da etiqueta fica só com `LADO A C90`, e isso vale depois de recarregar. Os outros itens são "Música tocando" e "Lado da fita".
-
 ## Critérios de sucesso
 
 - **SC-001**: Com a música tocando, a fita está visivelmente em movimento. Pausada, fica imóvel.
 - **SC-002**: A etiqueta sempre mostra a playlist e a faixa que o player está tocando.
 
-## Fora de escopo e limitações
-
-- O widget não escolhe playlist nem busca música. Isso é do [jv_T4p3](../../apps/jv_t4p3/spec.md).
-- A barra de progresso clicável fica no Mini player. A fita só mostra o avanço nos rolos.
-
-## Código
+## Entregáveis
 
 `TapeWidget` recebe o player do app inteiro (`MusicPlayer`, de `useMusicPlayer`, criado no `App`) e o `paused` do desktop. `useTapeTick` gera o passo da animação, `useMusicTime` dá posição e duração, e a função pura `cassette()` monta as 12 linhas de texto de 48 colunas, que vão num `<pre>` dentro de um botão (clique = `toggle`). As teclas vêm de `musicKeys`, compartilhado com o Mini player.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`TapeWidget.tsx`) · hook (`useTapeTick`) · lib (`music/cassette.ts`) · partes compartilhadas (`musicParts.tsx`) |
-| **Dependências** | player app-wide `useMusicPlayer` / `useMusicTime` ([jv_T4p3](../../apps/jv_t4p3/spec.md)); `useReducedMotion` do `motion/react` |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/music.spec.ts`, `tests/widgets.spec.ts` |
 | **Plataforma** | Windows 11 · WebView2; no modo web a música vem do fake `__JARVIS_MUSIC__` |
 
@@ -177,6 +241,22 @@ sequenceDiagram
   T->>P: clique → toggle()
 ```
 
+### Testes
+
+- `npx playwright test tests/music.spec.ts --project ui -g "Fita and Mini player"`: com o jv_T4p3 fechado, a etiqueta mostra `FLASH FM`, o cassete se move tocando, para com a pausa da barra superior, e "Tocar a música" retoma (critérios 1, 2, 4 e 5).
+- `npx playwright test tests/music.spec.ts --project ui -g "voice plays playlists"`: a voz abre e fecha a Fita (critério 7).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Fita"`: "Nome da playlist" desmarcado deixa só `LADO A C90` e continua assim depois de recarregar (critério 8).
+- `cargo test --lib opens_and_closes_jarvis_windows` (em `src-tauri`): "abre a fita" e "fecha a fita cassete" viram `window:tape` (critério 7).
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `tape`.
+- Sem teste automatizado: critérios 3, 6, 9 e 10. O `cassette.ts` não tem teste unitário.
+
+### Reversão
+
+- Tirar `tape` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:tape` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Tirar o `case "tape"` de `Desktop.tsx`, `WINDOW_KEYWORDS.tape` de `commands.ts` e apagar `TapeWidget.tsx`. Ficam `cassette.ts`, `useTapeTick.ts` e `musicParts.tsx`, que o jv_T4p3 também usa. A palavra "tape" em `WINDOW_KEYWORDS.music` e em `window:music` é do jv_T4p3 e fica.
+- Os testes que abrem a Fita (`music.spec.ts`, `widgets.spec.ts` e o `matcher.rs`) precisam sair ou mudar.
+- Fica órfão e é ignorado: `jarvis.widget.tape`; `tape` em `jarvis.desktop` (o `parseDesktop` descarta); `window:tape` e os `custom-*` com alvo `tape` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: o widget não usa rede. O streaming é do player.
@@ -192,6 +272,12 @@ sequenceDiagram
 
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [motion](../../foundation/vendor/motion/spec.md) (`useReducedMotion` no `useTapeTick`)
+- **Specs:** [jv_t4p3](../../apps/jv_t4p3/spec.md) (o player app-wide `useMusicPlayer` / `useMusicTime`, que o widget só lê e comanda), [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [voice-commands](../../features/voice-commands/spec.md) (`window:tape` e `music:*`), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** a preferência de movimento reduzido do Windows (`prefers-reduced-motion`); a rede e o `yt-dlp` são do player do jv_T4p3.
 
 ## Tarefas
 

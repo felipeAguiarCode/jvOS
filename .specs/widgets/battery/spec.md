@@ -1,4 +1,4 @@
-# Bateria
+# Widget: Bateria
 
 Widget com a carga do notebook no estilo de um status de terminal, lida da Battery Status API da WebView.
 
@@ -10,9 +10,115 @@ Widget com a carga do notebook no estilo de um status de terminal, lida da Batte
 | **Window kind** | `battery` em `src/lib/desktop.ts` (300 × 150, mínimo 220 × 120, grupo `widgets`) |
 | **Voz** | `window:battery` ("bateria", "battery") |
 
-## Visão geral
+## Objetivo
 
 O widget Bateria mostra a carga do notebook como um status de terminal: a porcentagem grande, uma barra de blocos, o estado ("na tomada", "carregando", "na bateria") e o tempo estimado para encher ou esvaziar. Quando a carga está baixa, tudo fica na cor de alerta. Os dados vêm da Battery Status API da WebView, então não há código nativo. A mesma leitura alimenta o módulo de bateria da barra superior e o que o JARVIS diz sobre a máquina.
+
+## Não-objetivos
+
+- Não avisa por som nem por voz quando a bateria fica baixa. Só a cor muda.
+- Não lê a bateria pelo Windows (Rust). Depende do que a WebView2 expõe.
+- O módulo da barra superior e o status falado pelo JARVIS usam o mesmo hook, mas são descritos nas próprias specs ([voice-shortcuts](../../features/voice-shortcuts/spec.md)).
+
+## Histórias de usuário
+
+### US1 — Ver a carga e o estado (P1)
+
+Como usuário de notebook, quero ver quanto de bateria resta e se está carregando.
+
+**Por que P1:** é todo o conteúdo do widget.
+**Teste independente:** `tests/desktop.spec.ts` — `the battery widget shows a level or says it is unavailable`.
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Ambientes sem bateria (P1)
+
+Como usuário de desktop ou do modo web, quero uma mensagem clara em vez de números falsos.
+
+**Por que P1:** evita leituras enganosas.
+**Teste independente:** `tests/desktop.spec.ts` — `the battery widget shows a level or says it is unavailable`.
+
+**Aceite:** [critérios 6 a 8](#critérios-de-aceite).
+
+### US3 — Escolher o que aparece (P2)
+
+**Teste independente:** `tests/widgets.spec.ts` — `Bateria: right click turns parts of the widget off, and it stays so`.
+
+**Aceite:** [critérios 9 a 10](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** um notebook com bateria
+- **Quando** abro "Bateria"
+- **Então** vejo `NN%` grande, a barra "Carga da bateria" com 18 células e `estado ~ na bateria` (ou `carregando`).
+
+### Critério 2 (US1)
+
+- **Dado** a máquina descarregando com tempo conhecido
+- **Então** vejo `tempo ~ 2h05 restantes` ou `tempo ~ 40 min restantes`.
+
+### Critério 3 (US1)
+
+- **Dado** a máquina carregando com tempo conhecido
+- **Então** vejo `tempo ~ <duração> para 100%`.
+
+### Critério 4 (US1)
+
+- **Dado** a carga em 15% ou menos e sem carregador
+- **Então** a porcentagem e a barra ficam na cor de alerta e o estado diz `na bateria · baixa`.
+
+### Critério 5 (US1)
+
+- **Dado** a carga mudando
+- **Quando** o navegador dispara `levelchange` ou `chargingchange`
+- **Então** o widget atualiza sozinho.
+
+### Critério 6 (US2)
+
+- **Dado** um navegador sem `navigator.getBattery`, ou em que ele falha
+- **Quando** abro o widget
+- **Então** vejo `$ Indisponível neste ambiente`.
+
+### Critério 7 (US2)
+
+- **Dado** a leitura ainda em andamento
+- **Então** vejo `$ Lendo a bateria…`.
+
+### Critério 8 (US2)
+
+- **Dado** um desktop sem bateria, que se apresenta como bateria cheia na tomada (carregando, 100%, `chargingTime` 0)
+- **Então** o estado diz `na tomada`, sem linha de tempo.
+
+### Critério 9 (US3)
+
+- **Dado** o menu "Opções do widget Bateria"
+- **Quando** desmarco "Porcentagem"
+- **Então** o número grande some e continua escondido depois de recarregar. Os outros itens são "Barra de carga", "Estado" e "Tempo restante".
+
+### Critério 10 (US3)
+
+- **Dado** todos os itens desmarcados
+- **Então** o widget mostra "Tudo oculto · botão direito para escolher".
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - Sem `navigator.getBattery`, ou com ele rejeitado → $status é `unavailable`: o widget diz "$ Indisponível neste ambiente", o menu continua funcionando, o módulo da barra superior não aparece e `readBattery()` devolve `null`.
+  - Tempo desconhecido (`Infinity` ou 0) → a linha `tempo` não aparece.
+  - Todas as opções desligadas → "Tudo oculto · botão direito para escolher".
+  - `jarvis.widget.battery` ausente, inválido ou com uma chave não booleana → essa chave vale `true`.
+- **Duplicidade/idempotência:**
+  - O mesmo evento chega duas vezes → cada evento relê o `BatteryManager` inteiro, então o resultado não muda.
+  - Um desktop sem bateria (carregando, 100%, `chargingTime` 0) → o widget diz "na tomada", sem `tempo`, e `readBattery()` devolve `null`, como se não houvesse bateria.
+- **Concorrência/corrida:**
+  - Carga e carregador mudam quase juntos → cada evento relê o estado completo, e vale o último.
+  - O widget fecha antes de `getBattery()` resolver → `disposed` impede qualquer `setStatus`. Os ouvintes registrados depois disso ficam no `BatteryManager`, mas o `read` não faz nada.
+  - Bateria baixa e o carregador entra → deixa de contar como baixa no mesmo evento, porque o alerta só vale sem carregador.
+- **Permissões/visibilidade:**
+  - Não há comando Tauri, rede nem arquivo: a leitura é da Battery Status API da WebView, e as opções ficam no `localStorage`.
+  - O módulo da barra superior só aparece com $status `ready` e o módulo ligado, então ele nunca mostra um número inventado.
 
 ## Dados
 
@@ -99,64 +205,19 @@ Uma leitura única, para o status da máquina que o JARVIS fala (`readMachine()`
 - **RNF-002**: Não depende do Tauri e roda igual no modo web.
 - Baixa = ≤ 15% sem carregador; sem polling.
 
-## Histórias de usuário
-
-### US1 — Ver a carga e o estado (P1)
-
-Como usuário de notebook, quero ver quanto de bateria resta e se está carregando.
-
-**Por que P1:** é todo o conteúdo do widget.
-**Teste independente:** `tests/desktop.spec.ts` — `the battery widget shows a level or says it is unavailable`.
-
-**Aceite**
-
-1. **Dado** um notebook com bateria, **quando** abro "Bateria", **então** vejo `NN%` grande, a barra "Carga da bateria" com 18 células e `estado ~ na bateria` (ou `carregando`).
-2. **Dado** a máquina descarregando com tempo conhecido, **então** vejo `tempo ~ 2h05 restantes` ou `tempo ~ 40 min restantes`.
-3. **Dado** a máquina carregando com tempo conhecido, **então** vejo `tempo ~ <duração> para 100%`.
-4. **Dado** a carga em 15% ou menos e sem carregador, **então** a porcentagem e a barra ficam na cor de alerta e o estado diz `na bateria · baixa`.
-5. **Dado** a carga mudando, **quando** o navegador dispara `levelchange` ou `chargingchange`, **então** o widget atualiza sozinho.
-
-### US2 — Ambientes sem bateria (P1)
-
-Como usuário de desktop ou do modo web, quero uma mensagem clara em vez de números falsos.
-
-**Por que P1:** evita leituras enganosas.
-**Teste independente:** `tests/desktop.spec.ts` — `the battery widget shows a level or says it is unavailable`.
-
-**Aceite**
-
-1. **Dado** um navegador sem `navigator.getBattery`, ou em que ele falha, **quando** abro o widget, **então** vejo `$ Indisponível neste ambiente`.
-2. **Dado** a leitura ainda em andamento, **então** vejo `$ Lendo a bateria…`.
-3. **Dado** um desktop sem bateria, que se apresenta como bateria cheia na tomada (carregando, 100%, `chargingTime` 0), **então** o estado diz `na tomada`, sem linha de tempo.
-
-### US3 — Escolher o que aparece (P2)
-
-**Teste independente:** `tests/widgets.spec.ts` — `Bateria: right click turns parts of the widget off, and it stays so`.
-
-**Aceite**
-
-1. **Dado** o menu "Opções do widget Bateria", **quando** desmarco "Porcentagem", **então** o número grande some e continua escondido depois de recarregar. Os outros itens são "Barra de carga", "Estado" e "Tempo restante".
-2. **Dado** todos os itens desmarcados, **então** o widget mostra "Tudo oculto · botão direito para escolher".
-
 ## Critérios de sucesso
 
 - **SC-001**: Num notebook, a porcentagem do widget bate com a do Windows.
 - **SC-002**: Sem bateria nem API, o widget nunca mostra um número inventado.
 
-## Fora de escopo e limitações
-
-- Não avisa por som nem por voz quando a bateria fica baixa. Só a cor muda.
-- Não lê a bateria pelo Windows (Rust). Depende do que a WebView2 expõe.
-- O módulo da barra superior e o status falado pelo JARVIS usam o mesmo hook, mas são descritos nas próprias specs ([voice-shortcuts](../../features/voice-shortcuts/spec.md)).
-
-## Código
+## Entregáveis
 
 O hook `useBattery` envolve a Battery Status API (`navigator.getBattery`, ausente do `lib.dom`, por isso a interface `BatteryManager` é declarada à mão). Ele publica um `BatteryStatus` discriminado e se atualiza pelos eventos da API. O widget `Battery` formata o resultado no estilo TUI. A função `readBattery` faz uma leitura única para o JARVIS e trata o desktop "na tomada" como sem bateria.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`Battery.tsx`) · hook (`useBattery`) |
-| **Dependências** | Battery Status API da WebView2; kit TUI (`BlockBar`, `KeyValue`) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/desktop.spec.ts`, `tests/widgets.spec.ts` |
 | **Plataforma** | Windows 11 · WebView2; fora do Tauri usa a mesma API do navegador, ou mostra "Indisponível neste ambiente" |
 
@@ -185,6 +246,20 @@ sequenceDiagram
   Note over H: sem getBattery ou rejeitado → unavailable
 ```
 
+### Testes
+
+- `npx playwright test tests/desktop.spec.ts --project ui -g "the battery widget"`: o widget mostra `NN%` ou "Indisponível neste ambiente", conforme o Edge headless tenha a API (critério 1 ou 6).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Bateria"`: o menu "Opções do widget Bateria", "Porcentagem" desmarcada some e continua assim depois de recarregar (critério 9).
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `battery`.
+- Sem teste automatizado: critérios 2 a 5, 7, 8 e 10. Não há fake `__JARVIS_*__` da bateria (ver [Pendências](#pendências)).
+
+### Reversão
+
+- Tirar `battery` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:battery` de `src-tauri/voice-commands.json`, juntos (o `default_voice_commands_are_valid` confere os três).
+- Tirar o `case "battery"` de `Desktop.tsx`, as palavras de busca de `commands.ts` e apagar `Battery.tsx`. O clique do `BatteryModule` chama `onWindow("battery")`: sem o kind, o `tsc` falha até ele mudar.
+- `useBattery.ts` pode ficar, porque o módulo da barra superior e o `readMachine()` do `App` também o usam. Para tirá-lo, saem o `BatteryModule` (`Taskbar.tsx`) e a chave `battery` de `TaskbarModules` (`src/lib/taskbar.ts`), e o `readMachine()` passa `battery: null`, o mesmo que um desktop sem bateria.
+- Fica órfão e é ignorado: `jarvis.widget.battery`; `battery` em `jarvis.desktop` (o `parseDesktop` descarta); `battery` em `jarvis.taskbar` (o `parseModules` só lê as chaves conhecidas); `window:battery` e os `custom-*` com alvo `battery` no `settings.json` (o `sanitize_voice_commands` descarta).
+
 ### Constituição
 
 - [x] P1 Offline-first: leitura local.
@@ -202,6 +277,12 @@ sequenceDiagram
 
 - [ADR-0011 — fakes de dev e E2E no modo web](../../arch/adr/0011-fakes-de-dev-e-e2e-modo-web.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícones do `BatteryModule`)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [appearance](../../features/appearance/spec.md) (kit TUI: `BlockBar`, `KeyValue`), [dock-taskbar](../../features/dock-taskbar/spec.md) (módulo de bateria), [voice-shortcuts](../../features/voice-shortcuts/spec.md) (status da máquina falado pelo JARVIS), [voice-commands](../../features/voice-commands/spec.md) (`window:battery`), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** Battery Status API da WebView2 (`navigator.getBattery`); a bateria do notebook, quando há.
 
 ## Tarefas
 

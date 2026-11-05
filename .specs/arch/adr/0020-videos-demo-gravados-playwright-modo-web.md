@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Aceito |
 | **Data** | 2026-11-04 |
-| **Origem** | não commitado (2026-11-04) · pedido do usuário: vídeos mudos, sem legendas, em MP4 para VLC e Windows Media Player, com os roteiros no repositório |
+| **Origem** | `e7151cf` (2026-11-05), escrito em 2026-11-04 · pedido do usuário: vídeos mudos, sem legendas, em MP4 para VLC e Windows Media Player, com os roteiros no repositório |
 
 ## Contexto
 

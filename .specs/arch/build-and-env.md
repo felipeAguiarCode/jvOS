@@ -33,7 +33,16 @@ O cargo compila em `t/`, na raiz do repositório, e não em `src-tauri/target` (
 
 O motivo é o limite de 260 caracteres do Windows (`MAX_PATH`), que o `cl.exe` e o MSBuild não ultrapassam mesmo com `LongPathsEnabled`. Com o Vulkan, o whisper.cpp compila o gerador de shaders como subprojeto CMake (`…/vulkan-shaders-gen-prefix/src/vulkan-shaders-gen-build/…`):
 - **com o MSBuild**, os logs `VCTargetsPath.tlog\…` passavam do limite mesmo a partir de `t\` (`MSB3491`, `MSB4018`). Por isso, com o Vulkan, o `scripts/tauri.mjs` usa o gerador **Ninja** (`CMAKE_GENERATOR=Ninja`, com o `ninja.exe` que vem com o CMake do Visual Studio);
-- **com o Ninja**, o mais fundo é o teste de compilador (`…/CMakeScratch/TryCompile-xxxxxx/CMakeFiles/cmTC_xxxxx.dir/testCCompiler.c.obj`): 260 caracteres a partir de `src-tauri\target` (`C1083`) e ~244 a partir de `t\`.
+- **com o Ninja**, o mais fundo é o teste de ABI do compilador C++, `…/CMakeScratch/TryCompile-xxxxxx/CMakeFiles/cmTC_xxxxx.dir/CMakeCXXCompilerABI.cpp.obj`. Ele tem **257 caracteres** a partir de `t\release`, e o limite é 259.
+
+**O nome tem uma letra de propósito:** `t` de *target*, a pasta de build padrão do cargo, encurtada. Medido em 2026-11-05, reconfigurando o gerador de shaders no caminho que cada nome daria:
+
+| Pasta | Caminho mais fundo | Teste de ABI do compilador C++ |
+|---|---|---|
+| `t/` | 257 | passa (`CMAKE_CXX_ABI_COMPILED TRUE`) |
+| `target/` | 262 | **falha** ("Detecting CXX compiler ABI info - failed", `CMAKE_CXX_ABI_COMPILED FALSE`) |
+
+Com `target/`, o gerador ainda compila, mas o CMake segue sem as informações de ABI. Qualquer nome com mais de 3 letras passa do limite. Um nome de 3 letras (`out`) fica exatamente em 259, sem folga.
 
 Um clone num caminho mais fundo que `C:\www\side-projects\jarvis` (26 caracteres) pode voltar a bater no limite. Os builds só de CPU continuam no MSBuild: as pastas de build deles já foram configuradas assim, e o CMake não troca de gerador no lugar.
 
@@ -66,4 +75,4 @@ A máquina de desenvolvimento tem particularidades conhecidas: o microfone do no
 
 - [x] ~~`scripts/tauri.mjs` prepara o `VULKAN_SDK`, mas o `whisper-rs` não ativa a feature `vulkan`.~~ A feature `vulkan` existe e o script a liga quando acha o SDK (2026-11-04).
 - [x] Vulkan SDK 1.4.363.0 instalado nesta máquina e CPU × Intel × NVIDIA medidos ([ADR-0021](adr/0021-reconhecimento-voz-gpu-via-vulkan-porteiro.md)).
-- [ ] O build do instalador (`npm run tauri build`) ainda não foi verificado com as DLLs do sherpa ao lado do `jarvis.exe`. Nenhum código do repositório faz essa cópia. Ver [tts](../features/tts/spec.md#pendências).
+- [ ] O build do instalador (`npm run tauri build`) ainda não foi verificado com as DLLs do sherpa ao lado do `jarvis.exe`. Nenhum código do repositório faz essa cópia. Ver [tts](../features/tts/spec.md#known-limitations).

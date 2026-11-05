@@ -1,4 +1,4 @@
-# Pomodoro
+# Widget: Pomodoro
 
 Widget de foco e pausa no método Pomodoro, com o timer no `App`, para ele seguir contando e avisar mesmo com o widget fechado.
 
@@ -10,9 +10,161 @@ Widget de foco e pausa no método Pomodoro, com o timer no `App`, para ele segui
 | **Window kind** | `pomodoro` em `src/lib/desktop.ts` (300 × 250, mínimo 260 × 220, grupo `widgets`) |
 | **Voz** | `window:pomodoro`, `pomodoro:start`, `pomodoro:pause`, `pomodoro:reset`, `pomodoro:skip`, `pomodoro:longer`, `pomodoro:shorter`, `shortcut:focus` |
 
-## Visão geral
+## Objetivo
 
 Um temporizador de foco e pausa no método Pomodoro: 25 min de foco, 5 de pausa curta e, a cada quatro focos, 15 de pausa longa. A contagem fica no `App`, não no widget. Por isso ela continua com o widget fechado, aparece na barra superior e toca (bipe, pulso do núcleo e aviso no dock) quando uma fase termina. O widget é a face TUI do timer: fase, ciclos, contagem grande, barra de progresso e atalhos de teclado que também são botões. O usuário também o comanda por voz e pelo "protocolo foco".
+
+## Não-objetivos
+
+- Sem histórico de sessões nem estatísticas: `cycles` só conta para decidir a pausa longa.
+- Uma fase nunca encadeia na próxima automaticamente.
+- O módulo da barra superior e as frases de voz são descritos aqui só pelo efeito no timer. Ver [voice-commands](../../features/voice-commands/spec.md) e [voice-shortcuts](../../features/voice-shortcuts/spec.md).
+
+## Histórias de usuário
+
+### US1 — Contar uma fase e ser avisado no fim (P1)
+
+Como usuário, quero iniciar um foco de 25 minutos e ser avisado quando acabar, mesmo com o widget fechado ou depois de recarregar.
+
+**Por que P1:** é o propósito do Pomodoro.
+**Teste independente:** `tests/desktop.spec.ts` — `the pomodoro counts down, pauses across a reload and rings when a phase ends`.
+
+**Aceite:** [critérios 1 a 5](#critérios-de-aceite).
+
+### US2 — Controlar pelo teclado e pelos botões (P2)
+
+Como usuário, quero pausar, reiniciar, pular e ajustar a duração sem sair do teclado.
+
+**Por que P2:** agiliza o uso diário.
+**Teste independente:** `tests/widgets.spec.ts` — `a widget drags from anywhere on it, and its buttons still click`.
+
+**Aceite:** [critérios 6 a 8](#critérios-de-aceite).
+
+### US3 — Comandar por voz e pelo protocolo foco (P2)
+
+Como usuário, quero dizer "inicia o pomodoro", "pula a fase" ou "protocolo foco".
+
+**Por que P2:** mantém o foco sem tocar no computador.
+**Teste independente:** `tests/voicetab.spec.ts` — `the Pomodoro answers to voice (engine event stand-in)`; `tests/shortcuts.spec.ts` — `Protocolo foco closes the windows and starts a focus phase`.
+
+**Aceite:** [critérios 9 a 13](#critérios-de-aceite).
+
+### US4 — Ver o timer na barra superior e esconder partes do widget (P3)
+
+**Teste independente:** `tests/widgets.spec.ts` — `Pomodoro: right click turns parts of the widget off, and it stays so` e `keys pressed in a widget's menu stay in the menu`.
+
+**Aceite:** [critérios 14 a 15](#critérios-de-aceite).
+
+## Critérios de aceite
+
+### Critério 1 (US1)
+
+- **Dado** o widget recém-aberto
+- **Então** o timer mostra `25:00` e o cabeçalho "Foco · pausado".
+
+### Critério 2 (US1)
+
+- **Dado** o foco parado
+- **Quando** clico em "Iniciar" (ou aperto Espaço)
+- **Então** a contagem desce (`24:5x` em até 3 s) e o botão vira "Pausar".
+
+### Critério 3 (US1)
+
+- **Dado** o timer correndo
+- **Quando** pauso e recarrego a página
+- **Então** o widget volta mostrando exatamente o tempo que restava.
+
+### Critério 4 (US1)
+
+- **Dado** um foco que termina com o app aberto
+- **Quando** o tempo zera
+- **Então** soa o bipe, o núcleo pulsa, o dock mostra "Pomodoro: fim do foco · pausa curta" e o widget passa para "Pausa curta" em `05:00`, parado.
+
+### Critério 5 (US1)
+
+- **Dado** o quarto foco concluído
+- **Quando** ele termina
+- **Então** a próxima fase é "Pausa longa" (15 min).
+
+### Critério 6 (US2)
+
+- **Dado** o widget com foco
+- **Quando** aperto Espaço
+- **Então** ele inicia ou pausa. `r` reinicia a fase, `s` pula para a próxima, e `-` / `+` (ou `=`) tiram ou põem 5 min na fase atual.
+
+### Critério 7 (US2)
+
+- **Dado** uma fase que ainda não começou
+- **Quando** ajusto a duração
+- **Então** o tempo restante passa a ser a nova duração.
+
+### Critério 8 (US2)
+
+- **Dado** a duração em 5 min
+- **Quando** aperto `-`
+- **Então** ela fica em 1 min, o mínimo. O máximo é 90 min.
+
+### Critério 9 (US3)
+
+- **Dado** o widget fechado
+- **Quando** digo "inicia o pomodoro"
+- **Então** o timer começa, o dock mostra "Pomodoro: foco em andamento" e o JARVIS confirma.
+
+### Critério 10 (US3)
+
+- **Dado** o timer correndo
+- **Quando** digo "pausa o pomodoro"
+- **Então** ele para e o dock mostra "Pomodoro: pausado".
+
+### Critério 11 (US3)
+
+- **Dado** o foco em 25 min
+- **Quando** digo "mais cinco minutos"
+- **Então** o foco passa a 30 min e o dock mostra "Pomodoro: +5 min de foco". Com "menos cinco minutos", volta a 25.
+
+### Critério 12 (US3)
+
+- **Dado** o foco
+- **Quando** digo "pula a fase"
+- **Então** a fase vira "pausa curta" ("Pomodoro: fase pulada"). Com "reinicia o pomodoro", o dock mostra "Pomodoro: pausa curta reiniciado".
+
+### Critério 13 (US3)
+
+- **Dado** janelas abertas
+- **Quando** digo "protocolo foco"
+- **Então** todas fecham, o Pomodoro abre com um foco inteiro correndo e o JARVIS diz quantos minutos são.
+
+### Critério 14 (US4)
+
+- **Dado** um timer correndo ou com tempo diferente da duração cheia
+- **Então** a barra superior mostra o módulo "Pomodoro: <fase>" com `mm:ss`, e um clique nele abre o widget.
+
+### Critério 15 (US4)
+
+- **Dado** o menu "Opções do widget Pomodoro"
+- **Quando** desmarco "Atalhos"
+- **Então** os botões somem e a escolha vale depois de recarregar. Os outros itens são "Fase", "Ciclos" e "Barra de progresso".
+
+## Casos de borda
+
+- **Vazio/nulo:**
+  - `jarvis.pomodoro` ausente → foco de 25 min parado: `25:00` e "Foco · pausado".
+  - Estado salvo corrompido → `parsePomodoro` troca a fase inválida por `focus`, a duração fora de 1–90 pelo padrão, `cycles` negativo por 0 e `remaining` inválido pela duração cheia da fase.
+  - Sem saída de áudio → o bipe falha em silêncio, e o pulso e o aviso no dock acontecem do mesmo jeito.
+  - Todas as opções desligadas → sobra só a contagem grande, que não tem opção.
+- **Duplicidade/idempotência:**
+  - "Inicia o pomodoro" com o timer correndo → `start()` não muda o `endsAt`. "Pausa o pomodoro" com ele parado → `pause()` não muda nada.
+  - "Protocolo foco" com um foco já correndo → o foco atual continua, sem recomeçar.
+  - `-` com a duração em 1 min ou `+` em 90 min → a duração fica no limite.
+- **Concorrência/corrida:**
+  - O app fica oculto com a fase correndo → o `setTimeout` até `endsAt` continua e dá o alarme; a contagem volta a ser lida no `visibilitychange`.
+  - O fim passou há mais de 2 s (`STALE_MS`), por exemplo com o app fechado → a fase é concluída em silêncio, sem bipe nem aviso.
+  - Ajustar a duração com a fase correndo ou já começada → só a duração muda; o tempo que falta segue igual.
+  - Recarregar menos de 250 ms depois de uma ação → o `beforeunload` grava o estado pendente.
+  - Espaço ou um dígito com o menu de opções aberto → ficam no menu e não chegam aos atalhos do widget.
+- **Permissões/visibilidade:**
+  - Não há comando Tauri: a voz chega pelo evento `voice:pomodoro` do motor, e o estado fica no `localStorage` (`jarvis.pomodoro`, `jarvis.widget.pomodoro`), fora do `settings.json`. O bipe é sintetizado, sem arquivo de áudio.
+  - O módulo da barra superior só aparece com o timer correndo ou fora da duração cheia, e com o módulo ligado na barra.
 
 ## Dados
 
@@ -126,79 +278,19 @@ O menu de botão direito, feito com `useWidgetMenu`, `WidgetMenu` e `toggleItems
 - **RNF-002**: O bipe é sintetizado com `AudioContext` (dois senos de 880 Hz), sem arquivo de áudio.
 - Durações de 1 a 90 min; ajuste de ±5 min; fase vencida há mais de 2 s (`STALE_MS`) termina sem alarme.
 
-## Histórias de usuário
-
-### US1 — Contar uma fase e ser avisado no fim (P1)
-
-Como usuário, quero iniciar um foco de 25 minutos e ser avisado quando acabar, mesmo com o widget fechado ou depois de recarregar.
-
-**Por que P1:** é o propósito do Pomodoro.
-**Teste independente:** `tests/desktop.spec.ts` — `the pomodoro counts down, pauses across a reload and rings when a phase ends`.
-
-**Aceite**
-
-1. **Dado** o widget recém-aberto, **então** o timer mostra `25:00` e o cabeçalho "Foco · pausado".
-2. **Dado** o foco parado, **quando** clico em "Iniciar" (ou aperto Espaço), **então** a contagem desce (`24:5x` em até 3 s) e o botão vira "Pausar".
-3. **Dado** o timer correndo, **quando** pauso e recarrego a página, **então** o widget volta mostrando exatamente o tempo que restava.
-4. **Dado** um foco que termina com o app aberto, **quando** o tempo zera, **então** soa o bipe, o núcleo pulsa, o dock mostra "Pomodoro: fim do foco · pausa curta" e o widget passa para "Pausa curta" em `05:00`, parado.
-5. **Dado** o quarto foco concluído, **quando** ele termina, **então** a próxima fase é "Pausa longa" (15 min).
-
-### US2 — Controlar pelo teclado e pelos botões (P2)
-
-Como usuário, quero pausar, reiniciar, pular e ajustar a duração sem sair do teclado.
-
-**Por que P2:** agiliza o uso diário.
-**Teste independente:** `tests/widgets.spec.ts` — `a widget drags from anywhere on it, and its buttons still click`.
-
-**Aceite**
-
-1. **Dado** o widget com foco, **quando** aperto Espaço, **então** ele inicia ou pausa. `r` reinicia a fase, `s` pula para a próxima, e `-` / `+` (ou `=`) tiram ou põem 5 min na fase atual.
-2. **Dado** uma fase que ainda não começou, **quando** ajusto a duração, **então** o tempo restante passa a ser a nova duração.
-3. **Dado** a duração em 5 min, **quando** aperto `-`, **então** ela fica em 1 min, o mínimo. O máximo é 90 min.
-
-### US3 — Comandar por voz e pelo protocolo foco (P2)
-
-Como usuário, quero dizer "inicia o pomodoro", "pula a fase" ou "protocolo foco".
-
-**Por que P2:** mantém o foco sem tocar no computador.
-**Teste independente:** `tests/voicetab.spec.ts` — `the Pomodoro answers to voice (engine event stand-in)`; `tests/shortcuts.spec.ts` — `Protocolo foco closes the windows and starts a focus phase`.
-
-**Aceite**
-
-1. **Dado** o widget fechado, **quando** digo "inicia o pomodoro", **então** o timer começa, o dock mostra "Pomodoro: foco em andamento" e o JARVIS confirma.
-2. **Dado** o timer correndo, **quando** digo "pausa o pomodoro", **então** ele para e o dock mostra "Pomodoro: pausado".
-3. **Dado** o foco em 25 min, **quando** digo "mais cinco minutos", **então** o foco passa a 30 min e o dock mostra "Pomodoro: +5 min de foco". Com "menos cinco minutos", volta a 25.
-4. **Dado** o foco, **quando** digo "pula a fase", **então** a fase vira "pausa curta" ("Pomodoro: fase pulada"). Com "reinicia o pomodoro", o dock mostra "Pomodoro: pausa curta reiniciado".
-5. **Dado** janelas abertas, **quando** digo "protocolo foco", **então** todas fecham, o Pomodoro abre com um foco inteiro correndo e o JARVIS diz quantos minutos são.
-
-### US4 — Ver o timer na barra superior e esconder partes do widget (P3)
-
-**Teste independente:** `tests/widgets.spec.ts` — `Pomodoro: right click turns parts of the widget off, and it stays so` e `keys pressed in a widget's menu stay in the menu`.
-
-**Aceite**
-
-1. **Dado** um timer correndo ou com tempo diferente da duração cheia, **então** a barra superior mostra o módulo "Pomodoro: <fase>" com `mm:ss`, e um clique nele abre o widget.
-2. **Dado** o menu "Opções do widget Pomodoro", **quando** desmarco "Atalhos", **então** os botões somem e a escolha vale depois de recarregar. Os outros itens são "Fase", "Ciclos" e "Barra de progresso".
-
 ## Critérios de sucesso
 
 - **SC-001**: Uma fase iniciada termina e avisa no horário certo, com o widget aberto ou fechado.
 - **SC-002**: Um timer pausado mostra o mesmo tempo depois de recarregar.
 
-## Fora de escopo e limitações
-
-- Sem histórico de sessões nem estatísticas: `cycles` só conta para decidir a pausa longa.
-- Uma fase nunca encadeia na próxima automaticamente.
-- O módulo da barra superior e as frases de voz são descritos aqui só pelo efeito no timer. Ver [voice-commands](../../features/voice-commands/spec.md) e [voice-shortcuts](../../features/voice-shortcuts/spec.md).
-
-## Código
+## Entregáveis
 
 O estado do timer mora em `usePomodoro`, chamado uma vez no `App` e salvo em `jarvis.pomodoro` com `useStoredState`. Enquanto a fase corre, guarda-se `endsAt` (relógio de parede), e enquanto está parada guarda-se `remaining`. Um `setTimeout` até `endsAt` conclui a fase e chama o callback do `App`, que toca o bipe, pulsa o núcleo e mostra o aviso no dock. Quem mostra o tempo (o widget e o módulo da barra superior) usa `usePomodoroRemaining`, que só re-renderiza a si mesmo, uma vez por segundo. As mesmas ações servem ao teclado, aos botões `KeyHint`, à voz (`voice:pomodoro`) e ao atalho `focus`.
 
 | | |
 |---|---|
 | **Camadas** | UI React (`Pomodoro.tsx`, módulo da `Taskbar`) · hook (`usePomodoro`) · lib (`beep`) · integração no `App` |
-| **Dependências** | `AudioContext` (bipe); kit TUI (`ReverseRow`, `BlockBar`, `KeyHint`) |
+| **Dependências** | ver [Dependências](#dependências) |
 | **Testes** | `tests/desktop.spec.ts`, `tests/voicetab.spec.ts`, `tests/shortcuts.spec.ts`, `tests/widgets.spec.ts`, `tests/personality.spec.ts` |
 | **Plataforma** | Windows 11 · WebView2; no modo web funciona igual, e a voz entra pela sonda `__JARVIS__.voicePomodoro` |
 
@@ -240,6 +332,28 @@ sequenceDiagram
   H->>D: beep() · pulse() · "Pomodoro: fim do foco · pausa curta"
 ```
 
+### Testes
+
+- `npx playwright test tests/desktop.spec.ts --project ui -g "the pomodoro counts down"`: `25:00`, "Iniciar" desce para `24:5x`, a pausa sobrevive a recarregar, e o fim do foco dá o aviso no dock, o pulso e "Pausa curta" em `05:00` (critérios 1 a 4).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "a widget drags from anywhere"`: o widget arrasta pelo corpo sem perder o foco das teclas, e "Iniciar" clicado vira "Pausar" (critério 6, só o botão).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "Pomodoro"`: "Atalhos" desmarcado esconde os botões e continua assim depois de recarregar (critério 15).
+- `npx playwright test tests/widgets.spec.ts --project ui -g "keys pressed in a widget's menu"`: Espaço no menu marca o item sem iniciar o timer, e Esc devolve o foco ao widget.
+- `npx playwright test tests/voicetab.spec.ts --project ui -g "the Pomodoro answers to voice"`: `start`, `pause`, `longer`, `shorter`, `skip` e `reset` pelo evento, com o aviso no dock e o `jarvis.pomodoro` gravado; com o widget aberto, ele mostra "Pausar" (critérios 9 a 12).
+- `npx playwright test tests/personality.spec.ts --project ui -g "short spoken confirmation"`: "pausa o pomodoro" ganha a fala `pomodoroPause` (critério 10).
+- `npx playwright test tests/shortcuts.spec.ts --project ui -g "Protocolo foco"`: fecha as janelas, abre o Pomodoro com um foco correndo e a fala `focus` diz 25 min (critério 13).
+- `cargo test --lib controls_the_pomodoro` (em `src-tauri`): as frases viram `pomodoro:start|pause|reset|skip|longer|shorter`, e "abre/fecha o pomodoro" continua sendo `window:pomodoro` (critérios 9 a 12).
+- `cargo test --lib shortcuts_open_the_request` (em `src-tauri`): "Protocolo foco" vira o atalho `focus` (critério 13).
+- `cargo test --lib default_voice_commands_are_valid` (em `src-tauri`): o catálogo tem frases para o kind `pomodoro` e alvos válidos para `pomodoro:*`.
+- Sem teste automatizado: critérios 5, 7, 8 e 14, e as teclas `r`, `s`, `-` e `+` do critério 6.
+
+### Reversão
+
+- Só o widget: tirar `pomodoro` do union `WindowKind`, de `WINDOW_KINDS` e de `WINDOW_SPECS` (`src/lib/desktop.ts`), do `WINDOW_KINDS` do Rust (`src-tauri/src/settings.rs`) e a entrada `window:pomodoro` de `src-tauri/voice-commands.json`, juntos; tirar o `case "pomodoro"` de `Desktop.tsx`, as palavras de busca e `Pomodoro.tsx`. O `PomodoroModule` (`onWindow("pomodoro")`) e o atalho `focus` (`openWindow("pomodoro")`) também abrem o widget: sem o kind, o `tsc` falha até eles mudarem.
+- O timer inteiro: tirar também `usePomodoro(onFinish)` e `onPomodoro` do `App`, o `PomodoroModule` e a chave `pomodoro` de `TaskbarModules` (`src/lib/taskbar.ts`), o ouvinte de `voice:pomodoro` (`useVoiceAssistant.ts`), as entradas `pomodoro:*` e `shortcut:focus` do catálogo, `POMODORO_TARGETS` e o alvo `focus` de `SHORTCUT_TARGETS` no Rust (com o espelho `ShortcutAction` em `src/lib/shortcuts.ts`), e as falas `pomodoro*` e `focus` de `jarvisLines.ts`. O `beep.ts` fica, porque lembretes e agenda também o usam.
+- Os testes listados em [Testes](#testes) precisam sair ou mudar.
+- Fica órfão e é ignorado: `jarvis.pomodoro` e `jarvis.widget.pomodoro`; `pomodoro` em `jarvis.desktop` (o `parseDesktop` descarta) e em `jarvis.taskbar` (o `parseModules` só lê as chaves conhecidas); `window:pomodoro`, `pomodoro:*` e `shortcut:focus` no `settings.json` (o `sanitize_voice_commands` descarta ids embutidos que saíram do catálogo).
+- Um comando `custom-*` com ação `pomodoro` só é descartado quando `"pomodoro"` sai do `valid_custom`. Sem isso, ele continua emitindo `voice:pomodoro`, e ninguém ouve.
+
 ### Constituição
 
 - [x] P1 Offline-first: tudo local; o bipe é sintetizado.
@@ -257,6 +371,12 @@ sequenceDiagram
 - [ADR-0004 — catálogo de voz compartilhado](../../arch/adr/0004-catalogo-de-voz-compartilhado-e-fallback.md)
 - [ADR-0010 — settings.json vs localStorage](../../arch/adr/0010-persistencia-settings-vs-localstorage.md)
 - [ADR-0014 — linguagem visual TUI](../../arch/adr/0014-linguagem-visual-tui.md)
+
+## Dependências
+
+- **Vendor:** [React](../../foundation/vendor/react/spec.md), [Tailwind](../../foundation/vendor/tailwind/spec.md), [lucide](../../foundation/vendor/lucide/spec.md) (ícone `Timer` do `PomodoroModule`), [Tauri](../../foundation/vendor/tauri/spec.md) (o evento `voice:pomodoro`, ouvido em `useVoiceAssistant.ts`)
+- **Specs:** [desktop-windows](../../features/desktop-windows/spec.md) (janela, `useWidgetOptions` e `WidgetMenu`), [appearance](../../features/appearance/spec.md) (kit TUI: `ReverseRow`, `BlockBar`, `KeyHint`), [dock-taskbar](../../features/dock-taskbar/spec.md) (módulo da barra superior e aviso no dock), [holographic-core](../../features/holographic-core/spec.md) (pulso do núcleo no fim da fase), [voice-commands](../../features/voice-commands/spec.md) (`window:pomodoro`, `pomodoro:*` e o evento `voice:pomodoro`), [voice-shortcuts](../../features/voice-shortcuts/spec.md) (`shortcut:focus` e as falas), [search](../../features/search/spec.md) (palavras da busca)
+- **Sistema:** saída de áudio (`AudioContext`) para o bipe, opcional.
 
 ## Tarefas
 

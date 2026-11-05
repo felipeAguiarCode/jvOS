@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Aceito |
+| **Status** | Aceito · em parte substituído pelo [ADR-0023](0023-specs-formato-spec-coding-dev.md) (a ordem das seções e o aceite dentro das histórias) |
 | **Data** | 2026-11-03 |
 | **Origem** | conversa (2026-11-03): o usuário pediu as specs no padrão SpecLang da GitHub Next, um arquivo por item, mantendo os IDs e o aceite |
 
