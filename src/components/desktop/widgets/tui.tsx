@@ -1,6 +1,38 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 /** Building blocks for widgets drawn like terminal apps (neofetch lines, block bars, reverse-video headers). */
+
+/** A line edited in place (a task, an event's title): Enter or leaving it saves, Esc cancels (null). */
+export function EditField({ label, initial, maxLength, onDone }: { label: string; initial: string; maxLength: number; onDone: (text: string | null) => void }) {
+  const field = useRef<HTMLInputElement>(null);
+  // Enter, Esc and the blur of the field going away must not answer twice.
+  const answered = useRef(false);
+  const finish = (text: string | null) => {
+    if (answered.current) return;
+    answered.current = true;
+    onDone(text);
+  };
+  useEffect(() => {
+    field.current?.focus();
+    field.current?.select();
+  }, []);
+  return (
+    <input
+      ref={field}
+      aria-label={label}
+      defaultValue={initial}
+      maxLength={maxLength}
+      onKeyDown={(event) => {
+        // The window's keys (Ctrl+W) wait while typing.
+        event.stopPropagation();
+        if (event.key === "Enter") finish(event.currentTarget.value);
+        if (event.key === "Escape") finish(null);
+      }}
+      onBlur={(event) => finish(event.currentTarget.value)}
+      className="min-w-0 flex-1 border border-hud-light/50 bg-transparent px-1 text-hud-text outline-none select-text"
+    />
+  );
+}
 
 /** `key ~ value`, the key in the accent colour, like neofetch. */
 export function KeyValue({ name, children }: { name: string; children: ReactNode }) {

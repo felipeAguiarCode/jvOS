@@ -196,7 +196,9 @@ export function Window({
       >
         <div
           aria-hidden
-          className={`absolute inset-0 ${tui ? "backdrop-blur-sm" : "backdrop-blur-md"}`}
+          // No backdrop blur: behind a window the core moves every frame, so the blur would be
+          // redone every frame for the window's whole area. A tinted panel reads the same.
+          className="absolute inset-0"
           // Fullscreen hides what is behind (the dock) almost completely.
           style={{ backgroundColor: `color-mix(in oklab, var(--color-hud-panel) ${Math.round((maximized ? Math.max(opacity, 0.95) : opacity) * 100)}%, transparent)` }}
         />

@@ -313,7 +313,7 @@ mod tests {
         let dir = PathBuf::from(std::env::var("JARVIS_TTS_DIR").expect("JARVIS_TTS_DIR"));
         let out = PathBuf::from(std::env::var("JARVIS_TTS_OUT").expect("JARVIS_TTS_OUT"));
         fs::create_dir_all(&out).unwrap();
-        let mut whisper = std::env::var("JARVIS_WHISPER").ok().map(|model| Transcriber::load(Path::new(&model)).unwrap());
+        let mut whisper = std::env::var("JARVIS_WHISPER").ok().map(|model| Transcriber::load(Path::new(&model), crate::settings::AUTO_DEVICE).unwrap());
         let lines = [
             "Às suas ordens. Os sistemas estão operacionais e o Claude Code está pronto.",
             "O dólar fechou a cinco reais e quarenta centavos, numa alta de oito por cento.",

@@ -20,11 +20,21 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { SettingsSection } from "../lib/commands";
-import type { CoreMode } from "../lib/core";
 import { baseName, pickAnyFile, pickFolder } from "../lib/files";
-import { ASSISTANT_MODELS, createAppId, type Activation, type AppEntry, type Language, type ModelStatus, type Settings } from "../lib/settings";
+import {
+  ASSISTANT_MODELS,
+  createAppId,
+  loadVoiceDevices,
+  MAX_NAME,
+  type Activation,
+  type AppEntry,
+  type Language,
+  type ModelStatus,
+  type Settings,
+  type VoiceDevices,
+} from "../lib/settings";
 import { SPEEDS, voiceReady, type SpeechPrefs, type SpeechStatus } from "../lib/speech";
-import { BackgroundNote, BACKGROUNDS, CardPicker, ChipInput, IconButton, Mono, Section, Segmented, Switch, SwitchRow, themeOptions } from "./hud";
+import { ActionButton, CardPicker, ChipInput, IconButton, Mono, Section, Segmented, Switch, SwitchRow, themeOptions } from "./hud";
 
 const APP_ICONS: Record<string, LucideIcon> = { browser: Globe, vscode: Code, terminal: SquareTerminal, claude: Cloud };
 
@@ -61,12 +71,12 @@ interface SettingsPanelProps {
   onDownload: (id: string) => void;
   /** Launches an app; resolves to an error message or null. */
   onTestApp: (id: string) => Promise<string | null>;
+  /** The memory cleanup (garbage collector); resolves to what it did. */
+  onCleanMemory: () => Promise<string>;
   /** Opens the centred advanced menu (closing this panel). */
   onOpenAdvanced: () => void;
   /** Scrolls to this section when the panel opens (from the search). */
   section?: SettingsSection | null;
-  /** The core's look (advanced menu): the animated backgrounds need the 3D one. */
-  core: CoreMode;
   /** JARVIS's voice: its models, the chosen voice and pace. */
   speech: SpeechSettings;
 }
@@ -166,7 +176,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
 function PanelBody({
   settings,
   onChange,
-  core,
   desktop,
   listening,
   listeningLabel,
@@ -177,6 +186,7 @@ function PanelBody({
   modelErrors,
   onDownload,
   onTestApp,
+  onCleanMemory,
   speech,
 }: SettingsPanelProps) {
   if (!settings) {
@@ -237,13 +247,6 @@ function PanelBody({
           onChange={(theme) => onChange((current) => ({ ...current, theme }))}
           columns={2}
         />
-        <CardPicker
-          label="Fundo"
-          options={BACKGROUNDS}
-          value={settings.background}
-          onChange={(background) => onChange((current) => ({ ...current, background }))}
-        />
-        <BackgroundNote core={core} />
         <SwitchRow
           label="Barra superior"
           hint="Atalhos das janelas, status, pomodoro, bateria e relógio no topo, estilo Waybar"
@@ -270,6 +273,7 @@ function PanelBody({
         {selectedModel && !selectedModel.downloaded && (
           <p className="text-xs text-hud-text/60">Baixe o modelo selecionado para ativar a escuta.</p>
         )}
+        <VoiceDeviceRow value={settings.voiceDevice} onChange={(voiceDevice) => onChange((current) => ({ ...current, voiceDevice }))} />
         <Segmented
           label="Idioma"
           options={LANGUAGES}
@@ -295,6 +299,20 @@ function PanelBody({
           {ASSISTANT_MODELS.find((model) => model.value === settings.assistantModel)?.hint}. O Claude Code que responde ao clicar no
           núcleo, às perguntas por voz e aos atalhos (“pesquisa sobre…”, “bom dia”).
         </p>
+        <label className="block">
+          <span className="mb-1 block text-xs text-hud-text/60">Como ele te chama</span>
+          <input
+            value={settings.assistantName}
+            maxLength={MAX_NAME}
+            placeholder="seu nome"
+            onChange={(event) => onChange((current) => ({ ...current, assistantName: event.target.value }))}
+            className="hud-input w-full py-1"
+          />
+        </label>
+        <p className="text-xs leading-relaxed text-hud-text/60">
+          O JARVIS usa esse nome nas respostas e nas saudações, de vez em quando, como nos filmes. Em branco, ele fala sem vocativo.
+        </p>
+        <CleanupRow onClean={onCleanMemory} />
       </Section>
 
       <SpeechSection speech={speech} />
@@ -423,6 +441,90 @@ function ModelCard({
 }
 
 /** JARVIS's voice: the model to download, the voice and its pace, and a sample to hear. */
+/** The memory cleanup ("Jarvis, limpa a memória" does the same): Claude Code, idle, gives its RAM back. */
+/** Where Whisper runs: automatic, the CPU, or one of the GPUs Vulkan sees (desktop builds with the SDK). */
+function VoiceDeviceRow({ value, onChange }: { value: string; onChange: (device: string) => void }) {
+  const [devices, setDevices] = useState<VoiceDevices | null>(null);
+  // The engine restarts on a change: where it runs is asked again once it has had time to load.
+  useEffect(() => {
+    let live = true;
+    const read = () => void loadVoiceDevices().then((found) => live && setDevices(found), () => undefined);
+    read();
+    const timer = window.setTimeout(read, 2500);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [value]);
+  const gpus = devices?.gpus ?? [];
+  const accelerated = devices?.accelerated ?? false;
+  const options = [
+    { value: "auto", label: "Automático" },
+    { value: "cpu", label: "Processador" },
+    ...gpus.map((gpu) => ({ value: gpu.name, label: `${gpu.name} · ${gpu.vramMb >= 1024 ? `${Math.round(gpu.vramMb / 1024)} GB` : `${gpu.vramMb} MB`}` })),
+  ];
+  // A GPU chosen on another machine (or with another build) shows as automatic.
+  const chosen = options.some((option) => option.value === value) ? value : "auto";
+  const hint = !accelerated
+    ? "Este build não tem a GPU (Vulkan SDK ausente na compilação): a voz roda no processador."
+    : devices?.active
+      ? `Agora: ${devices.active === "CPU" ? "processador" : devices.active}.`
+      : "Na GPU o comando é reconhecido em uma fração do tempo e o processador fica livre.";
+  return (
+    <div className="space-y-2">
+      <div role="radiogroup" aria-label="Processamento da voz" className="grid grid-cols-2 gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={option.value === chosen}
+            disabled={!accelerated && option.value !== "auto" && option.value !== "cpu"}
+            onClick={() => onChange(option.value)}
+            className={`cursor-pointer truncate rounded-xl border px-3 py-2 text-left text-xs outline-none transition focus-visible:ring-1 focus-visible:ring-hud-light/50 disabled:cursor-default disabled:opacity-40 ${
+              option.value === chosen ? "border-hud-cyan/40 bg-hud-cyan/[0.06] text-hud-light" : "border-hud-cyan/12 bg-white/[0.02] text-hud-text/75 hover:border-hud-cyan/30"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs leading-relaxed text-hud-text/60" data-testid="voice-device-hint">
+        {hint}
+      </p>
+    </div>
+  );
+}
+
+function CleanupRow({ onClean }: { onClean: () => Promise<string> }) {
+  const [cleaning, setCleaning] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const clean = () => {
+    setCleaning(true);
+    void onClean()
+      .then(setResult, (error: unknown) => setResult(String(error)))
+      .finally(() => setCleaning(false));
+  };
+  return (
+    <div className="space-y-2 rounded-xl border border-hud-cyan/12 bg-white/[0.02] px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm text-hud-text">Limpeza de memória</div>
+          <div className="text-xs leading-relaxed text-hud-text/50">
+            Garbage collector: encerra o Claude Code parado e devolve a RAM dele. Ele volta na próxima pergunta, na mesma conversa. Por voz: “limpa a memória”.
+          </div>
+        </div>
+        <ActionButton label={cleaning ? "Limpando…" : "Limpar memória"} disabled={cleaning} onClick={clean} />
+      </div>
+      {result && (
+        <p role="status" data-testid="cleanup-result" className="text-xs text-hud-light/85">
+          {result}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SpeechSection({ speech }: { speech: SpeechSettings }) {
   const { available, status, progress, errors, prefs, onPrefs, onDownload, onPreview } = speech;
   const voices = status?.voices ?? [];

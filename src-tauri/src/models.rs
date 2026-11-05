@@ -1,4 +1,5 @@
-//! Whisper model catalog and verified downloads (ggml files from the whisper.cpp repository).
+//! Whisper model catalog and verified downloads (ggml files from the whisper.cpp repository),
+//! plus the Silero VAD that guards the listening modes (`voice::silero`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,23 @@ pub struct ModelInfo {
     pub description: &'static str,
     pub size: u64,
     pub sha256: &'static str,
+    /// Where `file` is downloaded from (the folder of the URL).
+    pub source: &'static str,
 }
+
+const WHISPER_SOURCE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+
+/// Silero VAD v4 (ONNX), from sherpa-onnx's model releases; not a Whisper model, so it is not in
+/// `MODELS` (nor in the settings' model list).
+pub const SILERO: ModelInfo = ModelInfo {
+    id: "silero-vad",
+    file: "silero_vad.onnx",
+    label: "Silero VAD",
+    description: "Detecta fala antes do Whisper nos modos de escuta",
+    size: 643_854,
+    sha256: "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models",
+};
 
 /// Quantised multilingual models. Whisper runs on the CPU, where the encoder dominates: per
 /// spoken command a laptop CPU (Core 7 150U) takes ~2.4 s with Small (the default), ~0.75 s
@@ -27,6 +44,7 @@ pub const MODELS: &[ModelInfo] = &[
         description: "Rápido e preciso, recomendado",
         size: 190_085_487,
         sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+        source: WHISPER_SOURCE,
     },
     ModelInfo {
         id: "base",
@@ -35,6 +53,7 @@ pub const MODELS: &[ModelInfo] = &[
         description: "O mais rápido, erra mais palavras",
         size: 59_707_625,
         sha256: "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+        source: WHISPER_SOURCE,
     },
     ModelInfo {
         id: "large-v3-turbo",
@@ -43,10 +62,9 @@ pub const MODELS: &[ModelInfo] = &[
         description: "O mais preciso, muito lento sem GPU",
         size: 574_041_195,
         sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+        source: WHISPER_SOURCE,
     },
 ];
-
-const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
 pub fn find(id: &str) -> Option<&'static ModelInfo> {
     MODELS.iter().find(|model| model.id == id)
@@ -76,7 +94,7 @@ pub struct ModelStatus {
 /// final name after its SHA-256 matches, so a partial or corrupted download is never used.
 pub fn download(model: &ModelInfo, dir: &Path, progress: impl FnMut(u64, u64)) -> Result<PathBuf, String> {
     let target = path(dir, model);
-    download::fetch_verified(&format!("{BASE_URL}/{}", model.file), &target, model.sha256, Some(model.size), model.size + 1, progress)?;
+    download::fetch_verified(&format!("{}/{}", model.source, model.file), &target, model.sha256, Some(model.size), model.size + 1, progress)?;
     Ok(target)
 }
 

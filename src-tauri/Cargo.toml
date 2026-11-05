@@ -12,7 +12,14 @@ edition = "2024"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "jarvis_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop only: the staticlib and cdylib of Tauri's template are for mobile, and every build
+# (with fat LTO in release) linked them for nothing.
+crate-type = ["rlib"]
+
+[features]
+# Whisper on the GPU (whisper.cpp's Vulkan backend). Needs the Vulkan SDK at build time only;
+# `scripts/tauri.mjs` turns it on when it finds the SDK. Without it the voice runs on the CPU.
+vulkan = ["whisper-rs/vulkan"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -38,6 +45,11 @@ tiny_http = "0.12"
 trash = "5.2.9"
 ureq = "3"
 whisper-rs = "0.16"
+
+# Same versions as wry's: the WebView2 interfaces behind `webview_background` (memory target).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
 
 
 # Dependencies without debug info keep dev builds several GB smaller on Windows (PDBs).

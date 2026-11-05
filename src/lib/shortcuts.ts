@@ -2,7 +2,25 @@ import type { SystemStats } from "../hooks/useSystemStats";
 import { normalize } from "./search";
 
 /** A JARVIS voice shortcut. Mirrors `SHORTCUT_TARGETS` in src-tauri/src/settings.rs. */
-export type ShortcutAction = "research" | "note" | "reminder" | "time" | "date" | "status" | "briefing" | "focus" | "memory";
+export type ShortcutAction =
+  | "research"
+  | "note"
+  | "reminder"
+  | "time"
+  | "date"
+  | "status"
+  | "briefing"
+  | "focus"
+  | "memory"
+  | "weather"
+  | "agenda"
+  | "agendaRemove"
+  | "tasks"
+  | "taskAdd"
+  | "taskDone"
+  | "taskRemove"
+  | "cleanup"
+  | "homecoming";
 
 /** `voice:shortcut`: a shortcut and the words said after its phrase, or ("ask") a question for JARVIS. */
 export interface ShortcutEvent {
@@ -13,7 +31,26 @@ export interface ShortcutEvent {
   said: string;
 }
 
-export const SHORTCUT_ACTIONS: ShortcutAction[] = ["research", "note", "reminder", "time", "date", "status", "briefing", "focus", "memory"];
+export const SHORTCUT_ACTIONS: ShortcutAction[] = [
+  "research",
+  "note",
+  "reminder",
+  "time",
+  "date",
+  "status",
+  "briefing",
+  "focus",
+  "memory",
+  "weather",
+  "agenda",
+  "agendaRemove",
+  "tasks",
+  "taskAdd",
+  "taskDone",
+  "taskRemove",
+  "cleanup",
+  "homecoming",
+];
 
 export const isShortcutAction = (value: string): value is ShortcutAction => (SHORTCUT_ACTIONS as string[]).includes(value);
 
@@ -102,6 +139,60 @@ export function parseReminder(text: string): { minutes: number; text: string } |
   return null;
 }
 
+/** Words before the number of a task or an event ("a tarefa número dois", "o item 3"). */
+const NUMBER_LEAD = new Set(["numero", "n", "no", "item", "id", "a", "o", "de", "do", "da"]);
+
+/** "2", "#2", "número dois", "2 como feita" → 2; null when the words do not start with a number. */
+export function leadingNumber(text: string) {
+  const words = text.split(/\s+/).map(fold).filter(Boolean);
+  let at = 0;
+  while (NUMBER_LEAD.has(words[at])) at++;
+  const number = readNumber(words, at);
+  return number && Number.isInteger(number.value) && number.value > 0 ? number.value : null;
+}
+
+/**
+ * A day or a time of day in the words ("sexta às 10", "amanhã", "dia 12", "14:30", "à tarde"):
+ * what was said is an appointment, for the agenda. "hoje" alone is the day's to-do list.
+ */
+export function mentionsWhen(text: string) {
+  const words = ` ${normalize(text).replace(/[^a-z0-9:/]+/g, " ")} `;
+  return (
+    /\s(amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana que vem|proxima semana|mes que vem|fim de semana|meio dia|meia noite|de manha|de tarde|de noite|a tarde|a noite)\s/.test(words) ||
+    /\s(as|das|ate as) \d/.test(words) ||
+    /\s\d{1,2} ?h(oras?)?\s/.test(words) ||
+    /\s\d{1,2}:\d{2}\s/.test(words) ||
+    /\sdia \d{1,2}\s/.test(words) ||
+    /\s\d{1,2}\/\d{1,2}(\/\d{2,4})?\s/.test(words)
+  );
+}
+
+/** A task as said ("que preciso comprar pão.") → as listed ("Preciso comprar pão"). */
+export function cleanTask(text: string) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && ["que", "de", "pra", "para"].includes(fold(words[0]))) words.shift();
+  return capitalize(words.join(" ").replace(/^[\s,:;–-]+|[\s,:;.!?–-]+$/g, ""));
+}
+
+/** Words after "em"/"para" that say when, not where ("para amanhã", "em uma hora"). */
+const WHEN_WORDS = new Set(["hoje", "amanha", "agora", "depois", "cedo", "tarde", "noite", "manha", "semana", "fim", "o", "a", "os", "as", "um", "uma"]);
+const DAY_WORDS = new Set(["hoje", "amanha", "agora"]);
+/** "de" is left out: it is inside names ("Rio de Janeiro"). */
+const PLACE_TIES = new Set(["em", "no", "na", "para", "pra"]);
+
+/** "amanhã em São Paulo" → "São Paulo": the place in a weather question (null: none said). */
+export function placeIn(text: string) {
+  const raw = text.replace(/[?!.,;]+/g, " ").split(/\s+/).filter(Boolean);
+  const words = raw.map(fold);
+  // The last tie followed by a word that is not about time: "para amanhã em Curitiba".
+  for (let at = words.length - 2; at >= 0; at--) {
+    if (!PLACE_TIES.has(words[at]) || WHEN_WORDS.has(words[at + 1])) continue;
+    const place = raw.slice(at + 1).filter((_, i) => !DAY_WORDS.has(words[at + 1 + i]));
+    return place.join(" ") || null;
+  }
+  return null;
+}
+
 /** "20 minutos", "1 hora e 30 minutos", "30 segundos". */
 export function describeDuration(minutes: number) {
   if (minutes < 1) {
@@ -117,14 +208,17 @@ export function describeDuration(minutes: number) {
   return parts.join(" e ");
 }
 
-/** "São 14 horas e 5 minutos." */
-export function spokenTime(now: Date) {
+/** "São 14 horas e 5 minutos" (no full stop: JARVIS may go on). */
+export function clockPhrase(now: Date) {
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const head = hours === 1 ? "É 1 hora" : hours === 0 ? "É meia-noite" : hours === 12 ? "É meio-dia" : `São ${hours} horas`;
-  if (!minutes) return `${head} em ponto.`;
-  return `${head} e ${minutes} ${minutes === 1 ? "minuto" : "minutos"}.`;
+  if (!minutes) return `${head} em ponto`;
+  return `${head} e ${minutes} ${minutes === 1 ? "minuto" : "minutos"}`;
 }
+
+/** "São 14 horas e 5 minutos." */
+export const spokenTime = (now: Date) => `${clockPhrase(now)}.`;
 
 /** "terça-feira, 27 de outubro de 2026" */
 export function longDate(now: Date) {
@@ -151,8 +245,8 @@ const percent = (share: number) => `${Math.round(share * 100)} por cento`;
 const gigabytes = (bytes: number) => `${Math.round(bytes / 1024 ** 3)} gigabytes`;
 const usage = (value: { used: number; total: number }) => (value.total > 0 ? value.used / value.total : 0);
 
-/** The machine in a few spoken sentences: what needs attention first ("senhor" stays with Claude). */
-export function spokenStatus({ stats, battery }: MachineState) {
+/** What needs attention ("o disco C está quase cheio") and the readings, as spoken phrases. */
+export function machineReadings({ stats, battery }: MachineState) {
   const warnings: string[] = [];
   const readings: string[] = [];
   if (stats?.cpu != null) {
@@ -174,10 +268,17 @@ export function spokenStatus({ stats, battery }: MachineState) {
     if (battery.level < 0.15 && !battery.charging) warnings.push("a bateria está baixa, convém ligar na tomada");
   }
   if (stats?.wlan) readings.push(`Wi-Fi ${stats.wlan.ssid} com sinal de ${percent(stats.wlan.signal)}`);
+  return { warnings, readings };
+}
+
+export const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+/** The machine in a few plain sentences, what needs attention first (for JARVIS's briefing). */
+export function spokenStatus(state: MachineState) {
+  const { warnings, readings } = machineReadings(state);
   if (!readings.length) return "Não consigo ler os sensores do sistema agora.";
   const head = warnings.length ? `Atenção: ${warnings.join(", ")}.` : "Todos os sistemas operando normalmente.";
-  const list = readings.join(", ");
-  return `${head} ${list.charAt(0).toUpperCase()}${list.slice(1)}.`;
+  return `${head} ${capitalize(readings.join(", "))}.`;
 }
 
 /** The same, as data for JARVIS (the `system_status` tool). */
@@ -200,7 +301,12 @@ const quote = (text: string) => `"${text.replace(/"/g, "'")}"`;
  * What JARVIS (Claude Code) is asked when a shortcut needs him: the user's words and what the
  * shortcut means. `said` is the whole transcript, `text` what came after the shortcut's phrase.
  */
-export function shortcutPrompt(action: "research" | "briefing" | "memory" | "reminder", said: string, text: string, context: { now: Date; machine?: string }) {
+export function shortcutPrompt(
+  action: "research" | "briefing" | "memory" | "reminder" | "note",
+  said: string,
+  text: string,
+  context: { now: Date; machine?: string; weather?: string; agenda?: string; tasks?: string },
+) {
   const clock = `Agora são ${localStamp(context.now).time} de ${longDate(context.now)}.`;
   switch (action) {
     case "research":
@@ -212,8 +318,13 @@ export function shortcutPrompt(action: "research" | "briefing" | "memory" | "rem
     case "briefing":
       return [
         `[Atalho: briefing] O usuário disse: ${quote(said)}. ${clock}${context.machine ? ` Estado do computador: ${context.machine}` : ""}`,
-        "Dê um briefing falado de até seis frases curtas, sem listas: cumprimente conforme a hora, o clima de hoje na cidade do usuário (se ela estiver na sua memória; senão, não pesquise o clima e pergunte a cidade no fim) e as duas ou três notícias mais importantes do dia. Use no máximo duas buscas. Mencione o computador só se algo pedir atenção.",
+        `Clima: ${context.weather ?? "cidade desconhecida (o widget Clima não tem cidade)"}`,
+        `Agenda de hoje: ${context.agenda ?? "nada marcado"}`,
+        `Tarefas pendentes: ${context.tasks ?? "nenhuma"}`,
+        "Dê um briefing falado de até seis frases curtas, sem listas: cumprimente conforme a hora, o clima de hoje (dos dados acima; sem cidade, pergunte a cidade no fim e não pesquise o clima), os compromissos de hoje e quantas tarefas pendentes, se houver, e as duas ou três notícias mais importantes do dia. Use no máximo duas buscas, só para as notícias. Mencione o computador só se algo pedir atenção.",
       ].join("\n");
+    case "note":
+      return `[Atalho: anotação] O usuário disse: ${quote(said)}. ${clock} Se for um compromisso (tem dia ou horário: consulta, reunião, evento, prazo), marque com agenda_add; se for algo a fazer, sem horário, ponha na lista com tasks_add; senão, acrescente em Notas/AAAA-MM-DD Anotações.md, como de costume. Confirme em uma frase.`;
     case "memory":
       return `[Atalho: memória] O usuário disse: ${quote(said)}. Guarde isso em Memória.md e confirme em uma frase.`;
     case "reminder":

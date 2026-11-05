@@ -114,10 +114,6 @@ test("the core switched off leaves an empty, working desktop; the search turns t
   await expect(menu.getByText(/o mínimo de memória/)).toBeVisible();
   await expect(page.locator("canvas")).toHaveCount(0);
   await expect(page.locator('[data-core="2d"]')).toHaveCount(0);
-
-  // The backgrounds say why they no longer show.
-  await menu.getByRole("tab", { name: "Cores" }).click();
-  await expect(menu.getByText("Grid e Matrix aparecem só com o núcleo 3D (Menu avançado → Núcleo).")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${SCREENS}/core-off.png` });
@@ -138,6 +134,50 @@ test("the core switched off leaves an empty, working desktop; the search turns t
   const before = await frames(page);
   await page.waitForTimeout(500);
   expect(await frames(page)).toBeGreaterThan(before + 10);
+});
+
+test("the 2D core never creates a WebGL context; the 3D draws only around the core, at most 60 fps, and slower behind other apps", async ({ page }) => {
+  // Every WebGL context the page asks for, from the very first script.
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    (window as unknown as { webglContexts: number }).webglContexts = 0;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
+      if (type.startsWith("webgl")) (window as unknown as { webglContexts: number }).webglContexts++;
+      return (original as (...args: unknown[]) => RenderingContext | null).call(this, type, ...rest);
+    } as typeof HTMLCanvasElement.prototype.getContext;
+  });
+  await start(page);
+  await waitForFrames(page);
+  // The 2D default (no boot screen here): not even the GPU probe of the quality level.
+  expect(await page.evaluate(() => (window as unknown as { webglContexts: number }).webglContexts)).toBe(0);
+
+  const menu = await openCoreTab(page);
+  await menu.getByRole("radio", { name: "Holograma 3D" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("canvas")).toHaveCount(1);
+  await waitForFrames(page, (await frames(page)) + 60);
+
+  // A square around the core, far smaller than the 1920×1080 screen, with the page around it.
+  const box = (await page.locator("canvas").boundingBox())!;
+  expect(box.width).toBeLessThan(1000);
+  expect(box.width).toBeCloseTo(box.height, 0);
+  expect(box.x + box.width / 2).toBeCloseTo(960, -1);
+  await expect(page.locator('[data-core="3d"]')).toBeVisible();
+
+  const rate = async () => {
+    const before = await frames(page);
+    await page.waitForTimeout(2000);
+    return ((await frames(page)) - before) / 2;
+  };
+  // In front: capped at 60 whatever the screen's refresh rate.
+  expect(await rate()).toBeLessThanOrEqual(62);
+  // Another app in front: half the rate, still moving.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  const behind = await rate();
+  expect(behind).toBeLessThanOrEqual(32);
+  expect(behind).toBeGreaterThan(5);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.screenshot({ path: `${SCREENS}/core-3d-cropped.png` });
 });
 
 test.describe("from a fresh start", () => {

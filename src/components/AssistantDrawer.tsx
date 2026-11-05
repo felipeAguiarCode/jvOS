@@ -63,7 +63,7 @@ export function AssistantDrawer({ open, onOpenChange, showToggle, items, turn, b
           aria-expanded={open}
           title="Histórico do JARVIS"
           onClick={() => onOpenChange(!open)}
-          className={`fixed z-[12] grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border bg-hud-panel/55 outline-none backdrop-blur-sm transition hover:border-hud-light/50 hover:text-hud-light focus-visible:ring-1 focus-visible:ring-hud-light/50 ${
+          className={`fixed z-[12] grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border bg-hud-panel/70 outline-none transition hover:border-hud-light/50 hover:text-hud-light focus-visible:ring-1 focus-visible:ring-hud-light/50 ${
             open ? "border-hud-light/50 text-hud-light" : "border-hud-cyan/25 text-hud-text/60"
           }`}
           style={{ left: `calc(50% + ${COMPOSITION_CSS} * 0.37)`, top: `calc(${CORE_CENTER_Y_CSS} + ${COMPOSITION_CSS} * 0.37)` }}

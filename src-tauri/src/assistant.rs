@@ -31,6 +31,11 @@ const TOOLS: &str = "WebSearch,WebFetch,Read,Edit,Write,Glob,Grep";
 const ALLOWED: [&str; 8] = ["WebSearch", "WebFetch", "Read", "Edit", "Write", "Glob", "Grep", "mcp__jarvis"];
 /// Writing a file streams its content: the UI gets it again after at least this many new characters.
 const FILE_STEP: usize = 24;
+/// ...or this share of what already arrived, whichever is more. Each update re-reads the whole
+/// input and sends the whole content so far, so fixed steps made a long file cost quadratic time
+/// (a 50 KB note: ~2000 full re-reads and sends); growing steps keep it near linear. The final
+/// content always arrives with the block's end.
+const FILE_STEP_SHARE: usize = 32;
 const NOT_FOUND: &str = "Claude Code não encontrado. Instale-o (claude.ai/code) e entre na sua conta rodando `claude` uma vez.";
 const BUSY: &str = "Ainda estou respondendo.";
 /// The last lines Claude Code wrote to stderr, to explain a process that ended mid-answer.
@@ -54,6 +59,18 @@ pub enum AssistantEvent {
 }
 
 /// JARVIS's folder and its parts.
+/// What the memory cleanup ("limpa a memória", "ativa o garbage collector") did with Claude Code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Sleep {
+    /// Stopped while idle; `freed` is the RAM it held, in bytes.
+    Stopped { freed: u64 },
+    /// In the middle of an answer: left alone.
+    Busy,
+    /// Not running: nothing to give back.
+    Idle,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Folder {
@@ -68,12 +85,20 @@ impl Folder {
     }
 }
 
+/// Who answers and whom he answers (from the settings): a change starts a new process.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Profile {
+    /// The `--model` it runs with ("default": none given).
+    pub model: String,
+    /// What JARVIS calls the user (empty: he does not know yet).
+    pub name: String,
+}
+
 /// The running `claude` process.
 struct Process {
     child: Child,
     stdin: ChildStdin,
-    /// The `--model` it runs with ("default": none given).
-    model: String,
+    profile: Profile,
 }
 
 #[derive(Default)]
@@ -106,16 +131,16 @@ impl Assistant {
 
     /// Starts Claude Code ahead of the question (when JARVIS opens, while the user is talking).
     /// An answer in progress is left alone.
-    pub fn warm(&self, session: Option<String>, model: &str) -> Result<(), String> {
+    pub fn warm(&self, session: Option<String>, profile: &Profile) -> Result<(), String> {
         let mut process = self.process.lock().unwrap();
         if self.shared.lock().unwrap().turn.is_some() {
             return Ok(());
         }
-        self.ensure(&mut process, session, model).map(|_| ())
+        self.ensure(&mut process, session, profile).map(|_| ())
     }
 
     /// Sends a question; the answer streams to `channel` and always ends with a `Done`.
-    pub fn ask(&self, text: &str, session: Option<String>, model: &str, channel: Channel<AssistantEvent>) -> Result<(), String> {
+    pub fn ask(&self, text: &str, session: Option<String>, profile: &Profile, channel: Channel<AssistantEvent>) -> Result<(), String> {
         let text = text.trim();
         if text.is_empty() {
             return Err("Pergunta vazia".into());
@@ -124,7 +149,7 @@ impl Assistant {
         if self.shared.lock().unwrap().turn.is_some() {
             return Err(BUSY.into());
         }
-        let running = self.ensure(&mut process, session, model)?;
+        let running = self.ensure(&mut process, session, profile)?;
         // Set before writing, so not even the first event can be missed.
         self.shared.lock().unwrap().turn = Some(channel);
         let message = json!({ "type": "user", "message": { "role": "user", "content": text }, "parent_tool_use_id": null });
@@ -160,6 +185,24 @@ impl Assistant {
         }
     }
 
+    /// The memory cleanup: an idle Claude Code stops and gives its RAM back. The session stays,
+    /// so the next question starts it again on the same conversation.
+    pub fn sleep(&self) -> Sleep {
+        let mut process = self.process.lock().unwrap();
+        if self.shared.lock().unwrap().turn.is_some() {
+            return Sleep::Busy;
+        }
+        let alive = process.as_mut().is_some_and(|running| matches!(running.child.try_wait(), Ok(None)));
+        if !alive {
+            // One that already ended is only reaped.
+            self.stop(&mut process);
+            return Sleep::Idle;
+        }
+        let freed = process.as_ref().and_then(|running| crate::system::process_memory(running.child.id())).unwrap_or(0);
+        self.stop(&mut process);
+        Sleep::Stopped { freed }
+    }
+
     /// JARVIS is closing: no `claude` outlives it.
     pub fn close(&self) {
         let mut process = self.process.lock().unwrap();
@@ -174,33 +217,38 @@ impl Assistant {
         }
     }
 
-    /// The running process, started (or restarted on `session`, or with another model) when needed.
-    fn ensure<'a>(&self, process: &'a mut Option<Process>, session: Option<String>, model: &str) -> Result<&'a mut Process, String> {
+    /// The running process, started (or restarted on `session`, or with another model or name) when needed.
+    fn ensure<'a>(&self, process: &'a mut Option<Process>, session: Option<String>, profile: &Profile) -> Result<&'a mut Process, String> {
         let alive = process.as_mut().is_some_and(|running| matches!(running.child.try_wait(), Ok(None)));
-        let same_model = process.as_ref().is_some_and(|running| running.model == model);
+        let same_profile = process.as_ref().is_some_and(|running| running.profile == *profile);
         let known = self.shared.lock().unwrap().session.clone();
         // A conversation from before (the history kept in the UI) that this process is not on.
         let other = session.as_ref().is_some_and(|wanted| known.as_ref().is_some_and(|current| current != wanted));
-        if !alive || !same_model || other {
+        if !alive || !same_profile || other {
             self.stop(process);
             // A session that is gone (deleted, or from another machine) cannot be resumed:
             // Claude Code would only answer "No conversation found". A new one starts instead.
-            *process = Some(self.spawn(session.or(known).filter(|id| session_exists(id)), model)?);
+            *process = Some(self.spawn(session.or(known).filter(|id| session_exists(id)), profile)?);
         }
         Ok(process.as_mut().expect("just started"))
     }
 
-    /// The persona, and what JARVIS was asked to remember (read again each time he starts).
-    fn system_prompt(&self) -> String {
+    /// The persona, the user's name, and what JARVIS was asked to remember (read again each time he starts).
+    fn system_prompt(&self, name: &str) -> String {
+        let user = if name.is_empty() {
+            "Você ainda não sabe o nome do usuário: trate-o sem nome até ele dizer como quer ser chamado.".to_string()
+        } else {
+            format!("O usuário se chama {name}: é assim que você o chama (Configurações → Cérebro do JARVIS), a não ser que ele peça outra forma.")
+        };
         let memory = std::fs::read_to_string(self.folder.root.join(MEMORY_FILE)).unwrap_or_default();
         let memory: String = memory.trim().chars().take(MAX_MEMORY).collect();
         if memory.is_empty() {
-            return PERSONA.to_string();
+            return format!("{PERSONA}\n{user}\n");
         }
-        format!("{PERSONA}\nO que você já guardou em {MEMORY_FILE}:\n\n{memory}\n")
+        format!("{PERSONA}\n{user}\n\nO que você já guardou em {MEMORY_FILE}:\n\n{memory}\n")
     }
 
-    fn spawn(&self, resume: Option<String>, model: &str) -> Result<Process, String> {
+    fn spawn(&self, resume: Option<String>, profile: &Profile) -> Result<Process, String> {
         let exe = claude_exe().ok_or(NOT_FOUND)?;
         for dir in [&self.folder.root, &self.folder.notes, &self.folder.agents] {
             std::fs::create_dir_all(dir).map_err(|error| format!("Falha ao criar {}: {error}", dir.display()))?;
@@ -216,10 +264,10 @@ impl Assistant {
             command.arg("--mcp-config").arg(config);
         }
         // The user's own default can be a slow model at a high effort: JARVIS talks, so he picks his.
-        if model != "default" {
-            command.args(["--model", model]);
+        if profile.model != "default" {
+            command.args(["--model", &profile.model]);
         }
-        command.args(["--disable-slash-commands", "--effort", "low", "--append-system-prompt"]).arg(self.system_prompt());
+        command.args(["--disable-slash-commands", "--effort", "low", "--append-system-prompt"]).arg(self.system_prompt(&profile.name));
         if let Some(id) = &resume {
             command.args(["--resume", id]);
         }
@@ -253,7 +301,7 @@ impl Assistant {
         };
         let shared = self.shared.clone();
         std::thread::spawn(move || read_output(stdout, &shared, generation, errors));
-        Ok(Process { child, stdin, model: model.to_string() })
+        Ok(Process { child, stdin, profile: profile.clone() })
     }
 }
 
@@ -371,6 +419,8 @@ struct ToolBlock {
     json: String,
     /// How much of a Write's content the UI has already been sent (characters).
     sent: usize,
+    /// Length of `json` when it was last parsed.
+    parsed: usize,
 }
 
 /// The answer being streamed.
@@ -411,7 +461,7 @@ fn parse_line(value: &Value, turn: &mut Turn) -> Vec<AssistantEvent> {
                         let block = &event["content_block"];
                         let name = block["name"].as_str().unwrap_or_default().to_string();
                         let id = block["id"].as_str().unwrap_or_default().to_string();
-                        turn.blocks.insert(index, ToolBlock { id, name: name.clone(), json: String::new(), sent: 0 });
+                        turn.blocks.insert(index, ToolBlock { id, name: name.clone(), json: String::new(), sent: 0, parsed: 0 });
                         vec![AssistantEvent::Tool { name }]
                     }
                     _ => Vec::new(),
@@ -430,9 +480,10 @@ fn parse_line(value: &Value, turn: &mut Turn) -> Vec<AssistantEvent> {
                     Some("input_json_delta") => {
                         let Some(block) = turn.blocks.get_mut(&index) else { return Vec::new() };
                         block.json.push_str(event["delta"]["partial_json"].as_str().unwrap_or_default());
-                        if block.name != "Write" {
+                        if block.name != "Write" || block.json.len() < block.parsed + FILE_STEP.max(block.parsed / FILE_STEP_SHARE) {
                             return Vec::new();
                         }
+                        block.parsed = block.json.len();
                         let (Some((path, true)), Some((content, _))) = (partial_field(&block.json, "file_path"), partial_field(&block.json, "content")) else {
                             return Vec::new();
                         };
@@ -784,14 +835,26 @@ mod tests {
     }
 
     #[test]
+    fn the_cleanup_has_nothing_to_stop_before_the_first_question() {
+        let assistant = Assistant::new(Folder::new(std::env::temp_dir().join("jarvis-sleep-test")), None);
+        assert_eq!(assistant.sleep(), Sleep::Idle);
+        assert_eq!(serde_json::to_value(Sleep::Stopped { freed: 7 }).unwrap(), json!({ "outcome": "stopped", "freed": 7 }));
+        assert_eq!(serde_json::to_value(Sleep::Busy).unwrap(), json!({ "outcome": "busy" }));
+    }
+
+    #[test]
     fn the_memory_joins_the_persona() {
         let root = std::env::temp_dir().join(format!("jarvis-memory-test-{}", std::process::id()));
         let assistant = Assistant::new(Folder::new(root.clone()), None);
-        assert_eq!(assistant.system_prompt(), PERSONA);
+        let bare = assistant.system_prompt("");
+        assert!(bare.starts_with(PERSONA) && bare.contains("ainda não sabe o nome") && !bare.contains("O que você já guardou"), "{bare}");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join(MEMORY_FILE), "- Mora em Curitiba.\n").unwrap();
-        let prompt = assistant.system_prompt();
+        let prompt = assistant.system_prompt("Tony");
         assert!(prompt.starts_with(PERSONA) && prompt.ends_with("- Mora em Curitiba.\n"), "{prompt}");
+        // The name comes before the memory, which can say otherwise ("me chame de chefe").
+        let (name, memory) = (prompt.find("O usuário se chama Tony").unwrap(), prompt.find("Mora em Curitiba").unwrap());
+        assert!(name < memory, "{prompt}");
         std::fs::remove_dir_all(root).unwrap();
     }
 

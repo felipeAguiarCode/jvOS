@@ -75,7 +75,7 @@ fn throughput(before: &HashMap<u64, (u64, u64)>, after: &HashMap<u64, (u64, u64)
 }
 
 #[cfg(windows)]
-pub use win::{disk_of, Sampler};
+pub use win::{disk_of, process_memory, Sampler};
 
 #[cfg(windows)]
 mod win {
@@ -83,7 +83,7 @@ mod win {
     use std::ffi::c_void;
     use std::path::Path;
     use std::ptr::{addr_of, null, null_mut};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use super::{busy_share, throughput, Disk, SystemStats, Usage, Wlan};
 
@@ -103,6 +103,23 @@ mod win {
     /// which would count the same traffic again.
     const HARDWARE_INTERFACE: u8 = 0x1;
     const FILTER_INTERFACE: u8 = 0x2;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+    /// PROCESS_MEMORY_COUNTERS.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ProcessMemoryCounters {
+        size: u32,
+        page_faults: u32,
+        peak_working_set: usize,
+        working_set: usize,
+        quota_peak_paged_pool: usize,
+        quota_paged_pool: usize,
+        quota_peak_non_paged_pool: usize,
+        quota_non_paged_pool: usize,
+        pagefile: usize,
+        peak_pagefile: usize,
+    }
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -223,6 +240,9 @@ mod win {
         fn GetDriveTypeW(root: *const u16) -> u32;
         fn GetDiskFreeSpaceExW(directory: *const u16, available: *mut u64, total: *mut u64, free: *mut u64) -> i32;
         fn GetVolumePathNameW(path: *const u16, volume: *mut u16, length: u32) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, id: u32) -> isize;
+        fn K32GetProcessMemoryInfo(process: isize, counters: *mut ProcessMemoryCounters, size: u32) -> i32;
+        fn CloseHandle(handle: isize) -> i32;
     }
 
     #[link(name = "pdh")]
@@ -293,6 +313,18 @@ mod win {
         };
         unsafe { FreeMibTable(table.cast()) };
         Some(counters)
+    }
+
+    /// The RAM a process holds (its working set, what Task Manager shows), in bytes.
+    pub fn process_memory(id: u32) -> Option<u64> {
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id) };
+        if process == 0 {
+            return None;
+        }
+        let mut counters = ProcessMemoryCounters { size: size_of::<ProcessMemoryCounters>() as u32, ..Default::default() };
+        let read = unsafe { K32GetProcessMemoryInfo(process, &mut counters, counters.size) } != 0;
+        unsafe { CloseHandle(process) };
+        read.then_some(counters.working_set as u64)
     }
 
     /// The volume `path` is on (a drive, a share, a folder-mounted volume) and its space.
@@ -416,17 +448,25 @@ mod win {
         found
     }
 
-    /// Keeps what the rate meters compare against (CPU times, the GPU query) and the Wi-Fi handle.
+    /// Without the WLAN service (a desktop on cable) opening the handle fails: tried again this often.
+    const WLAN_RETRY: Duration = Duration::from_secs(60);
+    /// Free space barely moves between two readings two seconds apart.
+    const DISKS_EVERY: Duration = Duration::from_secs(30);
+
+    /// Keeps what the rate meters compare against (CPU times, the GPU query), the Wi-Fi handle and
+    /// the last drive list.
     pub struct Sampler {
         cpu: Option<(u64, u64)>,
         gpu: Option<Gpu>,
         wlan: Option<isize>,
+        wlan_failed: Option<Instant>,
+        disks: Option<(Instant, Vec<Disk>)>,
         net: Option<(Instant, HashMap<u64, (u64, u64)>)>,
     }
 
     impl Default for Sampler {
         fn default() -> Self {
-            Self { cpu: cpu_times(), gpu: Gpu::open(), wlan: None, net: None }
+            Self { cpu: cpu_times(), gpu: Gpu::open(), wlan: None, wlan_failed: None, disks: None, net: None }
         }
     }
 
@@ -446,19 +486,24 @@ mod win {
             if counted.is_some() {
                 self.net = counted;
             }
-            // Without the WLAN service (a desktop on cable) opening fails; it is tried again next time.
-            if self.wlan.is_none() {
+            if self.wlan.is_none() && self.wlan_failed.is_none_or(|at| at.elapsed() >= WLAN_RETRY) {
                 let (mut version, mut handle) = (0u32, 0isize);
                 if unsafe { WlanOpenHandle(WLAN_CLIENT_VERSION, null(), &mut version, &mut handle) } == 0 {
                     self.wlan = Some(handle);
+                    self.wlan_failed = None;
+                } else {
+                    self.wlan_failed = Some(Instant::now());
                 }
+            }
+            if self.disks.as_ref().is_none_or(|(at, _)| at.elapsed() >= DISKS_EVERY) {
+                self.disks = Some((Instant::now(), disks()));
             }
             SystemStats {
                 cpu,
                 gpu: self.gpu.as_ref().and_then(Gpu::read),
                 ram,
                 memory,
-                disks: disks(),
+                disks: self.disks.as_ref().map(|(_, list)| list.clone()).unwrap_or_default(),
                 wlan: self.wlan.and_then(wlan),
                 net,
             }
@@ -491,6 +536,11 @@ pub fn disk_of(_: &std::path::Path) -> Option<Disk> {
     None
 }
 
+#[cfg(not(windows))]
+pub fn process_memory(_: u32) -> Option<u64> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,6 +560,14 @@ mod tests {
         assert_eq!(throughput(&before, &after, 2.0), Some(Net { down: 1000.0, up: 505.0 }));
         assert_eq!(throughput(&before, &after, 0.0), None);
         assert_eq!(throughput(&HashMap::new(), &after, 1.0), Some(Net { down: 0.0, up: 0.0 }));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_a_process_ram() {
+        let own = process_memory(std::process::id()).expect("this process");
+        assert!(own > 1024 * 1024, "{own}");
+        assert_eq!(process_memory(u32::MAX - 3), None);
     }
 
     #[cfg(windows)]

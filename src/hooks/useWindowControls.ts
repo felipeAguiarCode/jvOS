@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { HoldPhase } from "../components/QuickDock";
 
@@ -25,6 +25,8 @@ function isTyping(target: EventTarget | null) {
 
 /** Delay after which the window is shown even if no frame was rendered yet. */
 const REVEAL_FALLBACK_MS = 500;
+/** Out of sight this long, WebView2 is asked to give memory back (a quick Alt+Tab is not). */
+const TRIM_AFTER_MS = 5000;
 
 /**
  * Frameless-window plumbing: reveal after the first frame, keyboard shortcuts (M toggles the
@@ -41,6 +43,8 @@ export function useWindowControls({
   onOpenSearch,
 }: WindowControlsOptions) {
   const [paused, setPaused] = useState(false);
+  // Another app in front: the core keeps moving at a lower frame rate (lib/frameClock).
+  const [focused, setFocused] = useState(() => document.hasFocus());
   const revealed = useRef(false);
   const decorated = useRef(false);
   const holdingVoice = useRef(false);
@@ -167,5 +171,34 @@ export function useWindowControls({
     };
   }, []);
 
-  return { paused, reveal };
+  // Hidden or minimised for a while: WebView2's low memory target (caches and working set trimmed);
+  // back on screen, the normal one.
+  const trimmed = useRef(false);
+  useEffect(() => {
+    if (!isTauri()) return;
+    const setBackground = (background: boolean) => {
+      trimmed.current = background;
+      void invoke("webview_background", { background }).catch(() => undefined);
+    };
+    if (!paused) {
+      if (trimmed.current) setBackground(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setBackground(true), TRIM_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [paused]);
+
+  useEffect(() => {
+    // The WebView's window gets focus/blur with the native window, in the app and the browser alike.
+    const onFocus = () => setFocused(true);
+    const onBlur = () => setFocused(false);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  return { paused, focused, reveal };
 }

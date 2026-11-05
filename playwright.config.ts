@@ -34,7 +34,7 @@ export default defineConfig({
     headless: true,
   },
   projects: [
-    { name: "ui", testMatch: /(ui|settings|desktop|boot|search|tui|taskbar|dock|music|voicetab|shell|core|meters|widgets|outline|ide|lab|lab-engine|assistant|agent|speech|shortcuts)\.spec\.ts/, use: { launchOptions: { args: GPU_ARGS } } },
+    { name: "ui", testMatch: /(ui|settings|desktop|boot|search|tui|taskbar|dock|music|voicetab|shell|core|meters|widgets|outline|ide|lab|lab-engine|assistant|agent|speech|shortcuts|personality|feeds|tasks)\.spec\.ts/, use: { launchOptions: { args: GPU_ARGS } } },
     {
       name: "voice",
       testMatch: /voice\.spec\.ts/,

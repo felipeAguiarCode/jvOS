@@ -14,10 +14,14 @@ export interface QualityPreset {
   bloomLevels: number;
 }
 
+/**
+ * 2× MSAA and 6 bloom mip levels at most: 4× MSAA and the 7th and 8th levels (the widest, faintest
+ * glow) cost frame time for a difference that does not show on thin additive lines.
+ */
 export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   low: { level: "low", maxDpr: 1, msaa: 2, particles: 350, wireDensity: 0.5, bloomLevels: 5 },
-  medium: { level: "medium", maxDpr: 1.25, msaa: 4, particles: 800, wireDensity: 0.75, bloomLevels: 7 },
-  high: { level: "high", maxDpr: 1.5, msaa: 4, particles: 1400, wireDensity: 1, bloomLevels: 8 },
+  medium: { level: "medium", maxDpr: 1.25, msaa: 2, particles: 800, wireDensity: 0.75, bloomLevels: 6 },
+  high: { level: "high", maxDpr: 1.5, msaa: 2, particles: 1400, wireDensity: 1, bloomLevels: 6 },
 };
 
 const LEVELS: QualityLevel[] = ["low", "medium", "high"];
@@ -61,27 +65,40 @@ function detectFromGpu(): QualityLevel {
   }
 }
 
+interface QualityState {
+  level: QualityLevel;
+  locked: boolean;
+  /** No explicit choice and the GPU not probed yet: the level is a placeholder. */
+  guessed: boolean;
+}
+
 /**
  * Resolution order: `?quality=` → persisted choice → GPU heuristic.
  * An explicit choice (URL or persisted) is "locked": the runtime FPS monitor won't downgrade it.
  */
-function resolveInitial(): { level: QualityLevel; locked: boolean } {
+function resolveInitial(): QualityState {
   const fromUrl = new URLSearchParams(window.location.search).get("quality");
-  if (isLevel(fromUrl)) return { level: fromUrl, locked: true };
+  if (isLevel(fromUrl)) return { level: fromUrl, locked: true, guessed: false };
   const stored = readStored();
-  if (stored) return { level: stored, locked: true };
-  return { level: detectFromGpu(), locked: false };
+  if (stored) return { level: stored, locked: true, guessed: false };
+  return { level: "medium", locked: false, guessed: true };
 }
 
-export function useQuality() {
+/**
+ * The 3D hologram's quality. `probe` (the 3D core is in use) runs the GPU heuristic the first
+ * time it is needed: the 2D core and the core switched off never create a throwaway WebGL context.
+ */
+export function useQuality(probe: boolean) {
   const [state, setState] = useState(resolveInitial);
+  // Settled during the render, before the scene mounts with a placeholder level.
+  if (probe && state.guessed) setState({ level: detectFromGpu(), locked: false, guessed: false });
 
   /** Manual cycle (Ctrl+Shift+Q): persists and locks the choice. */
   const cycle = useCallback(() => {
     setState(({ level }) => {
       const next = LEVELS[(LEVELS.indexOf(level) + 1) % LEVELS.length];
       writeStored(next);
-      return { level: next, locked: true };
+      return { level: next, locked: true, guessed: false };
     });
   }, []);
 
@@ -89,7 +106,7 @@ export function useQuality() {
   const decline = useCallback(() => {
     setState((current) => {
       if (current.locked || current.level === "low") return current;
-      return { level: LEVELS[LEVELS.indexOf(current.level) - 1], locked: false };
+      return { level: LEVELS[LEVELS.indexOf(current.level) - 1], locked: false, guessed: false };
     });
   }, []);
 

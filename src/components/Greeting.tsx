@@ -14,11 +14,13 @@ const OUT_MS = 280;
  * SUPERHOT-style greeting inside the core after the boot: heavy capitals cutting in word by
  * word, each with a punchy digital hit, a little see-through so the hologram powering on shows
  * behind them, then a glitch out. The phrase varies (time of day, never twice in a row).
+ * Also after "acorda, querido, papai chegou", with its own words.
  */
-export function Greeting({ sound, onDone }: { sound: boolean; onDone: () => void }) {
+export function Greeting({ name, sound, text, onDone }: { name: string; sound: boolean; text?: readonly [string, string]; onDone: () => void }) {
   const reduced = useReducedMotion() ?? false;
-  // Picked once per boot (a lazy initialiser, so StrictMode does not burn two picks into memory).
-  const [lines] = useState(() => pickGreeting().map((line) => line.split(" ")));
+  // Picked once per boot (a lazy initialiser, so StrictMode does not burn two picks into memory);
+  // `text` is a set greeting (the homecoming).
+  const [lines] = useState(() => (text ?? pickGreeting(name)).map((line) => line.split(" ")));
   const words = lines.flat();
   const [shown, setShown] = useState(reduced ? words.length : 0);
   const [leaving, setLeaving] = useState(false);

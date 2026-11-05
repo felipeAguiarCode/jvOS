@@ -14,8 +14,6 @@ import { TUI_ACCENTS, tuiSurface, type TuiAccent, type TuiPrefs } from "../../li
 import { VoiceTab } from "./VoiceTab";
 import {
   ActionButton,
-  BackgroundNote,
-  BACKGROUNDS,
   CardPicker,
   CORE_OPTIONS,
   Range,
@@ -249,13 +247,6 @@ export function AdvancedMenu({
                         onChange={(accentHue) => onSettings((current) => ({ ...current, theme: "custom", accentHue }))}
                       />
                       <PaletteStrip hue={settings.accentHue} />
-                      <CardPicker
-                        label="Fundo"
-                        options={BACKGROUNDS}
-                        value={settings.background}
-                        onChange={(background) => onSettings((current) => ({ ...current, background }))}
-                      />
-                      <BackgroundNote core={core.mode} />
                     </Section>
                   ) : (
                     <p className="text-sm text-hud-text/50">Carregando…</p>
@@ -275,8 +266,7 @@ export function AdvancedMenu({
                     <Section title="Memória">
                       <p className="text-xs leading-relaxed text-hud-text/55">
                         Vale na hora. Ao sair do 3D, a memória de vídeo do holograma é devolvida na hora; o código dele, se já tinha sido
-                        carregado, só sai ao reabrir o JARVIS. Abrindo no 2D ou desligado, o 3D nem é carregado. Os fundos Grid e Matrix
-                        são desenhados junto com o holograma, então só aparecem no 3D.
+                        carregado, só sai ao reabrir o JARVIS. Abrindo no 2D ou desligado, o 3D nem é carregado.
                       </p>
                     </Section>
                   </>

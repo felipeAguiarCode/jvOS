@@ -8,11 +8,17 @@ import {
   statusReport,
   type ShortcutEvent,
 } from "../src/lib/shortcuts";
-import { PLAIN_SETTINGS, SCREENS, waitForFrames } from "./helpers";
+import { cleanupSummary, formatBytes } from "../src/lib/cleanup";
+import { fill, LINES, type LineKey, type LineValues } from "../src/lib/jarvisLines";
+import { SCREENS, waitForFrames } from "./helpers";
 
 // JARVIS's voice shortcuts. The engine (Rust, tested by cargo) decides which one was said; here
 // `__JARVIS__.voiceShortcut` stands in for its `voice:shortcut` event, and a scripted JARVIS
-// (src/lib/assistant.ts) for Claude Code.
+// (src/lib/assistant.ts) for Claude Code. He calls the user "Tony".
+
+const NAME = "Tony";
+/** Every way JARVIS can say it (he picks one at random). */
+const variants = (key: LineKey, values: LineValues = {}) => LINES[key].map((template) => fill(template, NAME, values));
 
 test("parseReminder: durations in words or digits, what to say, and times of day left to JARVIS", () => {
   expect(parseReminder("beber água em 20 minutos.")).toEqual({ minutes: 20, text: "beber água" });
@@ -95,7 +101,7 @@ async function start(page: Page) {
     ["jarvis.desktop", "jarvis.assistant", "jarvis.reminders", "jarvis.pomodoro"].forEach((key) => localStorage.removeItem(key));
     localStorage.setItem("jarvis.settings", settings);
     localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));
-  }, PLAIN_SETTINGS);
+  }, JSON.stringify({ taskbar: false, assistantName: NAME }));
   await page.reload();
   await waitForFrames(page, 10);
 }
@@ -122,20 +128,20 @@ test("the time, the date and the status are answered at once, without Claude Cod
   await start(page);
   await say(page, { action: "time", text: "", said: "Que horas são?" });
   await expect(reply(page)).toBeVisible();
-  await expect.poll(() => lastAnswer(page)).toMatch(/^(São \d+ horas|É (1 hora|meia-noite|meio-dia))/);
+  await expect.poll(() => lastAnswer(page)).toMatch(/(São|são) \d+ horas|(É|é) (1 hora|meia-noite|meio-dia)/);
   await answered(page);
 
   await say(page, { action: "status", text: "", said: "Status do sistema" });
   await expect(reply(page)).toBeVisible();
-  await expect.poll(() => lastAnswer(page)).toBe(
-    "Todos os sistemas operando normalmente. Processador em 12 por cento, memória em 50 por cento, 375 gigabytes livres no disco C.",
-  );
+  const readings = "Processador em 12 por cento, memória em 50 por cento, 375 gigabytes livres no disco C.";
+  await expect.poll(() => lastAnswer(page)).toContain(readings);
+  expect(variants("statusOk").map((head) => `${head} ${readings}`)).toContain(await lastAnswer(page));
   await page.screenshot({ path: `${SCREENS}/shortcut-status.png` });
   await answered(page);
 
   await say(page, { action: "date", text: "", said: "Que dia é hoje?" });
   await expect(reply(page)).toBeVisible();
-  await expect.poll(() => lastAnswer(page)).toMatch(/^Hoje é \S+-feira|^Hoje é (sábado|domingo)/);
+  await expect.poll(() => lastAnswer(page)).toMatch(/(\S+-feira|sábado|domingo), \d+ de \S+ de \d{4}/i);
   await answered(page);
   expect((await log(page)).asks).toEqual([]);
   // They land in the history like any answer.
@@ -147,7 +153,8 @@ test("reminders: a timer said to Voice, and one JARVIS sets that goes off", asyn
   const before = Date.now();
   await say(page, { action: "reminder", text: "beber água em 20 minutos.", said: "Me lembra de beber água em 20 minutos." });
   await expect(reply(page)).toBeVisible();
-  await expect.poll(() => lastAnswer(page)).toBe("Certo. Daqui a 20 minutos eu aviso: beber água.");
+  await expect.poll(() => lastAnswer(page)).toContain("beber água");
+  expect(variants("reminderSet", { when: "20 minutos", text: "beber água" })).toContain(await lastAnswer(page));
   await expect.poll(async () => (await stored(page, "jarvis.reminders"))?.length).toBe(1);
   const [saved] = await stored(page, "jarvis.reminders");
   expect(saved.text).toBe("beber água");
@@ -160,10 +167,11 @@ test("reminders: a timer said to Voice, and one JARVIS sets that goes off", asyn
   expect((await log(page)).asks.at(-1)?.text).toMatch(/^\[Atalho: lembrete\]/);
   const set = await page.evaluate(() => window.__JARVIS__!.action("reminder_set", { minutes: 0.03, text: "alongar" }));
   expect(set).toEqual({ ok: true, text: "Lembrete agendado para daqui a 2 segundos: alongar" });
-  // On the dock, and in the core (both are live regions).
-  await expect(page.getByRole("status").filter({ hasText: "Lembrete: alongar" })).toHaveCount(2, { timeout: 10_000 });
+  // On the dock, and in the core in JARVIS's words.
+  await expect(page.getByRole("status").filter({ hasText: "Lembrete: alongar" })).toBeVisible({ timeout: 10_000 });
   await expect(reply(page)).toBeVisible();
-  await expect.poll(() => lastAnswer(page)).toBe("Lembrete: alongar.");
+  await expect.poll(() => lastAnswer(page)).toContain("longar");
+  expect(variants("reminderDue", { text: "alongar" })).toContain(await lastAnswer(page));
   await expect.poll(async () => (await stored(page, "jarvis.reminders"))?.length).toBe(1);
   expect(await page.evaluate(() => window.__JARVIS__!.action("reminder_set", { minutes: 0, text: "x" }))).toMatchObject({ ok: false });
 });
@@ -176,11 +184,38 @@ test("Protocolo foco closes the windows and starts a focus phase", async ({ page
   });
   await expect(page.getByRole("dialog", { name: "Relógio" })).toBeVisible();
   await say(page, { action: "focus", text: "", said: "Protocolo foco" });
-  await expect.poll(() => lastAnswer(page)).toBe("Protocolo foco ativado. Janelas fechadas e 25 minutos de foco no relógio.");
+  await expect.poll(async () => variants("focus", { minutes: 25 }).includes(await lastAnswer(page))).toBe(true);
   await expect(page.getByRole("dialog", { name: "Relógio" })).toBeHidden();
   await expect(page.getByRole("dialog", { name: "Pomodoro" })).toBeVisible();
   await expect.poll(async () => (await stored(page, "jarvis.pomodoro"))?.endsAt).not.toBeNull();
   expect((await stored(page, "jarvis.pomodoro")).phase).toBe("focus");
+});
+
+test("the memory cleanup: Claude Code's RAM given back, said by JARVIS or shown in the settings", async ({ page }) => {
+  expect(formatBytes(215 * 1024 ** 2)).toBe("215 MB");
+  expect(formatBytes(1.25 * 1024 ** 3)).toBe("1,3 GB");
+  expect(cleanupSummary({ outcome: "idle" })).toBe("Nada a liberar: o Claude Code já estava parado.");
+
+  await start(page);
+  await page.evaluate((freed) => (window.__JARVIS_CLEANUP__ = { outcome: "stopped", freed }), 215 * 1024 ** 2);
+  await say(page, { action: "cleanup", text: "", said: "Ativa o garbage collector" });
+  await expect.poll(async () => variants("cleanupDone", { freed: "215 megabytes" }).includes(await lastAnswer(page))).toBe(true);
+  await expect(page.getByRole("status").filter({ hasText: "Memória: 215 MB liberados" })).toBeVisible();
+  await answered(page);
+  // Never in the middle of an answer.
+  await page.evaluate(() => (window.__JARVIS_CLEANUP__ = { outcome: "busy" }));
+  await say(page, { action: "cleanup", text: "", said: "Limpa a memória" });
+  await expect.poll(async () => variants("cleanupBusy").includes(await lastAnswer(page))).toBe(true);
+  await answered(page);
+  // No Claude Code needed for any of it.
+  expect((await log(page))?.asks ?? []).toEqual([]);
+
+  await page.evaluate((freed) => (window.__JARVIS_CLEANUP__ = { outcome: "stopped", freed }), 180 * 1024 ** 2);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Limpar memória" }).click();
+  await expect(page.getByTestId("cleanup-result")).toHaveText("180 MB de RAM liberados. Ele volta na próxima pergunta, na mesma conversa.");
+  await page.getByTestId("cleanup-result").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SCREENS}/settings-cleanup.png` });
 });
 
 test("JARVIS's model is chosen in the settings, next to the Whisper models", async ({ page }) => {

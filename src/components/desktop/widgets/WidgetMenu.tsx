@@ -156,7 +156,7 @@ export function MenuPopup({ at, label, sections, onClose, onDismiss, container, 
         event.preventDefault();
         event.stopPropagation();
       }}
-      className={`${container ? "absolute" : "fixed"} z-[90] max-h-[80vh] min-w-[24ch] overflow-y-auto border border-hud-cyan/30 bg-hud-panel/95 py-1 font-mono text-[12px] shadow-[0_12px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm ${
+      className={`${container ? "absolute" : "fixed"} z-[90] max-h-[80vh] min-w-[24ch] overflow-y-auto border border-hud-cyan/30 bg-hud-panel/95 py-1 font-mono text-[12px] shadow-[0_12px_30px_rgba(0,0,0,0.6)] ${
         // Transparent (not invisible: that would refuse the focus) until it is placed.
         place ? "" : "opacity-0"
       }`}

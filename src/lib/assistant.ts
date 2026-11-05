@@ -195,6 +195,17 @@ export function describeTool(name: string) {
   if (name === "mcp__jarvis__agent_run") return "Rodando o agente";
   if (name === "mcp__jarvis__system_status") return "Verificando o sistema";
   if (name === "mcp__jarvis__reminder_set") return "Agendando o lembrete";
+  if (name === "mcp__jarvis__stocks_quote") return "Consultando a bolsa";
+  if (name === "mcp__jarvis__stocks_watch") return "Atualizando suas ações";
+  if (name === "mcp__jarvis__stocks_alert") return "Criando o alerta de preço";
+  if (name === "mcp__jarvis__weather") return "Consultando o tempo";
+  if (name === "mcp__jarvis__agenda_add") return "Marcando na agenda";
+  if (name === "mcp__jarvis__agenda_list") return "Lendo a agenda";
+  if (name === "mcp__jarvis__agenda_remove") return "Apagando da agenda";
+  if (name === "mcp__jarvis__tasks_add") return "Anotando na lista";
+  if (name === "mcp__jarvis__tasks_list") return "Lendo a lista de tarefas";
+  if (name === "mcp__jarvis__tasks_done") return "Riscando da lista";
+  if (name === "mcp__jarvis__tasks_remove") return "Apagando da lista";
   if (name.startsWith("mcp__jarvis__")) return "Executando no jvOS";
   return "Trabalhando";
 }

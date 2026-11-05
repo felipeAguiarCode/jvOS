@@ -53,6 +53,28 @@ test("activation mode and language persist", async ({ page }) => {
   await expect(reopened.getByRole("radio", { name: "English" })).toHaveAttribute("aria-checked", "true");
 });
 
+test("speech recognition runs on the CPU or a GPU, automatic by default, and the choice persists", async ({ page }) => {
+  const panel = await openSettings(page);
+  const devices = panel.getByRole("radiogroup", { name: "Processamento da voz" });
+  await devices.scrollIntoViewIfNeeded();
+  // The browser fake lists the development laptop's GPUs.
+  await expect(devices.getByRole("radio", { name: "Automático" })).toHaveAttribute("aria-checked", "true");
+  await expect(devices.getByRole("radio", { name: "Processador" })).toBeVisible();
+  const nvidia = devices.getByRole("radio", { name: /NVIDIA GeForce MX570 A · 2 GB/ });
+  await expect(nvidia).toBeVisible();
+  await expect(devices.getByRole("radio", { name: /Intel\(R\) Graphics/ })).toBeVisible();
+  await expect(panel.getByTestId("voice-device-hint")).toContainText("GPU");
+  await nvidia.click();
+  await expect(nvidia).toHaveAttribute("aria-checked", "true");
+  await page.screenshot({ path: `${SCREENS}/settings-voice-device.png` });
+
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("jarvis.settings") ?? "{}").voiceDevice)).toBe("NVIDIA GeForce MX570 A");
+  await page.reload();
+  await waitForFrames(page);
+  const reopened = await openSettings(page);
+  await expect(reopened.getByRole("radiogroup", { name: "Processamento da voz" }).getByRole("radio", { name: /NVIDIA/ })).toHaveAttribute("aria-checked", "true");
+});
+
 test("the JARVIS color recolours the hologram and the interface, and persists", async ({ page }) => {
   const cssColor = () =>
     page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-hud-cyan").trim().toLowerCase());
@@ -96,50 +118,30 @@ test("the JARVIS color recolours the hologram and the interface, and persists", 
   expect(saved.theme).toBe("yellow");
 });
 
-test("the background can be switched and persists", async ({ page }) => {
-  // Left of the hologram, above the dock: only the backdrop shows there.
-  const side = () => regionLevel(page, { x: 0, y: 0, width: 420, height: 800 });
-  const choose = async (name: string) => {
-    const panel = await openSettings(page);
-    const option = panel.getByRole("radio", { name, exact: true });
-    await option.click();
-    await expect(option).toHaveAttribute("aria-checked", "true");
-    await page.keyboard.press("Escape");
-    await page.mouse.move(40, 40);
-    await page.waitForTimeout(500);
-  };
-
+test("the backdrop is always black: there is no background to pick", async ({ page }) => {
   const panel = await openSettings(page);
-  await expect(panel.getByRole("radio", { name: "Preto" })).toHaveAttribute("aria-checked", "true");
+  await expect(panel.getByText("Fundo", { exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("radio", { name: "Matrix", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  const solid = await side();
-  expect(solid.max).toBeLessThan(20);
-
-  await choose("Grid côncavo");
-  await page.screenshot({ path: `${SCREENS}/background-grid.png` });
-  const grid = await side();
-  expect(grid.max).toBeGreaterThan(solid.max + 25);
-  // Faint enough to stay out of the hologram measurements (lit = brightest channel ≥ 120).
-  expect(grid.max).toBeLessThan(120);
-
-  await choose("Matrix");
-  await page.screenshot({ path: `${SCREENS}/background-matrix.png` });
-  const matrix = await side();
-  expect(matrix.max).toBeGreaterThan(solid.max + 25);
-  expect(matrix.mean).toBeGreaterThan(solid.mean);
-  console.log(`backdrop level — solid ${JSON.stringify(solid)}, grid ${JSON.stringify(grid)}, matrix ${JSON.stringify(matrix)}`);
-
-  const reopened = await openSettings(page);
+  await page.mouse.move(40, 40);
   await page.waitForTimeout(500);
-  await page.screenshot({ path: `${SCREENS}/settings-background.png` });
-  await reopened.getByRole("button", { name: "Fechar configurações" }).click();
+  // Left of the hologram, above the dock: only the backdrop shows there.
+  const side = await regionLevel(page, { x: 0, y: 0, width: 420, height: 800 });
+  expect(side.max).toBeLessThan(20);
+});
 
+test("the name JARVIS calls the user by persists", async ({ page }) => {
+  const panel = await openSettings(page);
+  const name = panel.getByLabel("Como ele te chama");
+  await expect(name).toHaveValue("");
+  await name.fill("Tony");
+  await page.waitForTimeout(700); // debounced save
   await page.reload();
   await waitForFrames(page);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("jarvis.settings") ?? "{}"));
-  expect(saved.background).toBe("matrix");
-  const restored = await openSettings(page);
-  await expect(restored.getByRole("radio", { name: "Matrix", exact: true })).toHaveAttribute("aria-checked", "true");
+  expect(saved.assistantName).toBe("Tony");
+  const reopened = await openSettings(page);
+  await expect(reopened.getByLabel("Como ele te chama")).toHaveValue("Tony");
 });
 
 test("keywords can be added and removed per program", async ({ page }) => {

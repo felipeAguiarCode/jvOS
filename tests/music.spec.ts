@@ -195,7 +195,8 @@ test("the Fita and Mini player widgets follow the music, which goes on with the 
 
 test("voice plays playlists, skips, pauses and opens or closes the player and its widgets", async ({ page }) => {
   await standInMusic(page, 30);
-  const notice = (text: string | RegExp) => page.getByRole("status").filter({ hasText: text });
+  // The dock's notice, word for word: JARVIS also confirms out loud in the core, in a sentence.
+  const notice = (text: string) => page.getByRole("status").filter({ hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
 
   // The engine's `voice:window` for the player and both widgets.
   for (const [kind, title] of [["music", "jv_T4p3"], ["tape", "Fita"], ["miniplayer", "Mini player"]]) {

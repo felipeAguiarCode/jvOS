@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Cargo's build folder (.cargo/config.toml)
+/t/
 *.local
 
 # Editor directories and files
@@ -26,6 +28,9 @@ dist-ssr
 # Playwright
 test-results
 playwright-report
+
+# Vídeos de demonstração (npm run demo)
+demos/out
 
 # Referências visuais
 .inspo

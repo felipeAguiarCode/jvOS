@@ -179,7 +179,7 @@ export function Palette() {
     <div
       role="dialog"
       aria-label={TITLES[mode]}
-      className="absolute top-6 left-1/2 z-[80] flex max-h-[70%] w-[min(640px,90%)] -translate-x-1/2 flex-col border border-hud-light/60 bg-hud-panel/95 text-[12px] shadow-[0_16px_40px_rgba(0,0,0,0.6)] backdrop-blur-sm"
+      className="absolute top-6 left-1/2 z-[80] flex max-h-[70%] w-[min(640px,90%)] -translate-x-1/2 flex-col border border-hud-light/60 bg-hud-panel/95 text-[12px] shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
       onBlur={(event) => !event.currentTarget.contains(event.relatedTarget as Node) && close(false)}
     >
       <div className="bg-hud-light/85 px-2 leading-[18px] font-semibold text-hud-void">{TITLES[mode]}</div>

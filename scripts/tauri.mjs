@@ -2,7 +2,8 @@
 // - CMake (compiles whisper.cpp): from PATH, or the copy bundled with Visual Studio Build Tools;
 // - libclang (bindgen generates the Windows bindings): from LIBCLANG_PATH or a standard LLVM install;
 // - Vulkan SDK (GPU backend): from VULKAN_SDK, or the newest version under C:\VulkanSDK (a terminal
-//   opened before the SDK was installed does not see the variable its installer sets).
+//   opened before the SDK was installed does not see the variable its installer sets). With it,
+//   `dev` and `build` turn on the `vulkan` feature (Whisper on the GPU).
 // `dev` also reuses a Vite dev server that is already running instead of failing on the busy port.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
@@ -68,6 +69,38 @@ if (process.platform === "win32" && !env.VULKAN_SDK) {
   const sdk = findVulkanSdk();
   if (sdk) env.VULKAN_SDK = sdk;
 }
+// Without the SDK whisper.cpp cannot build its Vulkan backend: the voice then runs on the CPU.
+const vulkan = Boolean(env.VULKAN_SDK) && existsSync(join(env.VULKAN_SDK, "Lib", "vulkan-1.lib"));
+
+/** Ninja on PATH, or the copy next to Visual Studio's CMake (…\CMake\CMake\bin → …\CMake\Ninja). */
+function findNinja() {
+  try {
+    execFileSync("ninja", ["--version"], { stdio: "ignore" });
+    return "ninja";
+  } catch {
+    // Not on PATH.
+  }
+  if (!env.CMAKE) return null;
+  const ninja = join(dirname(env.CMAKE), "..", "..", "Ninja", "ninja.exe");
+  return existsSync(ninja) ? ninja : null;
+}
+
+// The Vulkan backend's shader generator is a nested CMake project: under MSBuild its deepest files
+// pass Windows' 260-character limit even from the short `t/` build folder (.cargo/config.toml).
+// Ninja does not create those folders. Only for Vulkan builds: the CPU build folders were
+// configured with MSBuild, and CMake refuses to switch generators in place.
+if (process.platform === "win32" && vulkan && !env.CMAKE_GENERATOR) {
+  const ninja = findNinja();
+  if (ninja) {
+    env.CMAKE_GENERATOR = "Ninja";
+    if (ninja !== "ninja") {
+      const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+      env[pathKey] = `${dirname(ninja)};${env[pathKey] ?? ""}`;
+    }
+  } else {
+    console.warn("[jarvis] Ninja not found (it comes with Visual Studio's C++ CMake tools): the Vulkan build may hit the 260-character path limit.");
+  }
+}
 
 /** `devUrl` in src-tauri/tauri.conf.json. */
 const DEV_URL = "http://localhost:1420";
@@ -87,6 +120,16 @@ const args = process.argv.slice(2);
 if (args[0] === "dev" && (await isDevServerRunning())) {
   args.splice(1, 0, "--config", JSON.stringify({ build: { beforeDevCommand: "" } }));
   console.log(`[jarvis] Using the Vite dev server already running at ${DEV_URL}.`);
+}
+// Speech recognition on the GPU (src-tauri's `vulkan` feature) whenever the SDK is there; an
+// explicit --features list is left as given.
+if ((args[0] === "dev" || args[0] === "build") && !args.some((arg) => arg === "--features" || arg === "-f" || arg.startsWith("--features="))) {
+  if (vulkan) {
+    args.splice(1, 0, "--features", "vulkan");
+    console.log(`[jarvis] Vulkan SDK at ${env.VULKAN_SDK}: speech recognition can run on the GPU.`);
+  } else if (process.platform === "win32") {
+    console.warn("[jarvis] Vulkan SDK not found (winget install KhronosGroup.VulkanSDK): speech recognition runs on the CPU.");
+  }
 }
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "@tauri-apps", "cli", "tauri.js");

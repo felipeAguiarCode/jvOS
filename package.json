@@ -9,6 +9,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "playwright test",
+    "test:cli": "node --test .cli/test/jarvis.test.mjs",
+    "demo": "node demos/run.mjs",
+    "new": "node .cli/jarvis.mjs",
+    "perf": "node scripts/perf.mjs",
     "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {
@@ -23,7 +27,6 @@
     "@codemirror/view": "^6.43.15",
     "@fontsource/vt323": "^5.3.0",
     "@lezer/highlight": "^1.2.5",
-    "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@react-three/postprocessing": "^3.2.1",
     "@tauri-apps/api": "^2.12.4",

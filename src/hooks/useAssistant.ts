@@ -14,6 +14,9 @@ import { MODEL_MISSING, type EngineState, type Heard } from "./useVoiceAssistant
 /** What the core is doing in the conversation. */
 export type CorePhase = "idle" | "listening" | "transcribing" | "thinking" | "answering";
 
+/** The streamed answer is rendered at most this often (~30 times a second). */
+const STREAM_STEP_MS = 32;
+
 /** The question being answered (or the last one, while its answer is still on screen). */
 export interface AssistantTurn {
   id: number;
@@ -84,8 +87,18 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
       let streamed = "";
       /** Claude Code announced its session: the conversation goes on there. */
       let started = false;
+      // Deltas arrive a few characters at a time: the text is rendered (the reply, the history,
+      // jv_agent) at most every STREAM_STEP_MS, not once per token.
+      let pending = 0;
+      const show = () => {
+        window.clearTimeout(pending);
+        pending = 0;
+        setTurn((current) => (current?.id === id ? { ...current, text: streamed, tool: null } : current));
+      };
       /** `lost`: the session is gone, the next question starts a new one. */
       const finish = (answer: string, error: string | null, cancelled: boolean, lost = false) => {
+        window.clearTimeout(pending);
+        pending = 0;
         setTurn((current) => (current?.id === id ? { ...current, text: answer, tool: null, done: true, error, cancelled } : current));
         const entry: ConversationEntry = { id, at: id, question: text, answer, ...(error ? { error } : {}), ...(cancelled ? { cancelled } : {}) };
         setMemory((current) => ({ sessionId: lost ? null : current.sessionId, items: [...current.items, entry].slice(-MAX_ITEMS) }));
@@ -100,9 +113,11 @@ export function useAssistant({ voice, notify, onModelMissing, onFile }: Assistan
               break;
             case "delta":
               streamed += event.text;
-              setTurn((current) => (current?.id === id ? { ...current, text: streamed, tool: null } : current));
+              if (!pending) pending = window.setTimeout(show, STREAM_STEP_MS);
               break;
             case "tool":
+              // The text before the tool shows first, as it was said.
+              if (pending) show();
               setTurn((current) => (current?.id === id ? { ...current, tool: event.name } : current));
               break;
             case "file":

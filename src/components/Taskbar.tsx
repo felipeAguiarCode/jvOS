@@ -58,7 +58,7 @@ export function Taskbar({
 }: TaskbarProps) {
   const now = useMinuteClock(paused);
   const battery = useBattery();
-  const title = focused ? WINDOW_SPECS[focused].title : "JARVIS OS";
+  const title = focused ? WINDOW_SPECS[focused].title : null;
   const pomodoroActive = pomodoro.running || pomodoro.remaining !== pomodoro.durations[pomodoro.phase] * 60_000;
 
   return (
@@ -69,7 +69,7 @@ export function Taskbar({
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: -28, opacity: 0, transition: { duration: 0.15 } }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      className="fixed inset-x-0 top-0 z-[22] flex h-7 items-center gap-3 border-b border-hud-line/40 bg-hud-panel/92 px-2 font-mono text-[11px] text-hud-text/80 backdrop-blur-sm select-none"
+      className="fixed inset-x-0 top-0 z-[22] flex h-7 items-center gap-3 border-b border-hud-line/40 bg-hud-panel/94 px-2 font-mono text-[11px] text-hud-text/80 select-none"
     >
       <div className="flex items-center gap-0.5">
         <BarButton label="Buscar (/)" onClick={onSearch}>
@@ -98,8 +98,8 @@ export function Taskbar({
           })}
       </div>
 
-      {/* The focused window, centred on the screen (not on the free space). */}
-      {modules.title && (
+      {/* The focused window, centred on the screen (not on the free space); nothing without one. */}
+      {modules.title && title && (
         <span
           data-testid="taskbar-title"
           data-tauri-drag-region

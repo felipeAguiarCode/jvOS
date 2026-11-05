@@ -23,7 +23,10 @@ const STATION_NAMES: [&str; 7] = ["Flash FM", "Wave 103", "V-Rock", "Fever 105",
 /// Words that may come between the wake word and the request ("Ei Jarvis, por favor, anota…").
 const LEAD_FILLER: [&str; 9] = ["por", "favor", "agora", "entao", "ok", "okay", "oi", "ola", "e"];
 /// Shortcuts that act on the words after their phrase: said alone, they are not that shortcut.
-const NEEDS_TEXT: [&str; 4] = ["research", "note", "reminder", "memory"];
+const NEEDS_TEXT: [&str; 8] = ["research", "note", "reminder", "memory", "agendaRemove", "taskAdd", "taskDone", "taskRemove"];
+/// Shortcuts heard without JARVIS's name in every mode, when they open what was said: Tony's
+/// "acorda, querido, papai chegou" is how he is woken up.
+const UNADDRESSED: [&str; 1] = ["homecoming"];
 /// A question for JARVIS has at least this many words (one word is a keyword, or Whisper's noise).
 const MIN_QUESTION_WORDS: usize = 2;
 /// A keyword without an open or close verb in a sentence this long is part of a question
@@ -360,6 +363,10 @@ impl Session {
     pub fn decide(&mut self, transcript: &str, activation: Activation, apps: &[AppEntry], commands: &[VoiceCommand], now: Instant) -> Decision {
         let tokens = tokenize(transcript);
         let wake = find_wake(&tokens);
+        if let Some((command, end)) = match_shortcut(&tokens, commands, 0).filter(|(command, _)| UNADDRESSED.contains(&command.target.as_str())) {
+            let key = format!("shortcut:{}", command.target);
+            return self.fire(key, Decision::Shortcut { action: command.target.clone(), text: words_from(transcript, end) }, now);
+        }
         let scope: &[String] = match activation {
             // Holding the button already says "I'm talking to Jarvis": no wake word needed.
             Activation::Always | Activation::PushToTalk => &tokens,
@@ -891,6 +898,90 @@ mod tests {
         assert_eq!(say("inicia o timer", push), pomodoro("start"));
         assert_eq!(say("timer", push), window("pomodoro", true));
         assert_eq!(say("abre o sistema", push), window("system", true));
+    }
+
+    #[test]
+    fn the_weather_the_agenda_and_the_stocks_by_voice() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, Activation::PushToTalk, &apps, &commands, at)
+        };
+        assert_eq!(say("Como está o tempo em Curitiba?"), shortcut("weather", "em Curitiba?"));
+        assert_eq!(say("Previsão do tempo para amanhã"), shortcut("weather", "para amanhã"));
+        assert_eq!(say("Vai chover hoje?"), shortcut("weather", "hoje?"));
+        assert_eq!(say("O que eu tenho amanhã?"), shortcut("agenda", ""));
+        assert_eq!(say("minha agenda"), shortcut("agenda", ""));
+        // Marking, monitoring and alerts need JARVIS (dates, names to tickers).
+        assert_eq!(say("Marca na agenda dentista sexta às 10"), ask("Marca na agenda dentista sexta às 10"));
+        assert_eq!(say("Monitora as ações da Petrobras"), ask("Monitora as ações da Petrobras"));
+        assert_eq!(say("me avisa se a PETR4 passar de 60 reais"), ask("me avisa se a PETR4 passar de 60 reais"));
+        // The widgets open like the others.
+        assert_eq!(say("abre a agenda"), window("agenda", true));
+        assert_eq!(say("abre o clima"), window("weather", true));
+        assert_eq!(say("mostra as cotações"), window("stocks", true));
+        assert_eq!(say("fecha a agenda"), window("agenda", false));
+    }
+
+    #[test]
+    fn the_tasks_the_agenda_numbers_and_the_homecoming_by_voice() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str, activation: Activation| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, activation, &apps, &commands, at)
+        };
+        let push = Activation::PushToTalk;
+        assert_eq!(say("Adiciona tarefa comprar pão.", push), shortcut("taskAdd", "comprar pão."));
+        assert_eq!(say("Adiciona à lista de tarefas: renovar o passaporte.", push), shortcut("taskAdd", "renovar o passaporte."));
+        // "coloca" plays music and "anota" writes a note, unless it goes on the list.
+        assert_eq!(say("Coloca na lista ligar para a Ana", push), shortcut("taskAdd", "ligar para a Ana"));
+        assert_eq!(say("Anota na lista pagar a luz", push), shortcut("taskAdd", "pagar a luz"));
+        assert_eq!(say("Conclui a tarefa dois.", push), shortcut("taskDone", "dois."));
+        assert_eq!(say("Remove a tarefa 2", push), shortcut("taskRemove", "2"));
+        assert_eq!(say("Apaga o compromisso 3", push), shortcut("agendaRemove", "3"));
+        assert_eq!(say("Quais são minhas tarefas?", push), shortcut("tasks", ""));
+        assert_eq!(say("Repassa minha agenda do dia.", push), shortcut("agenda", "do dia."));
+        assert_eq!(say("Jarvis, como está meu dia?", Activation::WakeWord), shortcut("agenda", ""));
+        // Without the number the list just shows.
+        assert_eq!(say("remove a tarefa", push), window("tasks", true));
+        assert_eq!(say("abre a lista de tarefas", push), window("tasks", true));
+        assert_eq!(say("Fecha a to-do list.", push), window("tasks", false));
+        assert_eq!(say("mostra as tarefas", push), window("tasks", true));
+
+        // Tony's line wakes him up in every mode, his name or not.
+        assert_eq!(say("Acorda, querido, papai chegou!", push), shortcut("homecoming", ""));
+        assert_eq!(say("Acorda querida, papai chegou.", Activation::WakeWord), shortcut("homecoming", ""));
+        assert_eq!(say("Papai chegou", Activation::Always), shortcut("homecoming", ""));
+        assert_eq!(say("Jarvis, acorda querido, papai chegou", Activation::WakeWord), shortcut("homecoming", ""));
+        // Not in the middle of what the room says.
+        assert_eq!(say("o papai chegou cedo hoje", Activation::Always), Decision::Ignore);
+        assert_eq!(say("hoje o papai chegou cedo", Activation::WakeWord), Decision::Ignore);
+    }
+
+    #[test]
+    fn the_memory_cleanup_is_not_the_long_term_memory() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str, activation: Activation| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, activation, &apps, &commands, at)
+        };
+        let push = Activation::PushToTalk;
+        assert_eq!(say("Limpa a memória.", push), shortcut("cleanup", ""));
+        assert_eq!(say("Jarvis, faz uma limpeza de memória", Activation::WakeWord), shortcut("cleanup", ""));
+        assert_eq!(say("Ativa o garbage collector.", push), shortcut("cleanup", ""));
+        assert_eq!(say("Jarvis, garbage collection!", Activation::Always), shortcut("cleanup", ""));
+        // Remembering stays what it was.
+        assert_eq!(say("Guarda na memória que eu moro em Curitiba.", push), shortcut("memory", "que eu moro em Curitiba."));
+        assert_eq!(say("limpa a memória", Activation::Always), Decision::Ignore);
     }
 
     #[test]

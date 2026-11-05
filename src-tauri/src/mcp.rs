@@ -184,14 +184,33 @@ pub fn handle(body: &str, call: &dyn Fn(&str, Value) -> ToolResult) -> Option<Va
     Some(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
 }
 
-const TOOLS: [&str; 7] = ["jvos_run", "jvos_commands", "open_url", "system_status", "reminder_set", "agent_review", "agent_run"];
+const TOOLS: [&str; 18] = [
+    "jvos_run",
+    "jvos_commands",
+    "open_url",
+    "system_status",
+    "reminder_set",
+    "stocks_quote",
+    "stocks_watch",
+    "stocks_alert",
+    "weather",
+    "agenda_add",
+    "agenda_list",
+    "agenda_remove",
+    "tasks_add",
+    "tasks_list",
+    "tasks_done",
+    "tasks_remove",
+    "agent_review",
+    "agent_run",
+];
 
 fn tools() -> Value {
     let text = |description: &str| json!({ "type": "string", "description": description });
     json!([
         {
             "name": "jvos_run",
-            "description": "Executa uma ação do jvOS, a área de trabalho JARVIS: abrir ou fechar janelas e apps (Relógio, Calculadora, Jarvis Mark, jv_agent, jv_sh…), abrir as configurações ou uma seção delas, o menu avançado e suas abas, mudar tema, fundo, núcleo (2D/3D/desligado), dock, qualidade, música (estações, playlists, próxima, pausar) e abrir os programas e atalhos do usuário. Passe `query` com poucas palavras (\"relógio\", \"fechar calculadora\", \"configurações de voz\", \"núcleo 2d\", \"tema verde\") ou o `id` exato de jvos_commands. Devolve o que foi feito, ou as opções mais próximas.",
+            "description": "Executa uma ação do jvOS, a área de trabalho JARVIS: abrir ou fechar janelas e apps (Relógio, Calculadora, Jarvis Mark, jv_agent, jv_sh…), abrir as configurações ou uma seção delas, o menu avançado e suas abas, mudar tema, núcleo (2D/3D/desligado), dock, qualidade, música (estações, playlists, próxima, pausar) e abrir os programas e atalhos do usuário. Passe `query` com poucas palavras (\"relógio\", \"fechar calculadora\", \"configurações de voz\", \"núcleo 2d\", \"tema verde\") ou o `id` exato de jvos_commands. Devolve o que foi feito, ou as opções mais próximas.",
             "inputSchema": { "type": "object", "properties": { "query": text("Poucas palavras que descrevem a ação"), "id": text("Id exato de jvos_commands") } },
         },
         {
@@ -217,6 +236,87 @@ fn tools() -> Value {
                 "properties": { "minutes": { "type": "number", "description": "Daqui a quantos minutos (1 a 10080)" }, "text": text("O que lembrar, curto (\"beber água\")") },
                 "required": ["minutes", "text"],
             },
+        },
+        {
+            "name": "stocks_quote",
+            "description": "Cotação de agora (Yahoo Finance, uns 15 minutos de atraso na B3) de ações, FIIs, ETFs ou índices: preço, variação no dia e nome. Use os códigos de negociação (\"PETR4\", \"HGLG11\", \"BOVA11\", \"^BVSP\", \"AAPL\"); converta nomes ditos (\"Petrobras\" → PETR4, \"Vale\" → VALE3). Sem `symbols`, devolve as do widget Ações do usuário.",
+            "inputSchema": { "type": "object", "properties": { "symbols": { "type": "array", "items": { "type": "string" }, "description": "Códigos, no máximo 20" } } },
+        },
+        {
+            "name": "stocks_watch",
+            "description": "Põe um código (ação, FII, ETF) no widget Ações do usuário para acompanhar, ou tira com `remove: true`. O widget abre na tela.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "symbol": text("Código de negociação (\"PETR4\", \"MXRF11\")"), "remove": { "type": "boolean", "description": "true para deixar de acompanhar" } },
+                "required": ["symbol"],
+            },
+        },
+        {
+            "name": "stocks_alert",
+            "description": "Cria um alerta de preço: o JARVIS avisa (som, dock e voz) quando o código passar de `above` ou cair abaixo de `below` (em reais, na moeda do ativo). O código entra no widget Ações. Cada alerta toca uma vez. Com `remove: true`, apaga os alertas desse código.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "symbol": text("Código de negociação"),
+                    "above": { "type": "number", "description": "Avisar quando o preço for maior ou igual a este" },
+                    "below": { "type": "number", "description": "Avisar quando o preço for menor ou igual a este" },
+                    "remove": { "type": "boolean", "description": "true para apagar os alertas do código" },
+                },
+                "required": ["symbol"],
+            },
+        },
+        {
+            "name": "weather",
+            "description": "Previsão do tempo (Open-Meteo): agora (temperatura, sensação, umidade, vento, condição) e os próximos cinco dias (mínima, máxima, chance de chuva). Sem `city`, usa a cidade do widget Clima do usuário. Use em vez de pesquisar o clima na web.",
+            "inputSchema": { "type": "object", "properties": { "city": text("Cidade (\"Curitiba\", \"Rio de Janeiro\")") } },
+        },
+        {
+            "name": "agenda_add",
+            "description": "Marca um compromisso na agenda do jvOS (widget Agenda, que abre no dia marcado). Use para todo compromisso com dia ou horário, mesmo quando o usuário diz \"anota\" ou \"me lembra\". Com horário, o JARVIS avisa `notify` minutos antes (padrão 10). Calcule a data a partir da hora local de system_status (\"amanhã\", \"sexta\").",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": text("O compromisso, curto (\"Reunião com a Ana\")"),
+                    "date": text("Data, AAAA-MM-DD"),
+                    "time": text("Horário, HH:MM (sem horário: o dia todo)"),
+                    "notify": { "type": "number", "description": "Avisar quantos minutos antes (0 a 1440)" },
+                },
+                "required": ["title", "date"],
+            },
+        },
+        {
+            "name": "agenda_list",
+            "description": "Lista os compromissos da agenda do jvOS entre duas datas (padrão: de hoje a sete dias), com o número (id) de cada um.",
+            "inputSchema": { "type": "object", "properties": { "from": text("Data inicial, AAAA-MM-DD"), "to": text("Data final, AAAA-MM-DD") } },
+        },
+        {
+            "name": "agenda_remove",
+            "description": "Apaga um compromisso da agenda do jvOS pelo número (id; veja agenda_list).",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "number", "description": "Número do compromisso" } }, "required": ["id"] },
+        },
+        {
+            "name": "tasks_add",
+            "description": "Põe uma tarefa na lista de tarefas do dia do jvOS (widget Tarefas, que abre na tela): o que o usuário tem para fazer, sem horário (\"comprar pão\", \"ligar para a Ana\"). Com dia ou horário, é compromisso: use agenda_add. Devolve o número da tarefa.",
+            "inputSchema": { "type": "object", "properties": { "text": text("A tarefa, curta, como o usuário disse") }, "required": ["text"] },
+        },
+        {
+            "name": "tasks_list",
+            "description": "Lista as tarefas do dia, com o número (id) de cada uma e se já foi feita. As concluídas somem no dia seguinte; as pendentes ficam.",
+            "inputSchema": { "type": "object", "properties": {} },
+        },
+        {
+            "name": "tasks_done",
+            "description": "Marca uma tarefa como feita pelo número (veja tasks_list), ou de novo como pendente com `done: false`.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "number", "description": "Número da tarefa" }, "done": { "type": "boolean", "description": "false para voltar a pendente" } },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "tasks_remove",
+            "description": "Apaga uma tarefa da lista pelo número (veja tasks_list).",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "number", "description": "Número da tarefa" } }, "required": ["id"] },
         },
         {
             "name": "agent_review",

@@ -45,9 +45,10 @@ test("the top bar is on by default, turns off and on in the settings and drives 
   await expect(page.getByRole("dialog", { name: "Calculadora" })).toBeVisible();
   await expect(bar.getByRole("button", { name: "Calculadora" })).toHaveAttribute("aria-pressed", "true");
   await expect(bar).toContainText("Calculadora"); // the focused window's title, in the middle
-  // Nothing focused (a click on the empty desktop): the bar shows the system's name.
+  // Nothing focused (a click on the empty desktop): the middle stays empty.
   await page.mouse.click(1500, 500);
-  await expect(bar.getByTestId("taskbar-title")).toHaveText("JARVIS OS");
+  await expect(bar.getByTestId("taskbar-title")).toHaveCount(0);
+  await expect(bar).not.toContainText("JARVIS OS");
   await bar.getByRole("button", { name: "Data e hora" }).click();
   await expect(page.getByRole("dialog", { name: "Relógio" })).toBeVisible();
 
@@ -98,12 +99,12 @@ test("the advanced menu has a tab of its own for the top bar and its modules", a
   await menu.getByRole("switch", { name: "Qualidade gráfica" }).click();
   await expect(bar.getByRole("button", { name: "Qualidade gráfica (Ctrl+Shift+Q)" })).toBeVisible();
 
-  await expect(bar.getByTestId("taskbar-title")).toBeVisible();
+  await page.evaluate(() => window.__JARVIS__!.voiceWindow({ kind: "calculator", open: true }));
+  await expect(bar.getByRole("button", { name: "Calculadora" })).toBeVisible();
+  await expect(bar.getByTestId("taskbar-title")).toHaveText("Calculadora");
   await menu.getByRole("switch", { name: "Título da janela" }).click();
   await expect(bar.getByTestId("taskbar-title")).toHaveCount(0);
 
-  await page.evaluate(() => window.__JARVIS__!.voiceWindow({ kind: "calculator", open: true }));
-  await expect(bar.getByRole("button", { name: "Calculadora" })).toBeVisible();
   await menu.getByRole("switch", { name: "Janelas abertas" }).click();
   await expect(bar.getByRole("button", { name: "Calculadora" })).toHaveCount(0);
 

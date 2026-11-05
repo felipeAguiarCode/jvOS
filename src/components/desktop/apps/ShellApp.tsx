@@ -215,7 +215,7 @@ function ProfileMenu({ profiles, onPick, onClose }: { profiles: TerminalProfiles
     };
   }, [onClose]);
   return (
-    <div ref={menu} role="menu" aria-label="Perfis" className="absolute top-full left-0 z-10 mt-px min-w-[24ch] border border-hud-cyan/30 bg-hud-panel/95 py-1 shadow-[0_12px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+    <div ref={menu} role="menu" aria-label="Perfis" className="absolute top-full left-0 z-10 mt-px min-w-[24ch] border border-hud-cyan/30 bg-hud-panel/95 py-1 shadow-[0_12px_30px_rgba(0,0,0,0.6)]">
       {profiles.profiles.map((profile) => (
         <button
           key={profile.id}

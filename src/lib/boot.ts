@@ -34,7 +34,7 @@ export interface BootInfo {
   quality: string;
   voice: { value: string; status: BootStatus };
   activation: string;
-  matrix: string;
+  theme: string;
   modules: number;
   windows: number;
 }
@@ -46,7 +46,6 @@ const ACTIVATION_LABEL: Record<Settings["activation"], string> = {
 };
 
 const THEME_LABEL: Record<Exclude<Theme, "custom">, string> = { blue: "Azul", green: "Verde Matrix", yellow: "Amarelo digital" };
-const BACKGROUND_LABEL: Record<Settings["background"], string> = { solid: "Preto", grid: "Grid côncavo", matrix: "Matrix" };
 
 export function describeBoot({
   settings,
@@ -78,7 +77,7 @@ export function describeBoot({
     quality: quality.toUpperCase(),
     voice,
     activation: settings ? ACTIVATION_LABEL[settings.activation] : "…",
-    matrix: settings ? `${theme} · ${BACKGROUND_LABEL[settings.background]}` : "…",
+    theme,
     modules,
     windows,
   };

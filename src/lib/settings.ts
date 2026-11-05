@@ -5,8 +5,6 @@ import voiceDefaults from "../../src-tauri/voice-commands.json";
 /** Mirrors `src-tauri/src/settings.rs`. */
 export type Activation = "wakeWord" | "always" | "pushToTalk";
 export type Language = "pt" | "en" | "auto";
-/** Mirrors `BACKGROUNDS` in src-tauri/src/settings.rs. */
-export type Background = "solid" | "grid" | "matrix";
 
 export interface AppEntry {
   id: string;
@@ -30,6 +28,9 @@ export const ASSISTANT_MODELS: { value: AssistantModel; label: string; hint: str
   { value: "opus", label: "Opus", hint: "O mais inteligente, responde mais devagar" },
   { value: "default", label: "Padrão", hint: "O modelo e o esforço do seu Claude Code" },
 ];
+
+/** Longest name JARVIS calls the user by. Mirrors `MAX_NAME` in src-tauri/src/settings.rs. */
+export const MAX_NAME = 40;
 
 /** A spoken interaction (Menu avançado → Voz): built-in ones can only change their phrases. */
 export interface VoiceCommand {
@@ -65,15 +66,17 @@ export interface Settings {
   voiceEnabled: boolean;
   activation: Activation;
   model: string;
+  /** Where Whisper runs: "auto", "cpu" or a GPU by its name (see `loadVoiceDevices`). */
+  voiceDevice: string;
   /** JARVIS's brain (Claude Code `--model`). */
   assistantModel: AssistantModel;
+  /** What JARVIS calls the user ("Felipe"); empty: he does not know yet. */
+  assistantName: string;
   language: Language;
   /** Color of the hologram and the interface. */
   theme: Theme;
   /** OKLCH hue (0..359) of the "custom" theme. */
   accentHue: number;
-  /** Backdrop behind the hologram. */
-  background: Background;
   /** Waybar-style bar along the top of the screen (on by default). */
   taskbar: boolean;
   apps: AppEntry[];
@@ -95,11 +98,12 @@ const DEFAULT_SETTINGS: Settings = {
   voiceEnabled: false,
   activation: "pushToTalk",
   model: "small",
+  voiceDevice: "auto",
   assistantModel: "sonnet",
+  assistantName: "",
   language: "pt",
   theme: "blue",
   accentHue: DEFAULT_HUE,
-  background: "solid",
   taskbar: true,
   apps: [
     { id: "browser", name: "Browser", keywords: ["navegador", "browser", "internet"], command: "https://www.google.com", builtin: true },
@@ -146,6 +150,40 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 
 export async function loadModels(): Promise<ModelStatus[]> {
   return isTauri() ? invoke<ModelStatus[]>("models_status") : BROWSER_MODELS;
+}
+
+/** A GPU speech recognition can run on (whisper.cpp's Vulkan backend). */
+export interface GpuDevice {
+  name: string;
+  vramMb: number;
+}
+
+/** Where speech recognition can run. Mirrors `VoiceDevices` in src-tauri/src/lib.rs. */
+export interface VoiceDevices {
+  gpus: GpuDevice[];
+  /** The app was built with the Vulkan backend (the Vulkan SDK was installed). */
+  accelerated: boolean;
+  /** Where the loaded model runs ("CPU" or a GPU's name); null with listening off. */
+  active: string | null;
+}
+
+/**
+ * Browser fallback: the laptop the app is developed on (Intel graphics + an NVIDIA MX570), so
+ * the Voz tab and its tests show real choices. `window.__JARVIS_GPUS__` replaces the list.
+ */
+const BROWSER_DEVICES: VoiceDevices = {
+  gpus: [
+    { name: "NVIDIA GeForce MX570 A", vramMb: 2048 },
+    { name: "Intel(R) Graphics", vramMb: 16200 },
+  ],
+  accelerated: true,
+  active: null,
+};
+
+export async function loadVoiceDevices(): Promise<VoiceDevices> {
+  if (isTauri()) return invoke<VoiceDevices>("voice_devices");
+  const fake = (window as Window & { __JARVIS_GPUS__?: GpuDevice[] }).__JARVIS_GPUS__;
+  return fake ? { ...BROWSER_DEVICES, gpus: fake } : BROWSER_DEVICES;
 }
 
 export function createAppId() {

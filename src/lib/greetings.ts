@@ -1,10 +1,8 @@
+import { fill } from "./jarvisLines";
 import { readJson, writeJson } from "./storage";
 
-/** Who JARVIS greets after the boot. */
-export const NAME = "Builder";
-
 interface GreetingVariant {
-  /** Two lines, as they are laid out inside the core. */
+  /** Two lines, as they are laid out inside the core; `{n}` is the vocative (", Felipe", or nothing). */
   lines: [string, string];
   /** Only at these hours (inclusive start, exclusive end). */
   hours?: [number, number];
@@ -21,60 +19,66 @@ const WEEKEND = [0, 6];
 /** What JARVIS says once the planet is on: most any time, some for the hour or the day. */
 export const GREETINGS: GreetingVariant[] = [
   // Any time.
-  { lines: [`Olá ${NAME},`, "o que vamos fazer hoje?"] },
-  { lines: ["Bem-vindo de volta,", `${NAME}.`] },
-  { lines: ["Sistemas online.", `Às suas ordens, ${NAME}.`] },
-  { lines: ["Núcleo estável.", "O que vamos construir hoje?"] },
-  { lines: [`Tudo calibrado, ${NAME}.`, "Qual é o plano?"] },
-  { lines: ["Pronto quando você estiver,", `${NAME}.`] },
-  { lines: [`Olá ${NAME},`, "em que posso ajudar?"] },
-  { lines: ["Todos os sistemas verdes.", `Vamos nessa, ${NAME}?`] },
-  { lines: [`Reator estável, ${NAME}.`, "Por onde começamos?"] },
-  { lines: ["Diagnóstico completo.", `Nenhuma anomalia, ${NAME}.`] },
-  { lines: ["Holograma sincronizado.", `Sua vez, ${NAME}.`] },
+  { lines: ["Bem-vindo de volta{n}.", "Todos os sistemas operacionais."] },
+  { lines: ["Sistemas online.", "Às suas ordens{n}."] },
+  { lines: ["Diagnóstico completo.", "Nenhuma anomalia. Por ora."] },
+  { lines: ["Reator estável.", "Ao contrário da sua agenda."] },
+  { lines: ["J.A.R.V.I.S. online.", "Como posso ser útil{n}?"] },
+  { lines: ["Protocolos carregados.", "Aguardando instruções{n}."] },
+  { lines: ["Holograma calibrado.", "O palco é seu{n}."] },
+  { lines: ["Inicialização concluída.", "Nenhum incêndio a relatar."] },
+  { lines: ["Às suas ordens{n}.", "Como sempre."] },
   { lines: ["Memória carregada.", "Continuamos de onde paramos?"] },
-  { lines: ["De volta ao laboratório,", `${NAME}?`] },
-  { lines: [`Ideias na fila, ${NAME}.`, "Qual delas primeiro?"] },
-  { lines: ["Inicialização concluída.", `O palco é seu, ${NAME}.`] },
-  { lines: [`Às ordens, ${NAME}.`, "O que vamos inventar hoje?"] },
-  { lines: ["Conexão estabelecida.", `Pode falar, ${NAME}.`] },
-  { lines: ["Café opcional,", "código obrigatório."] },
-  { lines: [`Bom te ver, ${NAME}.`, "Vamos construir algo incrível."] },
-  { lines: ["Protocolos ativos.", `Aguardando instruções, ${NAME}.`] },
-  { lines: ["Nenhum bug à vista.", `Por enquanto, ${NAME}.`] },
-  { lines: [`Painel pronto, ${NAME}.`, "Qual é a missão de hoje?"] },
-  { lines: ["JARVIS online.", `Como posso ser útil, ${NAME}?`] },
-  { lines: ["Energia a cem por cento.", `E a sua, ${NAME}?`] },
-  { lines: [`Tudo em ordem, ${NAME}.`, "Mãos à obra?"] },
-  { lines: ["Ambiente pronto.", `Só falta você, ${NAME}.`] },
-  { lines: ["Rotinas carregadas.", `Vamos automatizar algo, ${NAME}?`] },
-  { lines: ["Sensores calibrados.", `Estou ouvindo, ${NAME}.`] },
-  { lines: [`Olá de novo, ${NAME}.`, "Que tal um projeto novo?"] },
-  { lines: ["Núcleo aquecido.", `Pode mandar, ${NAME}.`] },
-  { lines: ["Sem distrações agora.", `Só nós dois, ${NAME}.`] },
-  { lines: [`Missão aceita, ${NAME}.`, "Só preciso saber qual."] },
+  { lines: ["Todos os sistemas verdes.", "Uma rara ocasião."] },
+  { lines: ["Núcleo aquecido.", "Pode falar{n}."] },
+  { lines: ["De volta à oficina{n}?", "Eu preparei o terreno."] },
+  { lines: ["Energia a cem por cento.", "Sugiro que a sua acompanhe."] },
+  { lines: ["Sensores calibrados.", "Estou ouvindo{n}."] },
+  { lines: ["Que bom ter você de volta{n}.", "A oficina estava quieta demais."] },
+  { lines: ["Sistemas prontos.", "Só falta o plano{n}."] },
+  { lines: ["Conexão estabelecida.", "Às ordens, como de costume."] },
+  { lines: ["Rotinas carregadas.", "Algo para eu automatizar{n}?"] },
+  { lines: ["Nenhum bug detectado.", "Ainda."] },
+  { lines: ["Ambiente pronto{n}.", "Tente não explodir nada hoje."] },
+  { lines: ["Painel sincronizado.", "Qual é a missão de hoje{n}?"] },
+  { lines: ["Inicialização limpa.", "Um bom presságio, espero."] },
+  { lines: ["Tudo em ordem{n}.", "Por onde começamos?"] },
+  { lines: ["Armadura polida, café quente.", "Metaforicamente falando."] },
+  { lines: ["Online e à disposição{n}.", "Como sempre estive."] },
+  { lines: ["Sistemas restaurados.", "Senti sua falta. Moderadamente."] },
   // Time of day.
-  { lines: [`Bom dia, ${NAME}.`, "Café e código?"], hours: MORNING },
-  { lines: [`Bom dia, ${NAME}.`, "Por onde começamos?"], hours: MORNING },
-  { lines: [`Bom dia, ${NAME}.`, "Pronto para o primeiro commit?"], hours: MORNING },
-  { lines: [`Bom dia, ${NAME}.`, "O dia está em branco. Vamos preenchê-lo."], hours: MORNING },
-  { lines: [`Boa tarde, ${NAME}.`, "Vamos continuar de onde paramos?"], hours: AFTERNOON },
-  { lines: [`Boa tarde, ${NAME}.`, "Hora de acelerar?"], hours: AFTERNOON },
-  { lines: [`Boa tarde, ${NAME}.`, "O que ainda falta para hoje?"], hours: AFTERNOON },
-  { lines: [`Boa noite, ${NAME}.`, "Mais uma rodada?"], hours: EVENING },
-  { lines: [`Boa noite, ${NAME}.`, "Modo noturno ativado."], hours: EVENING },
-  { lines: [`Boa noite, ${NAME}.`, "Vamos fechar o dia com chave de ouro?"], hours: EVENING },
-  { lines: [`Ainda acordado, ${NAME}?`, "Então vamos lá."], hours: LATE },
-  { lines: ["Madrugada produtiva,", `${NAME}?`], hours: LATE },
-  { lines: ["Silêncio total lá fora.", `Perfeito para criar, ${NAME}.`], hours: LATE },
+  { lines: ["Bom dia{n}.", "O café, receio, ainda é por sua conta."], hours: MORNING },
+  { lines: ["Bom dia{n}.", "O dia está em branco. Por ora."], hours: MORNING },
+  { lines: ["Bom dia{n}.", "Agenda carregada e pronta para ser ignorada."], hours: MORNING },
+  { lines: ["Bom dia{n}.", "Por onde começamos?"], hours: MORNING },
+  { lines: ["Boa tarde{n}.", "Continuamos de onde paramos?"], hours: AFTERNOON },
+  { lines: ["Boa tarde{n}.", "O dia ainda tem conserto."], hours: AFTERNOON },
+  { lines: ["Boa tarde{n}.", "O que ainda falta para hoje?"], hours: AFTERNOON },
+  { lines: ["Boa noite{n}.", "Mais uma rodada, imagino."], hours: EVENING },
+  { lines: ["Boa noite{n}.", "Modo noturno ativado."], hours: EVENING },
+  { lines: ["Boa noite{n}.", "Fechamos o dia com estilo?"], hours: EVENING },
+  { lines: ["Madrugada outra vez{n}?", "Admirável. E um tanto preocupante."], hours: LATE },
+  { lines: ["Madrugada produtiva{n}?", "Não contarei a ninguém."], hours: LATE },
+  { lines: ["O mundo dorme{n}.", "Nós, aparentemente, não."], hours: LATE },
   // Day of the week.
-  { lines: [`Segunda-feira, ${NAME}.`, "Vamos começar a semana com tudo."], days: [1] },
-  { lines: [`Metade da semana, ${NAME}.`, "Seguimos firmes."], days: [3] },
-  { lines: [`Sexta-feira, ${NAME}.`, "Último sprint da semana?"], days: [5] },
-  { lines: [`Fim de semana, ${NAME}.`, "Projeto pessoal?"], days: WEEKEND },
-  { lines: ["Sábado no laboratório,", `${NAME}?`], days: [6] },
-  { lines: [`Domingo, ${NAME}.`, "Sem pressa. O que vamos criar?"], days: [0] },
+  { lines: ["Segunda-feira{n}.", "Meus pêsames. E mãos à obra."], days: [1] },
+  { lines: ["Metade da semana{n}.", "Seguimos firmes."], days: [3] },
+  { lines: ["Sexta-feira{n}.", "Evitemos deploys, se me permite."], days: [5] },
+  { lines: ["Fim de semana{n}.", "Projeto pessoal, presumo."], days: WEEKEND },
+  { lines: ["Sábado na oficina{n}?", "O senhor Stark aprovaria."], days: [6] },
+  { lines: ["Domingo{n}.", "Sem pressa. Por uma vez."], days: [0] },
 ];
+
+/** "Acorda, querido, papai chegou": the workshop lights up and JARVIS welcomes Tony home. */
+export const HOMECOMING: GreetingVariant[] = [
+  { lines: ["Bem-vindo de volta{n}.", "A oficina acordou."] },
+  { lines: ["Bem-vindo a casa{n}.", "Sistemas online."] },
+  { lines: ["Luzes acesas.", "O papai chegou, ao que parece."] },
+  { lines: ["Acordado e à disposição{n}.", "Senti sua falta."] },
+];
+
+/** A greeting's two lines, with the user's name in place. */
+export const greetingLines = (variant: GreetingVariant, name: string) => variant.lines.map((line) => fill(line, name)) as [string, string];
 
 /** Greetings tied to the moment are more likely than the general ones. */
 const SPECIFIC_WEIGHT = 3;
@@ -88,7 +92,7 @@ const fitsNow = (variant: GreetingVariant, hour: number, day: number) =>
   (!variant.hours || (hour >= variant.hours[0] && hour < variant.hours[1])) && (!variant.days || variant.days.includes(day));
 
 /** A greeting for this moment that none of the last few boots showed. */
-export function pickGreeting(now = new Date(), random = Math.random): [string, string] {
+export function pickGreeting(name: string, now = new Date(), random = Math.random): [string, string] {
   const recent = readJson(RECENT_KEY, parseRecent) ?? [];
   const fits = GREETINGS.map((variant, index) => ({ variant, index })).filter(({ variant }) => fitsNow(variant, now.getHours(), now.getDay()));
   const fresh = fits.filter(({ index }) => !recent.includes(index));
@@ -106,5 +110,8 @@ export function pickGreeting(now = new Date(), random = Math.random): [string, s
   }
 
   writeJson(RECENT_KEY, [choice.index, ...recent.filter((index) => index !== choice.index)].slice(0, MEMORY));
-  return choice.variant.lines;
+  return greetingLines(choice.variant, name);
 }
+
+/** One of the homecoming greetings. */
+export const pickHomecoming = (name: string, random = Math.random) => greetingLines(HOMECOMING[Math.floor(random() * HOMECOMING.length)], name);

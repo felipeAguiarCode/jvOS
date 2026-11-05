@@ -2,23 +2,44 @@ import {
   AudioLines,
   BatteryMedium,
   Bot,
+  CalendarDays,
   Calculator,
   CassetteTape,
   Clock,
+  CloudSun,
   Disc3,
   FileText,
   Gauge,
   GraduationCap,
+  ListChecks,
   SquareCode,
   SquareTerminal,
   Timer,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { DOCK_RESERVE } from "./layout";
 
 /** Everything that can open as a window over the hologram. */
-export type WindowKind = "clock" | "pomodoro" | "battery" | "calculator" | "tape" | "miniplayer" | "system" | "markdown" | "ide" | "music" | "shell" | "lab" | "agent";
-export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "markdown", "ide", "music", "shell", "lab", "agent"];
+export type WindowKind =
+  | "clock"
+  | "pomodoro"
+  | "battery"
+  | "calculator"
+  | "tape"
+  | "miniplayer"
+  | "system"
+  | "markdown"
+  | "ide"
+  | "music"
+  | "shell"
+  | "lab"
+  | "agent"
+  | "stocks"
+  | "weather"
+  | "agenda"
+  | "tasks";
+export const WINDOW_KINDS: WindowKind[] = ["clock", "pomodoro", "battery", "calculator", "tape", "miniplayer", "system", "stocks", "weather", "agenda", "tasks", "markdown", "ide", "music", "shell", "lab", "agent"];
 
 export interface Size {
   w: number;
@@ -87,6 +108,11 @@ export const WINDOW_SPECS: Record<WindowKind, WindowSpec> = {
   miniplayer: { title: "Mini player", icon: AudioLines, size: { w: 360, h: 150 }, min: { w: 300, h: 140 }, group: "widgets" },
   // The system meters (CPU, GPU, disk, Wi-Fi, RAM, virtual memory); right click picks the bars.
   system: { title: "Sistema", icon: Gauge, size: { w: 300, h: 290 }, min: { w: 220, h: 110 }, group: "widgets" },
+  // What JARVIS watches for the user: stocks and FIIs, the weather, the agenda, the day's to-do list.
+  stocks: { title: "Ações", icon: TrendingUp, size: { w: 380, h: 300 }, min: { w: 300, h: 180 }, group: "widgets" },
+  weather: { title: "Clima", icon: CloudSun, size: { w: 400, h: 230 }, min: { w: 340, h: 200 }, group: "widgets" },
+  agenda: { title: "Agenda", icon: CalendarDays, size: { w: 340, h: 420 }, min: { w: 300, h: 340 }, group: "widgets" },
+  tasks: { title: "Tarefas", icon: ListChecks, size: { w: 320, h: 300 }, min: { w: 240, h: 180 }, group: "widgets" },
   markdown: { title: "Jarvis Mark", icon: FileText, size: { w: 880, h: 560 }, min: { w: 480, h: 300 }, group: "apps" },
   // The termide-style IDE (a folder, its files, git, outline and terminals); it replaced Jarvis Code.
   ide: { title: "jv_ide", icon: SquareCode, size: { w: 1180, h: 700 }, min: { w: 640, h: 360 }, group: "apps" },

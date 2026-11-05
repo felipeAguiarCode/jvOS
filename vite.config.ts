@@ -12,8 +12,14 @@ export default defineConfig(() => ({
   // Shown on the boot screen; npm sets it for every `npm run` script.
   define: { __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0") },
 
-  // Desktop app served from local disk: one ~1.4 MB bundle (mostly three.js) is fine.
-  build: { chunkSizeWarningLimit: 2000 },
+  build: {
+    // WebView2 (and the Edge the tests use) is an evergreen Chromium: no down-levelling of
+    // modern syntax, so smaller, faster code.
+    target: "chrome120",
+    // The largest chunk is the 3D hologram's (three.js, ~1 MB, loaded only with the 3D core);
+    // anything bigger than that is a regression worth a warning.
+    chunkSizeWarningLimit: 1100,
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -32,8 +38,9 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and Cargo's build folder (`t/`, see
+      //    src-tauri/.cargo/config.toml)
+      ignored: ["**/src-tauri/**", "**/t/**"],
     },
   },
 }));

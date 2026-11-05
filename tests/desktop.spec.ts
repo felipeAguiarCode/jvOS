@@ -95,6 +95,11 @@ test("Widgets and Apps open their own launchers, which close with Escape or a cl
 test("a widget opens once, shows the time and closes", async ({ page }) => {
   const clock = await openWindow(page, "Relógio");
   await expect(clock).toHaveText(/\d{2}:\d{2}:\d{2}/);
+  // A tinted panel, no backdrop blur: the core moving behind would have it redone every frame.
+  const blurred = await clock.evaluate((root) =>
+    [root, ...root.querySelectorAll("*")].filter((element) => getComputedStyle(element).backdropFilter !== "none").length,
+  );
+  expect(blurred).toBe(0);
 
   // Picking it again just brings it to the front.
   const launcher = await openLauncher(page);
@@ -120,6 +125,9 @@ test("windows snap to the edges while dragged and never leave the screen", async
   await dragBy(page, header, 22 - start.x, 120);
   await expect(page.getByTestId("snap-guide")).toHaveCount(1);
   await page.screenshot({ path: `${SCREENS}/window-snap.png` });
+  // While held the window already sits where it snapped (its geometry lives in the desktop layer).
+  const held = await box(clock);
+  expect(Math.abs(held.x - 16)).toBeLessThanOrEqual(1);
   await page.mouse.up();
   await expect(page.getByTestId("snap-guide")).toHaveCount(0);
   const snapped = await box(clock);
@@ -327,7 +335,8 @@ test("the advanced menu tunes snapping, arranges windows and sets a custom hue",
 
 test("voice commands open and close windows (engine event stand-in)", async ({ page }) => {
   const voiceWindow = (kind: string, open: boolean) => page.evaluate(([k, o]) => window.__JARVIS__!.voiceWindow({ kind: k as string, open: o as boolean }), [kind, open] as const);
-  const notice = page.getByRole("status").filter({ hasText: /Abrindo|Fechando|não está aberto/ });
+  // The dock's notice, not JARVIS's spoken confirmation in the core (a sentence, with its full stop).
+  const notice = page.getByRole("status").filter({ hasText: /^(Abrindo [^.]+|Fechando [^.]+|[^.]+ não está aberto)$/ });
 
   await voiceWindow("clock", true);
   await expect(page.getByRole("dialog", { name: "Relógio" })).toBeVisible();
@@ -355,7 +364,8 @@ test("voice commands open and close windows (engine event stand-in)", async ({ p
 test("voice closes every widget, every app or everything (engine event stand-in)", async ({ page }) => {
   const closeGroup = (group: string) => page.evaluate((g) => window.__JARVIS__!.voiceCloseGroup(g as "widgets" | "apps" | "all"), group);
   const voiceWindow = (kind: string) => page.evaluate((k) => window.__JARVIS__!.voiceWindow({ kind: k, open: true }), kind);
-  const notice = page.getByRole("status").filter({ hasText: /Fechando|Nenhum/ });
+  // The dock's notice, not JARVIS's spoken confirmation in the core (a sentence, with its full stop).
+  const notice = page.getByRole("status").filter({ hasText: /^(Fechando|Nenhum) [^.]+$/ });
   const open = async () => ((await stored(page)) ?? { order: [] }).order as string[];
 
   for (const kind of ["clock", "calculator", "battery", "markdown", "ide"]) await voiceWindow(kind);
@@ -371,7 +381,7 @@ test("voice closes every widget, every app or everything (engine event stand-in)
 
   // Said above the Apps item, while the widgets' notice fades out above Widgets.
   await closeGroup("apps");
-  const appsNotice = page.getByRole("status").filter({ hasText: "Fechando 2 apps" });
+  const appsNotice = page.getByRole("status").filter({ hasText: /^Fechando 2 apps$/ });
   await expect(appsNotice).toBeVisible();
   const said = await box(appsNotice);
   const appsItem = await box(page.getByRole("button", { name: "Apps", exact: true }));
@@ -382,7 +392,7 @@ test("voice closes every widget, every app or everything (engine event stand-in)
   await voiceWindow("ide");
   await expect.poll(open).toHaveLength(2); // spoken commands are seconds apart
   await closeGroup("all");
-  await expect(page.getByRole("status").filter({ hasText: "Fechando 2 janelas" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Fechando 2 janelas$/ })).toBeVisible();
   await expect.poll(open).toEqual([]);
 });
 

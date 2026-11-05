@@ -68,11 +68,28 @@ pub struct Music {
     ids: Mutex<HashMap<String, String>>,
     /// Video id → stream, until it expires.
     streams: Mutex<HashMap<String, Resolved>>,
+    /// `yt-dlp --version` unpacks and starts a whole (PyInstaller) program, about a second of CPU:
+    /// its answer is kept until the executable changes (an update, another copy on PATH).
+    version: Mutex<Option<(PathBuf, SystemTime, Option<String>)>>,
 }
 
 impl Music {
     pub fn new(bin_dir: PathBuf) -> Self {
-        Self { bin_dir, installing: AtomicBool::new(false), ids: Mutex::default(), streams: Mutex::default() }
+        Self { bin_dir, installing: AtomicBool::new(false), ids: Mutex::default(), streams: Mutex::default(), version: Mutex::default() }
+    }
+
+    fn cached_version(&self, exe: &Path) -> Option<String> {
+        let modified = std::fs::metadata(exe).and_then(|meta| meta.modified()).ok();
+        let mut cache = self.version.lock().unwrap();
+        if let (Some(modified), Some((path, at, known))) = (modified, cache.as_ref())
+            && path == exe
+            && *at == modified
+        {
+            return known.clone();
+        }
+        let found = version(exe);
+        *cache = modified.map(|modified| (exe.to_path_buf(), modified, found.clone()));
+        found
     }
 
     fn managed_path(&self) -> PathBuf {
@@ -94,7 +111,7 @@ impl Music {
             return MusicStatus { ytdlp: "installing", version: None, managed: true };
         }
         match self.executable() {
-            Some((exe, managed)) => MusicStatus { ytdlp: "ready", version: version(&exe), managed },
+            Some((exe, managed)) => MusicStatus { ytdlp: "ready", version: self.cached_version(&exe), managed },
             None => MusicStatus { ytdlp: "missing", version: None, managed: false },
         }
     }

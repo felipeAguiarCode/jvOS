@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod matcher;
+pub mod silero;
 pub mod transcriber;
 pub mod vad;
 
@@ -22,6 +23,7 @@ use crate::launcher;
 use crate::settings::{Activation, Settings};
 use audio::Resampler;
 use matcher::{command_vocabulary, Decision, Session};
+use silero::SpeechGate;
 use transcriber::{build_prompt, Transcriber};
 use vad::Vad;
 
@@ -51,8 +53,13 @@ const CANNOT_CLOSE: &str = "Fechar programas pela voz ainda não é possível";
 /// (often a laptop's microphone mute key, which Windows does not report as muted).
 const SILENT_MIC_AFTER: Duration = Duration::from_secs(4);
 const SILENT_MIC_MESSAGE: &str = "O microfone não está captando som. Verifique a tecla de mudo do microfone.";
-/// How often the loop checks the push-to-talk button while the microphone is closed.
+/// How often the loop wakes while the microphone is open (audio arrives every ~10 ms anyway).
 const POLL: Duration = Duration::from_millis(20);
+/// With the microphone closed (push-to-talk "ready") the loop sleeps: the buttons, `stop` and
+/// the settings wake it at once through `VoiceEngine::nudge`, so this is only the fallback for
+/// what nobody announces (a mode changed elsewhere, the awake window running out). Was 50
+/// wake-ups a second all day long.
+const IDLE_POLL: Duration = Duration::from_secs(1);
 /// Push-to-talk recordings stop growing at Whisper's 30 s window.
 const MAX_PUSH_SAMPLES: usize = vad::SAMPLE_RATE * 30;
 /// A hold shorter than this with pure digital silence is a tap, not a muted microphone.
@@ -177,11 +184,17 @@ pub struct VoiceEngine {
     exit_after_dictation: Arc<AtomicBool>,
     /// JARVIS is speaking: the listening modes must not take his words for commands.
     deaf: Arc<AtomicBool>,
+    /// The running loop's audio channel: an empty chunk wakes it from its idle sleep.
+    wake: Mutex<Option<mpsc::Sender<Vec<f32>>>>,
+    /// Where Whisper runs, once the model is loaded.
+    device: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for VoiceEngine {
     fn default() -> Self {
         Self {
+            wake: Mutex::new(None),
+            device: Arc::new(Mutex::new(None)),
             worker: Mutex::new(None),
             status: Arc::new(Mutex::new(VoiceStatus { state: VoiceState::Off, message: None })),
             talking: Arc::new(AtomicBool::new(false)),
@@ -203,13 +216,23 @@ impl VoiceEngine {
         self.worker.lock().unwrap().as_ref().is_some_and(|worker| !worker.thread.is_finished())
     }
 
+    /// "CPU" or the GPU's name while the model is loaded; None when the engine is off.
+    pub fn device(&self) -> Option<String> {
+        if !self.is_running() {
+            return None;
+        }
+        self.device.lock().unwrap().clone()
+    }
+
     /// (Re)starts listening with the given model.
     pub fn start(&self, app: AppHandle, settings: Arc<RwLock<Settings>>, model: PathBuf) {
         self.stop();
         let stop = Arc::new(AtomicBool::new(false));
-        let reporter = Reporter { app, status: self.status.clone() };
+        let reporter = Reporter { app, status: self.status.clone(), device: self.device.clone() };
         // Reported right away so the command that started the engine returns "loading".
         reporter.set(VoiceState::Loading, None);
+        let (sender, receiver) = mpsc::channel();
+        *self.wake.lock().unwrap() = Some(sender.clone());
         let thread = {
             let stop = stop.clone();
             let buttons = Buttons {
@@ -222,10 +245,17 @@ impl VoiceEngine {
             };
             std::thread::Builder::new()
                 .name("jarvis-voice".into())
-                .spawn(move || run(reporter, settings, model, buttons, stop))
+                .spawn(move || run(reporter, settings, model, buttons, stop, sender, receiver))
                 .expect("failed to spawn the voice thread")
         };
         *self.worker.lock().unwrap() = Some(Worker { stop, thread });
+    }
+
+    /// Wakes the loop from its idle sleep (a button, the settings or `stop` changed).
+    pub fn nudge(&self) {
+        if let Some(sender) = self.wake.lock().unwrap().as_ref() {
+            let _ = sender.send(Vec::new());
+        }
     }
 
     /// Push-to-talk: the microphone opens while `down` and closes on release, which also
@@ -234,12 +264,14 @@ impl VoiceEngine {
         // Stored before `talking`, so the loop that sees the release also sees the cancel.
         self.discard.store(!down && cancel, Ordering::SeqCst);
         self.talking.store(down, Ordering::SeqCst);
+        self.nudge();
     }
 
     /// Markdown dictation: while `down`, everything heard is kept for the editor and the
     /// assistant hears nothing, whatever the activation mode. Release sends it to Whisper.
     pub fn set_dictating(&self, down: bool) {
         self.dictating.store(down, Ordering::SeqCst);
+        self.nudge();
     }
 
     /// The core's microphone: like dictation, but the text is a question for JARVIS. A release
@@ -248,6 +280,7 @@ impl VoiceEngine {
         // Stored before `asking`, so the loop that sees the release also sees the cancel.
         self.discard.store(!down && cancel, Ordering::SeqCst);
         self.asking.store(down, Ordering::SeqCst);
+        self.nudge();
     }
 
     /// While JARVIS speaks, what the open microphone hears is not a command (held buttons still record).
@@ -257,6 +290,7 @@ impl VoiceEngine {
 
     pub fn set_exit_after_dictation(&self, exit: bool) {
         self.exit_after_dictation.store(exit, Ordering::SeqCst);
+        self.nudge();
     }
 
     /// Stops listening and waits until the microphone is released.
@@ -264,8 +298,10 @@ impl VoiceEngine {
         let worker = self.worker.lock().unwrap().take();
         if let Some(worker) = worker {
             worker.stop.store(true, Ordering::Relaxed);
+            self.nudge();
             let _ = worker.thread.join();
         }
+        *self.wake.lock().unwrap() = None;
     }
 }
 
@@ -273,6 +309,8 @@ impl VoiceEngine {
 struct Reporter {
     app: AppHandle,
     status: Arc<Mutex<VoiceStatus>>,
+    /// Where the loaded model runs ("CPU" or the GPU's name), while it is loaded.
+    device: Arc<Mutex<Option<String>>>,
 }
 
 impl Reporter {
@@ -379,13 +417,18 @@ fn run(
     model: PathBuf,
     buttons: Buttons,
     stop: Arc<AtomicBool>,
+    sender: mpsc::Sender<Vec<f32>>,
+    receiver: mpsc::Receiver<Vec<f32>>,
 ) {
-    let mut transcriber = match Transcriber::load(&model) {
+    let device = settings.read().unwrap().voice_device.clone();
+    let mut transcriber = match Transcriber::load(&model, &device) {
         Ok(transcriber) => transcriber,
         Err(error) => return reporter.set(VoiceState::Error, Some(error)),
     };
+    *reporter.device.lock().unwrap() = Some(transcriber.device().to_string());
+    // Next to the Whisper models; loaded (or downloaded) the first time a listening mode needs it.
+    let mut gate = SpeechGate::new(model.parent().unwrap_or(&model));
 
-    let (sender, receiver) = mpsc::channel();
     let device_lost = Arc::new(AtomicBool::new(false));
     let mut mic: Option<Mic> = None;
     // What is recorded while a button is held.
@@ -475,7 +518,9 @@ fn run(
             }
         }
 
-        match receiver.recv_timeout(POLL) {
+        match receiver.recv_timeout(if mic.is_some() { POLL } else { IDLE_POLL }) {
+            // A nudge: something changed, the loop runs its checks again.
+            Ok(chunk) if chunk.is_empty() => {}
             Ok(chunk) => {
                 if let Some(open) = mic.as_mut() {
                     if chunk.iter().any(|sample| sample.abs() > 1e-5) {
@@ -497,7 +542,10 @@ fn run(
                                 if stop.load(Ordering::Relaxed) {
                                     break;
                                 }
-                                handle_utterance(&reporter, &settings, &mut transcriber, &mut session, &utterance);
+                                // Energy that is not speech (noise, music, a door) never reaches Whisper.
+                                if gate.passes(&utterance) {
+                                    handle_utterance(&reporter, &settings, &mut transcriber, &mut session, &utterance);
+                                }
                             }
                         }
                     }
@@ -533,6 +581,7 @@ fn run(
     }
 
     drop(mic);
+    *reporter.device.lock().unwrap() = None;
     reporter.set(VoiceState::Off, None);
 }
 
@@ -681,9 +730,27 @@ mod speech_tests {
         models::path(&dir, model)
     }
 
+    /// Where Whisper runs: `JARVIS_TEST_DEVICE` ("cpu", a GPU name as `speech_lists_gpus` prints
+    /// it), "auto" by default. Builds without the `vulkan` feature always use the CPU.
+    fn load_transcriber() -> Transcriber {
+        let device = std::env::var("JARVIS_TEST_DEVICE").unwrap_or_else(|_| crate::settings::AUTO_DEVICE.into());
+        let began = Instant::now();
+        let transcriber = Transcriber::load(&model_path(), &device).unwrap();
+        println!("loaded in {} ms on {}", began.elapsed().as_millis(), transcriber.device());
+        transcriber
+    }
+
+    #[test]
+    #[ignore = "lists the GPUs whisper.cpp sees (Vulkan builds)"]
+    fn speech_lists_gpus() {
+        for device in transcriber::gpu_devices() {
+            println!("{} ({} MB)", device.name, device.vram_mb);
+        }
+    }
+
     /// Utterances separated by a second of silence, decided one second apart.
     fn run(names: &[&str], activation: Activation) -> Vec<Decision> {
-        let mut transcriber = Transcriber::load(&model_path()).unwrap();
+        let mut transcriber = load_transcriber();
         let apps = default_apps();
         let commands = crate::settings::default_voice_commands();
         let prompt = build_prompt(command_vocabulary(&apps, &commands));

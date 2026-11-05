@@ -85,7 +85,12 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
   const handlers = useRef({ onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro, onShortcut });
   handlers.current = { onWake, onCommand, onWindow, onCloseGroup, onMusic, onPomodoro, onShortcut };
 
-  const hear = useCallback((text: string) => setHeard((current) => ({ id: (current?.id ?? 0) + 1, text })), []);
+  /** The last phrase heard, at once: a command's event comes right after its transcript, before React renders. */
+  const said = useRef("");
+  const hear = useCallback((text: string) => {
+    said.current = text;
+    setHeard((current) => ({ id: (current?.id ?? 0) + 1, text }));
+  }, []);
 
   useEffect(() => {
     if (!available) return;
@@ -189,6 +194,7 @@ export function useVoiceAssistant({ onWake, onCommand, onWindow, onCloseGroup, o
     available,
     status,
     heard,
+    said,
     transcript: heard?.text ?? null,
     transcribing,
     hear,

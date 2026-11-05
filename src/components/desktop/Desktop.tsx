@@ -1,27 +1,29 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
+import type { Agenda } from "../../hooks/useAgenda";
 import type { Desktop as DesktopApi } from "../../hooks/useDesktop";
 import type { MusicPlayer } from "../../hooks/useMusicPlayer";
 import type { Pomodoro as PomodoroTimer } from "../../hooks/usePomodoro";
-import { canMaximize, workArea, type Rect, type WindowKind } from "../../lib/desktop";
+import type { Tasks } from "../../hooks/useTasks";
+import type { Watchlist } from "../../hooks/useWatchlist";
+import type { WeatherFeed } from "../../hooks/useWeather";
+import { canMaximize, clampRect, WINDOW_SPECS, workArea, type Rect, type WindowKind } from "../../lib/desktop";
 import type { TuiSurface } from "../../lib/tui";
 import { snapRect, snapTargets, type Guide, type ResizeEdges } from "../../lib/snap";
+import type { AgentConversation } from "./apps/agent/AgentSession";
+import { AgendaWidget } from "./widgets/AgendaWidget";
 import { Battery } from "./widgets/Battery";
+import { Stocks } from "./widgets/Stocks";
+import { TasksWidget } from "./widgets/TasksWidget";
+import { WeatherWidget } from "./widgets/WeatherWidget";
 import { SystemMeters } from "./widgets/SystemMeters";
 import { Calculator } from "./widgets/Calculator";
 import { Clock } from "./widgets/Clock";
 import { MiniPlayer } from "./widgets/MiniPlayer";
 import { Pomodoro } from "./widgets/Pomodoro";
 import { TapeWidget } from "./widgets/TapeWidget";
+import { AgentApp, IdeApp, LabApp, MarkdownEditor, ShellApp, TapePlayer } from "./lazyApps";
 import { Window } from "./Window";
-
-// The editors (CodeMirror, Markdown) load on first use, not with the hologram.
-const MarkdownEditor = lazy(() => import("./apps/MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
-const IdeApp = lazy(() => import("./apps/ide/IdeApp").then((module) => ({ default: module.IdeApp })));
-const TapePlayer = lazy(() => import("./apps/TapePlayer").then((module) => ({ default: module.TapePlayer })));
-const ShellApp = lazy(() => import("./apps/ShellApp").then((module) => ({ default: module.ShellApp })));
-const LabApp = lazy(() => import("./apps/lab/LabApp").then((module) => ({ default: module.LabApp })));
-const AgentApp = lazy(() => import("./apps/agent/AgentApp").then((module) => ({ default: module.AgentApp })));
 
 interface DesktopProps {
   desktop: DesktopApi;
@@ -33,6 +35,17 @@ interface DesktopProps {
   tui: TuiSurface;
   /** jv_T4p3's playback (it lives in App so the music goes on with the window closed). */
   music: MusicPlayer;
+  /** What JARVIS watches (in App: he answers and alerts with the widgets closed). */
+  feeds: Feeds;
+  /** What the user and JARVIS are saying (jv_agent shows the interview). */
+  conversation: AgentConversation;
+}
+
+interface Feeds {
+  stocks: Watchlist;
+  weather: WeatherFeed;
+  agenda: Agenda;
+  tasks: Tasks;
 }
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((guide, i) => guide.axis === b[i].axis && guide.at === b[i].at);
@@ -42,8 +55,14 @@ const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every(
  * A maximised app in front lifts the whole layer over the dock and the drag strip: fullscreen.
  * Clicking the empty desktop (the hologram behind the windows) leaves no window focused.
  */
-export function Desktop({ desktop, paused, timer, tui, music }: DesktopProps) {
+export function Desktop({ desktop, paused, timer, tui, music, feeds, conversation }: DesktopProps) {
   const [guides, setGuides] = useState<Guide[]>([]);
+  // While a window is dragged or resized its geometry lives here: each pointer move re-renders
+  // this layer only, not the whole app (dock, bar, panels), and nothing is stored until the
+  // gesture ends.
+  const [live, setLive] = useState<{ kind: WindowKind; rect: Rect } | null>(null);
+  const liveRef = useRef(live);
+  liveRef.current = live;
   const { prefs, setRect, blur } = desktop;
   // The front window, focused or not: a maximised one still covers everything.
   const fullscreen = desktop.windows[desktop.windows.length - 1]?.maximized ?? false;
@@ -60,14 +79,20 @@ export function Desktop({ desktop, paused, timer, tui, music }: DesktopProps) {
 
   const drag = useCallback(
     (kind: WindowKind, candidate: Rect, edges: ResizeEdges | "move") => {
-      const area = workArea(window.innerWidth, window.innerHeight);
-      const snapped = snapRect(candidate, edges, snapTargets(area, prefs), prefs);
-      setRect(kind, snapped.rect);
+      const { innerWidth: vw, innerHeight: vh } = window;
+      const snapped = snapRect(candidate, edges, snapTargets(workArea(vw, vh), prefs), prefs);
+      // Clamped as setRect will store it.
+      setLive({ kind, rect: clampRect(snapped.rect, WINDOW_SPECS[kind], vw, vh) });
       setGuides((current) => (sameGuides(current, snapped.guides) ? current : snapped.guides));
     },
-    [prefs, setRect],
+    [prefs],
   );
-  const endDrag = useCallback(() => setGuides([]), []);
+  const endDrag = useCallback(() => {
+    const ended = liveRef.current;
+    if (ended) setRect(ended.kind, ended.rect);
+    setLive(null);
+    setGuides([]);
+  }, [setRect]);
 
   return (
     <div data-fullscreen={fullscreen || undefined} className={`pointer-events-none fixed inset-0 isolate ${fullscreen ? "z-[21]" : "z-[15]"}`}>
@@ -76,7 +101,7 @@ export function Desktop({ desktop, paused, timer, tui, music }: DesktopProps) {
           <Window
             key={kind}
             kind={kind}
-            rect={rect}
+            rect={live?.kind === kind ? live.rect : rect}
             restore={restore}
             z={z}
             focused={desktop.focused === kind}
@@ -93,7 +118,7 @@ export function Desktop({ desktop, paused, timer, tui, music }: DesktopProps) {
             onDrag={(candidate, edges) => drag(kind, candidate, edges)}
             onDragEnd={endDrag}
           >
-            <WindowContent kind={kind} paused={paused} timer={timer} music={music} onClose={() => desktop.close(kind)} />
+            <WindowContent kind={kind} paused={paused} timer={timer} music={music} feeds={feeds} conversation={conversation} onClose={() => desktop.close(kind)} />
           </Window>
         ))}
       </AnimatePresence>
@@ -115,11 +140,13 @@ interface ContentProps {
   paused: boolean;
   timer: PomodoroTimer;
   music: MusicPlayer;
+  feeds: Feeds;
+  conversation: AgentConversation;
   /** jv_sh closes its window when its last tab exits. */
   onClose: () => void;
 }
 
-function WindowContent({ kind, paused, timer, music, onClose }: ContentProps) {
+function WindowContent({ kind, paused, timer, music, feeds, conversation, onClose }: ContentProps) {
   switch (kind) {
     case "clock":
       return <Clock paused={paused} />;
@@ -135,6 +162,14 @@ function WindowContent({ kind, paused, timer, music, onClose }: ContentProps) {
       return <MiniPlayer music={music} />;
     case "system":
       return <SystemMeters paused={paused} />;
+    case "stocks":
+      return <Stocks watchlist={feeds.stocks} />;
+    case "weather":
+      return <WeatherWidget feed={feeds.weather} />;
+    case "agenda":
+      return <AgendaWidget agenda={feeds.agenda} />;
+    case "tasks":
+      return <TasksWidget tasks={feeds.tasks} />;
     case "markdown":
       return (
         <Suspense fallback={<Loading />}>
@@ -168,7 +203,7 @@ function WindowContent({ kind, paused, timer, music, onClose }: ContentProps) {
     case "agent":
       return (
         <Suspense fallback={<Loading />}>
-          <AgentApp />
+          <AgentApp conversation={conversation} />
         </Suspense>
       );
   }

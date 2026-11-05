@@ -1,6 +1,7 @@
 mod agents;
 mod assistant;
 mod download;
+mod feeds;
 mod files;
 mod git;
 mod launcher;
@@ -92,6 +93,12 @@ impl AppState {
         Ok(models::path(&self.models_dir, model))
     }
 
+    /// JARVIS's model and the user's name, as the settings have them now.
+    fn assistant_profile(&self) -> assistant::Profile {
+        let settings = self.settings.read().unwrap();
+        assistant::Profile { model: settings.assistant_model.clone(), name: settings.assistant_name.clone() }
+    }
+
     fn start_voice(&self, app: &AppHandle) -> Result<(), String> {
         let model = self.selected_model()?;
         self.voice.start(app.clone(), self.settings.clone(), model);
@@ -105,13 +112,14 @@ fn get_settings(state: State<AppState>) -> Settings {
 }
 
 /// Saves the settings edited in the UI and returns them sanitised. Listening on/off is not
-/// taken from here (see `voice_start` / `voice_stop`); changing the model restarts the engine.
+/// taken from here (see `voice_start` / `voice_stop`); changing the model, or where it runs,
+/// restarts the engine.
 #[tauri::command]
 async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Settings) -> Result<Settings, String> {
     let incoming = settings::sanitize(settings);
     let model_changed = {
         let mut current = state.settings.write().unwrap();
-        let model_changed = current.model != incoming.model;
+        let model_changed = current.model != incoming.model || current.voice_device != incoming.voice_device;
         *current = Settings { voice_enabled: current.voice_enabled, ..incoming };
         model_changed
     };
@@ -121,6 +129,9 @@ async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
             state.voice.stop();
             return Err(error);
         }
+    } else {
+        // A new activation mode applies at once, even from the engine's idle sleep.
+        state.voice.nudge();
     }
     Ok(state.snapshot())
 }
@@ -428,16 +439,16 @@ fn voice_status(state: State<AppState>) -> VoiceStatus {
 /// `session_id` continues an earlier conversation (the UI keeps it with the history).
 #[tauri::command]
 async fn assistant_ask(state: State<'_, AppState>, text: String, session_id: Option<String>, on_event: Channel<assistant::AssistantEvent>) -> Result<(), String> {
-    let (assistant, model) = (state.assistant.clone(), state.settings.read().unwrap().assistant_model.clone());
-    blocking(move || assistant.ask(&text, session_id, &model, on_event)).await
+    let (assistant, profile) = (state.assistant.clone(), state.assistant_profile());
+    blocking(move || assistant.ask(&text, session_id, &profile, on_event)).await
 }
 
 /// Starts Claude Code ahead of the question (when JARVIS opens, while the user is talking), so
 /// the answer comes sooner.
 #[tauri::command]
 async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>) -> Result<(), String> {
-    let (assistant, model) = (state.assistant.clone(), state.settings.read().unwrap().assistant_model.clone());
-    blocking(move || assistant.warm(session_id, &model)).await
+    let (assistant, profile) = (state.assistant.clone(), state.assistant_profile());
+    blocking(move || assistant.warm(session_id, &profile)).await
 }
 
 /// "anota que…": a line in today's notes, written right away (no Claude Code). Returns the file.
@@ -445,6 +456,18 @@ async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>) 
 async fn assistant_note(state: State<'_, AppState>, text: String, date: String, time: String) -> Result<String, String> {
     let assistant = state.assistant.clone();
     blocking(move || assistant::append_note(assistant.folder(), &text, &date, &time).map(|path| path.display().to_string())).await
+}
+
+/// Today's quotes of the watched stocks and FIIs (Yahoo Finance), in order; each may carry its error.
+#[tauri::command]
+async fn stock_quotes(symbols: Vec<String>) -> Result<Vec<feeds::Quote>, String> {
+    blocking(move || Ok(feeds::quotes(&symbols))).await
+}
+
+/// The weather now and the next days in `city` (Open-Meteo).
+#[tauri::command]
+async fn weather_forecast(city: String) -> Result<feeds::Weather, String> {
+    blocking(move || feeds::weather(&city)).await
 }
 
 #[tauri::command]
@@ -466,6 +489,13 @@ async fn assistant_reset(state: State<'_, AppState>) -> Result<(), String> {
         Ok(())
     })
     .await
+}
+
+/// "Limpa a memória": Claude Code stops if idle and gives its RAM back (it comes back on the next question).
+#[tauri::command]
+async fn assistant_sleep(state: State<'_, AppState>) -> Result<assistant::Sleep, String> {
+    let assistant = state.assistant.clone();
+    blocking(move || Ok(assistant.sleep())).await
 }
 
 /// JARVIS's folder (notes, agent drafts), for the UI to tell which editor a file belongs to.
@@ -670,6 +700,50 @@ async fn system_stats(state: State<'_, AppState>) -> Result<system::SystemStats,
     tauri::async_runtime::spawn_blocking(move || sampler.lock().unwrap().read()).await.map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceDevices {
+    /// The GPUs Whisper can run on; empty in a build without the Vulkan backend.
+    gpus: Vec<voice::transcriber::GpuDevice>,
+    /// Built with the Vulkan backend (`vulkan` feature).
+    accelerated: bool,
+    /// Where the loaded model runs now ("CPU" or a GPU's name); None with the engine off.
+    active: Option<String>,
+}
+
+/// Where speech recognition can run, for the Voz tab. Listing the GPUs starts Vulkan once (well
+/// under a second), off the UI thread.
+#[tauri::command]
+async fn voice_devices(state: State<'_, AppState>) -> Result<VoiceDevices, String> {
+    let gpus = blocking(|| Ok(voice::transcriber::gpu_devices())).await?;
+    Ok(VoiceDevices { gpus, accelerated: cfg!(feature = "vulkan"), active: state.voice.device() })
+}
+
+/// The window went (or came back) out of sight for a while: WebView2's "low" memory target trims
+/// its caches and working set (a few hundred MB back to the system), "normal" restores them. A
+/// WebView2 runtime without the setting (before 1.0.2210) just ignores it.
+#[tauri::command]
+fn webview_background(window: tauri::WebviewWindow, background: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows_core::Interface;
+        window
+            .with_webview(move |platform| unsafe {
+                let Ok(core) = platform.controller().CoreWebView2() else { return };
+                let Ok(core) = core.cast::<ICoreWebView2_19>() else { return };
+                let level = if background { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+                let _ = core.SetMemoryUsageTargetLevel(level);
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    let _ = (window, background);
+    Ok(())
+}
+
 #[tauri::command]
 async fn music_status(state: State<'_, AppState>) -> Result<music::MusicStatus, String> {
     let music = state.music.clone();
@@ -797,8 +871,11 @@ pub fn run() {
             assistant_ask,
             assistant_warm,
             assistant_note,
+            stock_quotes,
+            weather_forecast,
             assistant_cancel,
             assistant_reset,
+            assistant_sleep,
             assistant_folder,
             assistant_action_result,
             speech_status,
@@ -820,6 +897,8 @@ pub fn run() {
             terminal_resize,
             terminal_close,
             system_stats,
+            voice_devices,
+            webview_background,
             workspace_open,
             workspace_close,
             workspace_list,

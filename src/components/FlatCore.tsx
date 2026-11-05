@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import { motion } from "motion/react";
+import { frameRate, runFrames } from "../lib/frameClock";
 import { COMPOSITION_CSS, CORE_CENTER_Y_CSS } from "../lib/layout";
 import type { HoloSignals } from "../lib/signals";
 import type { Ignition } from "./JarvisScene";
@@ -23,6 +24,8 @@ interface FlatCoreProps {
   signals: HoloSignals;
   sample: (delta: number) => void;
   paused: boolean;
+  /** False while another app has the focus: the voice is followed at a lower frame rate. */
+  focused: boolean;
   onFirstFrame: () => void;
 }
 
@@ -33,7 +36,7 @@ interface FlatCoreProps {
  * frame); the voice only moves a few transforms and opacities. Paused (hidden, or behind a
  * maximised app), nothing runs.
  */
-export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: FlatCoreProps) {
+export function FlatCore({ ignition, signals, sample, paused, focused, onFirstFrame }: FlatCoreProps) {
   const halo = useRef<HTMLDivElement>(null);
   const voice = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLDivElement>(null);
@@ -44,8 +47,9 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
     return () => cancelAnimationFrame(id);
   }, [onFirstFrame]);
 
+  const fps = frameRate(paused, focused);
   useEffect(() => {
-    if (paused) return;
+    if (!fps) return;
     const written = new WeakMap<HTMLElement, Record<string, string>>();
     // Styles are only written when they change: at rest the loop costs a sample and nothing else.
     const set = (element: HTMLElement | null, property: "transform" | "opacity", value: string) => {
@@ -57,7 +61,7 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
       element.style[property] = value;
     };
     let last = performance.now();
-    let frame = requestAnimationFrame(function tick(now) {
+    return runFrames(fps, (now) => {
       sample((now - last) / 1000);
       last = now;
       const { level, bass, voice: speaking, pulse, active, align } = signals;
@@ -69,10 +73,8 @@ export function FlatCore({ ignition, signals, sample, paused, onFirstFrame }: Fl
       set(hud.current, "opacity", round(Math.min(1, 0.7 + active * 0.2 + pulse * 0.3)));
       set(lock.current, "opacity", round(align));
       set(lock.current, "transform", `rotate(${(LOCK_TURN * (1 - align)).toFixed(2)}deg) scale(${round(1 + (LOCK_SCALE - 1) * (1 - align))})`);
-      frame = requestAnimationFrame(tick);
     });
-    return () => cancelAnimationFrame(frame);
-  }, [paused, sample, signals]);
+  }, [fps, sample, signals]);
 
   const standby = { scale: 0.001, rotate: -270, opacity: 0 };
   return (

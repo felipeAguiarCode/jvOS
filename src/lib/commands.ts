@@ -9,7 +9,6 @@ import {
   Mic,
   MicOff,
   Minimize,
-  Monitor,
   Music,
   Orbit,
   Pause,
@@ -34,7 +33,7 @@ import type { MusicPlayer } from "../hooks/useMusicPlayer";
 import { CORE_MODES, type CoreMode } from "./core";
 import { WINDOW_KINDS, WINDOW_SPECS, type DesktopGroup, type WindowKind } from "./desktop";
 import type { Command } from "./search";
-import { ASSISTANT_MODELS, type Activation, type Background, type Settings } from "./settings";
+import { ASSISTANT_MODELS, type Activation, type Settings } from "./settings";
 import type { Theme } from "./theme";
 
 export type SettingsSection = "activation" | "appearance" | "voice" | "jarvis" | "apps";
@@ -94,6 +93,10 @@ const WINDOW_KEYWORDS: Record<WindowKind, string[]> = {
   tape: ["fita", "cassete", "tape", "musica", "widget"],
   miniplayer: ["mini", "player", "musica", "controles", "widget"],
   system: ["sistema", "monitor", "desempenho", "cpu", "processador", "gpu", "ram", "memoria", "hdd", "disco", "wlan", "wifi", "rede", "widget"],
+  stocks: ["acoes", "bolsa", "cotacao", "cotacoes", "fii", "fiis", "fundos imobiliarios", "investimentos", "b3", "widget"],
+  weather: ["clima", "tempo", "previsao", "temperatura", "chuva", "widget"],
+  agenda: ["agenda", "calendario", "compromissos", "eventos", "reuniao", "widget"],
+  tasks: ["tarefas", "to do", "todo", "afazeres", "lista", "checklist", "pendencias", "widget"],
 };
 
 const APP_SUBTITLES: Partial<Record<WindowKind, string>> = {
@@ -112,12 +115,6 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: "custom", label: "Personalizada" },
 ];
 
-const BACKGROUNDS: { value: Background; label: string }[] = [
-  { value: "solid", label: "Preto" },
-  { value: "grid", label: "Grid côncavo" },
-  { value: "matrix", label: "Matrix" },
-];
-
 const ACTIVATIONS: { value: Activation; label: string }[] = [
   { value: "pushToTalk", label: "Segurar para falar" },
   { value: "wakeWord", label: "Hey Jarvis" },
@@ -126,14 +123,14 @@ const ACTIVATIONS: { value: Activation; label: string }[] = [
 
 const SETTINGS_SECTIONS: { section: SettingsSection; title: string; keywords: string[] }[] = [
   { section: "activation", title: "Ativação", keywords: ["escuta", "microfone", "voz", "modo"] },
-  { section: "appearance", title: "Aparência", keywords: ["cor", "tema", "fundo", "background"] },
+  { section: "appearance", title: "Aparência", keywords: ["cor", "tema"] },
   { section: "voice", title: "Reconhecimento de voz", keywords: ["whisper", "modelo", "idioma", "language", "download"] },
   { section: "jarvis", title: "Cérebro do JARVIS", keywords: ["claude", "modelo", "haiku", "sonnet", "opus", "inteligencia", "velocidade"] },
   { section: "apps", title: "Programas e atalhos", keywords: ["programas", "palavras", "palavras-chave", "keywords", "comandos", "atalhos", "sites", "pastas", "arquivos"] },
 ];
 
 const ADVANCED_TABS: { tab: AdvancedTab; title: string; keywords: string[] }[] = [
-  { tab: "colors", title: "Cores", keywords: ["matiz", "hue", "cor", "tema", "fundo", "inicializacao", "bios"] },
+  { tab: "colors", title: "Cores", keywords: ["matiz", "hue", "cor", "tema", "inicializacao", "bios"] },
   { tab: "core", title: "Núcleo", keywords: ["nucleo", "holograma", "core", "2d", "3d", "memoria", "ram", "desempenho", "leve", "desligar"] },
   { tab: "windows", title: "Janelas", keywords: ["encaixe", "snap", "opacidade", "transparencia"] },
   { tab: "layout", title: "Layout", keywords: ["organizar", "grade", "grid", "alinhamento"] },
@@ -281,17 +278,6 @@ export function buildCommands(context: CommandContext): Command[] {
         keywords: ["tema", "theme", "cor", "color"],
         badge: settings.theme === theme.value ? "atual" : undefined,
         run: () => context.updateSettings((current) => ({ ...current, theme: theme.value })),
-      });
-    }
-    for (const background of BACKGROUNDS) {
-      commands.push({
-        id: `background:${background.value}`,
-        title: `Fundo: ${background.label}`,
-        group: "Aparência",
-        icon: Monitor,
-        keywords: ["fundo", "background", "wallpaper"],
-        badge: settings.background === background.value ? "atual" : undefined,
-        run: () => context.updateSettings((current) => ({ ...current, background: background.value })),
       });
     }
     commands.push({

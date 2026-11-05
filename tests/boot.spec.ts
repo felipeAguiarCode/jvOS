@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { GREETINGS } from "../src/lib/greetings";
+import { greetingLines, GREETINGS } from "../src/lib/greetings";
 import { SCREENS, voiceStatus, waitForFrames } from "./helpers";
 
 // The config turns the boot screen off for every other test; here it plays, as on a fresh install.
@@ -73,7 +73,7 @@ test("the BIOS runs its POST over two screens, comes to life with the emblem and
   const greeting = page.getByTestId("greeting");
   await expect(greeting).toBeVisible();
   // One of several phrases (by time of day, never twice in a row).
-  const phrases = GREETINGS.map((variant) => variant.lines.join(" "));
+  const phrases = GREETINGS.map((variant) => greetingLines(variant, "").join(" "));
   const first = (await greeting.getByRole("status").textContent()) ?? "";
   expect(phrases).toContain(first);
   await page.waitForTimeout(700);

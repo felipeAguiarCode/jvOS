@@ -2,7 +2,6 @@ import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { CORE_MODES, type CoreMode } from "../lib/core";
-import type { Background } from "../lib/settings";
 import { paletteFor, type Theme } from "../lib/theme";
 
 /** Building blocks shared by the settings panel and the advanced menu. */
@@ -86,24 +85,6 @@ export function themeOptions(hue: number): CardOption<Theme>[] {
     { value: "custom", label: "Personalizada", swatch: <ThemeSwatch theme="custom" hue={hue} /> },
   ];
 }
-
-export const BACKGROUNDS: CardOption<Background>[] = [
-  { value: "solid", label: "Preto", swatch: <BackgroundSwatch kind="solid" /> },
-  { value: "grid", label: "Grid côncavo", swatch: <BackgroundSwatch kind="grid" /> },
-  { value: "matrix", label: "Matrix", swatch: <BackgroundSwatch kind="matrix" /> },
-];
-
-/** Columns of the Matrix miniature: x, head y, trail length (glyphs). */
-const RAIN_SWATCH = [
-  [4, 17, 4],
-  [10, 8, 2],
-  [16, 27, 6],
-  [22, 13, 3],
-  [28, 30, 7],
-  [34, 6, 2],
-  [40, 21, 5],
-  [46, 11, 3],
-];
 
 export function Section({ title, id, children }: { title: string; id?: string; children: ReactNode }) {
   return (
@@ -217,19 +198,12 @@ export function ThemeSwatch({ theme, hue }: { theme: Theme; hue: number }) {
   );
 }
 
-/** Background miniatures, drawn in the current theme color like the backgrounds themselves. */
 /** Core cards for the advanced menu. */
 export const CORE_OPTIONS: CardOption<CoreMode>[] = CORE_MODES.map((mode) => ({
   value: mode.value,
   label: mode.label,
   swatch: <CoreSwatch mode={mode.value} />,
 }));
-
-/** Only the 3D core draws the animated backgrounds (they share its WebGL canvas). */
-export function BackgroundNote({ core }: { core: CoreMode }) {
-  if (core === "3d") return null;
-  return <p className="text-xs leading-relaxed text-hud-text/55">Grid e Matrix aparecem só com o núcleo 3D (Menu avançado → Núcleo).</p>;
-}
 
 export function CoreSwatch({ mode }: { mode: CoreMode }) {
   return (
@@ -260,38 +234,6 @@ export function CoreSwatch({ mode }: { mode: CoreMode }) {
           <line x1={25} y1={10} x2={25} y2={15} />
         </g>
       )}
-    </svg>
-  );
-}
-
-export function BackgroundSwatch({ kind }: { kind: Background }) {
-  return (
-    <svg aria-hidden viewBox="0 0 50 32" className="h-8 w-[50px] rounded-md border border-hud-cyan/20 bg-hud-void">
-      {kind === "grid" && (
-        <g className="fill-none stroke-hud-line" strokeWidth={0.7}>
-          {/* Pincushion lines: denser at the back (centre), spreading toward the edges. */}
-          {[-3, -2, -1, 0, 1, 2, 3].map((k) => (
-            <path key={`v${k}`} d={`M${25 + k * 8} 0 Q${25 + k * 2} 16 ${25 + k * 8} 32`} />
-          ))}
-          {[-2, -1, 0, 1, 2].map((k) => (
-            <path key={`h${k}`} d={`M0 ${16 + k * 7.5} Q25 ${16 + k * 2.5} 50 ${16 + k * 7.5}`} />
-          ))}
-        </g>
-      )}
-      {kind === "matrix" &&
-        RAIN_SWATCH.map(([x, head, length]) =>
-          Array.from({ length }, (_, i) => (
-            <rect
-              key={`${x}-${i}`}
-              x={x - 1}
-              y={head - i * 3.4}
-              width={2}
-              height={2.4}
-              className={i === 0 ? "fill-hud-light" : "fill-hud-cyan"}
-              opacity={i === 0 ? 1 : 0.8 * (1 - i / length)}
-            />
-          )),
-        )}
     </svg>
   );
 }

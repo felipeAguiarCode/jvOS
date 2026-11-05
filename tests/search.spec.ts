@@ -97,12 +97,6 @@ test("settings and layout actions run from the search; / inside a text field jus
     .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-hud-cyan").trim().toLowerCase()))
     .toBe("#00c238");
 
-  await openSearch(page);
-  await page.keyboard.type("grid");
-  await expect(selected(page)).toContainText("Fundo: Grid côncavo");
-  await page.keyboard.press("Enter");
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("jarvis.settings") ?? "{}").background)).toBe("grid");
-
   // Two windows, then "lado a lado".
   for (const name of ["relógio", "bateria"]) {
     await openSearch(page);

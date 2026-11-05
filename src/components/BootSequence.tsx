@@ -18,6 +18,8 @@ const REDUCED_HOLD = 1100;
 const START_FALLBACK_MS = 1500;
 /** A stalled frame advances the timeline this much at most: it slows down instead of skipping a phase. */
 const MAX_STEP_MS = 100;
+/** Time between two renders of the screen (~30 fps). */
+const RENDER_STEP_MS = 32;
 /** The text-mode font, preloaded so the POST never starts in the fallback. */
 const BIOS_FONT = '1em "VT323"';
 /** Where the colons line up, on the first screen and in the summary box. */
@@ -111,7 +113,7 @@ function buildScript(info: BootInfo, probe: SystemProbe): Script {
   const fields = [
     [field("Processador", probe.cpu), field("Motor de voz", info.voice.value, info.voice.status)],
     [field("Memória", `${probe.memoryKb}K`), field("Ativação", info.activation)],
-    [field("Vídeo", probe.gpu), field("Tema e fundo", info.matrix)],
+    [field("Vídeo", probe.gpu), field("Tema", info.theme)],
     [field("Tela", probe.screen), field("Widgets e apps", `${info.modules} módulos`)],
     [field("Perfil gráfico", info.quality), field("Sessão", session)],
   ].flat();
@@ -225,6 +227,7 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
     if (!go || exit) return;
     let last = latest.current.reduced ? latest.current.script.printed : 0;
     let lastFrame = performance.now();
+    let rendered = -Infinity;
     let frame = 0;
     const tick = () => {
       const time = performance.now();
@@ -235,7 +238,12 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
       if (passed(script.clearAt)) audio.current?.beep();
       if (passed(startupAt + CHIME_DELAY)) audio.current?.chime();
       last = now;
-      setElapsed(now);
+      // Sounds are checked every frame; the screen (the whole boot tree) re-renders at ~30 fps,
+      // plenty for typed text and half the work on a 60 Hz screen.
+      if (now - rendered >= RENDER_STEP_MS || now >= end) {
+        rendered = now;
+        setElapsed(now);
+      }
       if (now >= end) setExit({ settings: false });
       else frame = requestAnimationFrame(tick);
     };
@@ -310,7 +318,8 @@ export function BootSequence({ started, sound, info, onDone }: BootSequenceProps
         <div className={`pointer-events-none absolute inset-0 transition-opacity duration-700 ${startup ? "opacity-0" : ""}`}>
           <div className="crt-scanlines absolute inset-0" />
           <div className="crt-mask absolute inset-0" />
-          <div className="crt-noise absolute inset-0" />
+          {/* Larger than the screen by the noise's largest jump (64 px), clipped by the tube. */}
+          <div className="crt-noise absolute -inset-16" />
           <div className="crt-roll absolute inset-x-0 top-0 h-[24vh]" />
         </div>
         <div className="crt-glass pointer-events-none absolute inset-0 rounded-[2.2vw]" />
