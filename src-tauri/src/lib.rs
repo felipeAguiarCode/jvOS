@@ -136,8 +136,10 @@ async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
     Ok(state.snapshot())
 }
 
+/// Starting a program takes a process spawn: off the main thread, like every command below that
+/// touches the disk or starts a process (a plain `fn` command holds the window meanwhile).
 #[tauri::command]
-fn launch_app(state: State<AppState>, id: String) -> Result<(), String> {
+async fn launch_app(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let command = state
         .settings
         .read()
@@ -147,18 +149,18 @@ fn launch_app(state: State<AppState>, id: String) -> Result<(), String> {
         .find(|app| app.id == id)
         .map(|app| app.command.clone())
         .ok_or_else(|| "Programa não configurado".to_string())?;
-    launcher::launch(&command)
+    blocking(move || launcher::launch(&command)).await
 }
 
 /// Desktop editors: the file was picked in the native dialog (dialog plugin).
 #[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
-    files::read(Path::new(&path))
+async fn read_text_file(path: String) -> Result<String, String> {
+    blocking(move || files::read(Path::new(&path))).await
 }
 
 #[tauri::command]
-fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    files::write(Path::new(&path), &contents)
+async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    blocking(move || files::write(Path::new(&path), &contents)).await
 }
 
 /// Runs `job` off the main thread (file system, git and searches can take a while).
@@ -437,18 +439,27 @@ fn voice_status(state: State<AppState>) -> VoiceStatus {
 
 /// Asks JARVIS (Claude Code); the answer streams on `on_event` and ends with a "done".
 /// `session_id` continues an earlier conversation (the UI keeps it with the history).
+/// `conversation_id` is the chat's conversation, each with a process of its own (none: the
+/// main one); `agent`, the contact that answers there instead of JARVIS (feature agent-contacts).
 #[tauri::command]
-async fn assistant_ask(state: State<'_, AppState>, text: String, session_id: Option<String>, on_event: Channel<assistant::AssistantEvent>) -> Result<(), String> {
+async fn assistant_ask(
+    state: State<'_, AppState>,
+    text: String,
+    session_id: Option<String>,
+    conversation_id: Option<String>,
+    agent: Option<String>,
+    on_event: Channel<assistant::AssistantEvent>,
+) -> Result<(), String> {
     let (assistant, profile) = (state.assistant.clone(), state.assistant_profile());
-    blocking(move || assistant.ask(&text, session_id, &profile, on_event)).await
+    blocking(move || assistant.ask(conversation_id.as_deref().unwrap_or(assistant::MAIN), &text, session_id, &profile, agent.as_deref(), on_event)).await
 }
 
 /// Starts Claude Code ahead of the question (when JARVIS opens, while the user is talking), so
 /// the answer comes sooner.
 #[tauri::command]
-async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>) -> Result<(), String> {
+async fn assistant_warm(state: State<'_, AppState>, session_id: Option<String>, conversation_id: Option<String>, agent: Option<String>) -> Result<(), String> {
     let (assistant, profile) = (state.assistant.clone(), state.assistant_profile());
-    blocking(move || assistant.warm(session_id, &profile)).await
+    blocking(move || assistant.warm(conversation_id.as_deref().unwrap_or(assistant::MAIN), session_id, &profile, agent.as_deref())).await
 }
 
 /// "anota que…": a line in today's notes, written right away (no Claude Code). Returns the file.
@@ -471,10 +482,10 @@ async fn weather_forecast(city: String) -> Result<feeds::Weather, String> {
 }
 
 #[tauri::command]
-async fn assistant_cancel(state: State<'_, AppState>) -> Result<(), String> {
+async fn assistant_cancel(state: State<'_, AppState>, conversation_id: Option<String>) -> Result<(), String> {
     let assistant = state.assistant.clone();
     blocking(move || {
-        assistant.cancel();
+        assistant.cancel(conversation_id.as_deref().unwrap_or(assistant::MAIN));
         Ok(())
     })
     .await
@@ -482,13 +493,21 @@ async fn assistant_cancel(state: State<'_, AppState>) -> Result<(), String> {
 
 /// "Nova conversa": the next question starts a new Claude Code session.
 #[tauri::command]
-async fn assistant_reset(state: State<'_, AppState>) -> Result<(), String> {
+async fn assistant_reset(state: State<'_, AppState>, conversation_id: Option<String>) -> Result<(), String> {
     let assistant = state.assistant.clone();
     blocking(move || {
-        assistant.reset();
+        assistant.reset(conversation_id.as_deref().unwrap_or(assistant::MAIN));
         Ok(())
     })
     .await
+}
+
+/// A conversation deleted in the chat: Claude Code's transcript of its session goes to the
+/// Recycle Bin (feature chat-mode). True when there was one.
+#[tauri::command]
+async fn assistant_forget(state: State<'_, AppState>, session_id: String) -> Result<bool, String> {
+    let assistant = state.assistant.clone();
+    blocking(move || assistant.forget(&session_id)).await
 }
 
 /// "Limpa a memória": Claude Code stops if idle and gives its RAM back (it comes back on the next question).
@@ -498,16 +517,34 @@ async fn assistant_sleep(state: State<'_, AppState>) -> Result<assistant::Sleep,
     blocking(move || Ok(assistant.sleep())).await
 }
 
-/// JARVIS's folder (notes, agent drafts), for the UI to tell which editor a file belongs to.
+/// JARVIS's folder (notes, agent drafts), for the UI to tell which editor a file belongs to and
+/// for the chat's notes area to list. Its parts are there from now on (until here only Claude
+/// Code's first start made them).
 #[tauri::command]
-fn assistant_folder(state: State<AppState>) -> assistant::Folder {
-    state.assistant.folder().clone()
+async fn assistant_folder(state: State<'_, AppState>) -> Result<assistant::Folder, String> {
+    let folder = state.assistant.folder().clone();
+    blocking(move || {
+        for dir in [&folder.notes, &folder.agents] {
+            // Without them the notes area says so itself; nothing else depends on this.
+            let _ = std::fs::create_dir_all(dir);
+        }
+        Ok(folder)
+    })
+    .await
 }
 
 /// The agent drafts in Documentos\JARVIS\Agentes, by name.
 #[tauri::command]
-fn agent_drafts(state: State<AppState>) -> Vec<String> {
-    agents::drafts(state.assistant.folder())
+async fn agent_drafts(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let assistant = state.assistant.clone();
+    blocking(move || Ok(agents::drafts(assistant.folder()))).await
+}
+
+/// The agents the user can talk to in the chat: the ones JARVIS installed, with a valid draft.
+#[tauri::command]
+async fn agent_contacts(state: State<'_, AppState>) -> Result<Vec<agents::Contact>, String> {
+    let assistant = state.assistant.clone();
+    blocking(move || Ok(agents::contacts(assistant.folder()))).await
 }
 
 /// What keeps an agent draft from running (empty: ready), for jv_agent's review card.
@@ -526,36 +563,41 @@ async fn agent_install(state: State<'_, AppState>, name: String) -> Result<Strin
 /// A jv_sh tab running an installed agent once: `claude --agent <name> "<task>"` in `cwd`. Only
 /// that command line: the UI still cannot run an arbitrary one (see `terminal_open`).
 #[tauri::command]
-fn terminal_open_agent(app: AppHandle, state: State<AppState>, name: String, task: String, cwd: String, cols: u16, rows: u16) -> Result<u32, String> {
-    if !agents::installed(&name) {
-        return Err(format!("O agente \"{name}\" não está instalado"));
-    }
-    let dir = PathBuf::from(cwd.trim());
-    // Its own folder under Agentes is made on first run; any other has to exist.
-    if dir.starts_with(&state.assistant.folder().agents) {
-        std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    }
-    let cwd = terminal::start_dir(&dir.display().to_string())?.display().to_string();
-    let exe = assistant::claude_exe().ok_or("Claude Code não encontrado")?;
-    let mut argv = vec![exe.display().to_string(), "--agent".to_string(), name.clone()];
-    // One argument on the command line: no quotes or line breaks of its own.
-    let task = task.replace(['"', '\r', '\n'], " ").trim().to_string();
-    if !task.is_empty() {
-        argv.push(task);
-    }
-    let profile = terminal::Profile { id: format!("agent:{name}"), name: format!("Agente {name}"), commandline: terminal::join_commandline(&argv), cwd };
-    let output = app.clone();
-    state.terminals.open(
-        &profile,
-        cols,
-        rows,
-        move |id, data| {
-            let _ = output.emit(EVENT_TERMINAL_OUTPUT, TerminalOutput { id, data });
-        },
-        move |id, code| {
-            let _ = app.emit(EVENT_TERMINAL_EXIT, TerminalExit { id, code });
-        },
-    )
+async fn terminal_open_agent(app: AppHandle, state: State<'_, AppState>, name: String, task: String, cwd: String, cols: u16, rows: u16) -> Result<u32, String> {
+    let assistant = state.assistant.clone();
+    let terminals = state.terminals.clone();
+    blocking(move || {
+        if !agents::installed(&name) {
+            return Err(format!("O agente \"{name}\" não está instalado"));
+        }
+        let dir = PathBuf::from(cwd.trim());
+        // Its own folder under Agentes is made on first run; any other has to exist.
+        if dir.starts_with(&assistant.folder().agents) {
+            std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        }
+        let cwd = terminal::start_dir(&dir.display().to_string())?.display().to_string();
+        let exe = assistant::claude_exe().ok_or("Claude Code não encontrado")?;
+        let mut argv = vec![exe.display().to_string(), "--agent".to_string(), name.clone()];
+        // One argument on the command line: no quotes or line breaks of its own.
+        let task = task.replace(['"', '\r', '\n'], " ").trim().to_string();
+        if !task.is_empty() {
+            argv.push(task);
+        }
+        let profile = terminal::Profile { id: format!("agent:{name}"), name: format!("Agente {name}"), commandline: terminal::join_commandline(&argv), cwd };
+        let output = app.clone();
+        terminals.open(
+            &profile,
+            cols,
+            rows,
+            move |id, data| {
+                let _ = output.emit(EVENT_TERMINAL_OUTPUT, TerminalOutput { id, data });
+            },
+            move |id, code| {
+                let _ = app.emit(EVENT_TERMINAL_EXIT, TerminalExit { id, code });
+            },
+        )
+    })
+    .await
 }
 
 /// The UI's answer to a tool call (`assistant:action`).
@@ -789,8 +831,8 @@ async fn music_resolve(state: State<'_, AppState>, query: Option<String>, video_
 
 /// The user's terminal profiles (Windows Terminal's, or the shells found).
 #[tauri::command]
-fn terminal_profiles() -> terminal::Profiles {
-    terminal::profiles()
+async fn terminal_profiles() -> Result<terminal::Profiles, String> {
+    blocking(|| Ok(terminal::profiles())).await
 }
 
 #[derive(Clone, Serialize)]
@@ -810,23 +852,27 @@ struct TerminalExit {
 /// Starts one of the profiles (only those: the UI cannot run an arbitrary command line), in
 /// `cwd` when given (jv_ide's terminals open in the project).
 #[tauri::command]
-fn terminal_open(app: AppHandle, state: State<AppState>, profile: String, cols: u16, rows: u16, cwd: Option<String>) -> Result<u32, String> {
-    let mut profile = terminal::profiles().profiles.into_iter().find(|item| item.id == profile).ok_or("Perfil não encontrado")?;
-    if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
-        profile = terminal::in_dir(profile, &terminal::start_dir(&cwd)?);
-    }
-    let output = app.clone();
-    state.terminals.open(
-        &profile,
-        cols,
-        rows,
-        move |id, data| {
-            let _ = output.emit(EVENT_TERMINAL_OUTPUT, TerminalOutput { id, data });
-        },
-        move |id, code| {
-            let _ = app.emit(EVENT_TERMINAL_EXIT, TerminalExit { id, code });
-        },
-    )
+async fn terminal_open(app: AppHandle, state: State<'_, AppState>, profile: String, cols: u16, rows: u16, cwd: Option<String>) -> Result<u32, String> {
+    let terminals = state.terminals.clone();
+    blocking(move || {
+        let mut profile = terminal::profiles().profiles.into_iter().find(|item| item.id == profile).ok_or("Perfil não encontrado")?;
+        if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
+            profile = terminal::in_dir(profile, &terminal::start_dir(&cwd)?);
+        }
+        let output = app.clone();
+        terminals.open(
+            &profile,
+            cols,
+            rows,
+            move |id, data| {
+                let _ = output.emit(EVENT_TERMINAL_OUTPUT, TerminalOutput { id, data });
+            },
+            move |id, code| {
+                let _ = app.emit(EVENT_TERMINAL_EXIT, TerminalExit { id, code });
+            },
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -875,6 +921,7 @@ pub fn run() {
             weather_forecast,
             assistant_cancel,
             assistant_reset,
+            assistant_forget,
             assistant_sleep,
             assistant_folder,
             assistant_action_result,
@@ -883,6 +930,7 @@ pub fn run() {
             speech_synthesize,
             voice_deafen,
             agent_drafts,
+            agent_contacts,
             agent_problems,
             agent_install,
             terminal_open_agent,

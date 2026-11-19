@@ -812,4 +812,15 @@ mod speech_tests {
         let shell = Decision::Window { kind: "shell".into(), open: true };
         assert_eq!(decisions, vec![shell, Decision::Ignore, launch("vscode")]);
     }
+
+    #[test]
+    #[ignore = "needs the Whisper model (downloads ~190 MB on first run)"]
+    fn speech_chat_and_desktop_modes() {
+        // The two faces of the app (feature chat-mode), spoken: held, and after the wake word.
+        let shortcut = |action: &str| Decision::Shortcut { action: action.into(), text: String::new() };
+        let held = run(&["mode_chat", "mode_desktop"], Activation::PushToTalk);
+        assert_eq!(held, vec![shortcut("chatMode"), shortcut("desktopMode")]);
+        let waking = run(&["wake_mode_chat", "mode_desktop"], Activation::WakeWord);
+        assert_eq!(waking[0], shortcut("chatMode"));
+    }
 }

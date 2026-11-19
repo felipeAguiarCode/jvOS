@@ -26,7 +26,7 @@ As specs foram escritas **retroativamente** em 2026-11-01 e cobrem o projeto int
 - [arch/constitution.md](arch/constitution.md): os 12 princípios que todo código segue.
 - [domain/glossary.md](domain/glossary.md): a linguagem do projeto.
 - [foundation/architecture](foundation/architecture/spec.md) e [foundation/stack](foundation/stack/spec.md): as regras das camadas e as versões, com critérios conferíveis.
-- [arch/adr/](arch/adr/README.md): as 25 decisões de arquitetura.
+- [arch/adr/](arch/adr/README.md): as 28 decisões de arquitetura.
 - `npm run new`: o CLI que cria um widget, app, feature ou ADR já no formato destas specs ([ADR-0018](arch/adr/0018-cli-scaffolding-so-cria-arquivos-novos.md)).
 
 ## Arquitetura (`arch/`)
@@ -40,7 +40,7 @@ As specs foram escritas **retroativamente** em 2026-11-01 e cobrem o projeto int
 | [testing.md](arch/testing.md) | Playwright no modo web, fakes `__JARVIS_*__`, `cargo test`, app real via CDP, vídeos de demo, armadilhas |
 | [build-and-env.md](arch/build-and-env.md) | `scripts/tauri.mjs`, CMake/LLVM, perfis de build, DLLs do sherpa |
 | [security.md](arch/security.md) | Confinamento do JARVIS, MCP local, guardas de caminho e lacunas conhecidas |
-| [adr/](arch/adr/README.md) | ADR-0001 … ADR-0026 |
+| [adr/](arch/adr/README.md) | ADR-0001 … ADR-0028 |
 
 ## Fundamentos (`foundation/`)
 
@@ -96,6 +96,10 @@ No formato Feature Specification ([ADR-0025](arch/adr/0025-features-formato-feat
 | [reminders](features/reminders/spec.md) | Lembretes e timers | Implementado |
 | [quick-notes](features/quick-notes/spec.md) | "Anota que…" | Implementado |
 | [memory-cleanup](features/memory-cleanup/spec.md) | "Limpa a memória" (RAM do Claude) | Implementado |
+| [chat-mode](features/chat-mode/spec.md) | Modo chat: o JARVIS como mensageiro, com várias conversas | Implementado · não commitado |
+| [notes-area](features/notes-area/spec.md) | Área de notas do modo chat (`Documentos\JARVIS\Notas`) | Implementado · não commitado |
+| [notes-graph](features/notes-graph/spec.md) | `[[links]]`, `#tags`, backlinks e o grafo 3D das notas | Implementado · não commitado |
+| [agent-contacts](features/agent-contacts/spec.md) | Respostas em segundo plano (até 5 conversas) e agentes como contatos do chat | Implementado · não commitado |
 
 ## Widgets (`widgets/`)
 

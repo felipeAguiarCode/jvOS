@@ -20,7 +20,9 @@ export type ShortcutAction =
   | "taskDone"
   | "taskRemove"
   | "cleanup"
-  | "homecoming";
+  | "homecoming"
+  | "chatMode"
+  | "desktopMode";
 
 /** `voice:shortcut`: a shortcut and the words said after its phrase, or ("ask") a question for JARVIS. */
 export interface ShortcutEvent {
@@ -50,6 +52,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   "taskRemove",
   "cleanup",
   "homecoming",
+  "chatMode",
+  "desktopMode",
 ];
 
 export const isShortcutAction = (value: string): value is ShortcutAction => (SHORTCUT_ACTIONS as string[]).includes(value);

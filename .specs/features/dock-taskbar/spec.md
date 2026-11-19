@@ -7,14 +7,14 @@
 | Feature ID | `feature/dock-taskbar` |
 | Product | JARVIS OS (jvOS) |
 | Feature Status | Implementado |
-| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; sem decisões em aberto |
+| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; botão do modo acrescentado em 2026-11-19 ([chat-mode](../chat-mode/spec.md)); sem decisões em aberto |
 | Source Commit | `42e671a` (2026-10-23); evoluída em `c4ccc57` (2026-10-26: dock no estilo Nexus, relógio por minuto); a barra sem `backdrop-filter` e com o meio vazio sem janela focada entrou em `e7151cf` (2026-11-05) |
-| Uncommitted Changes | Nenhuma |
+| Uncommitted Changes | 2026-11-19: botão "Modo chat" / "Modo desktop" em `Taskbar.tsx` |
 | Voice Shortcut | — |
 | Assistant Tool | Nenhuma própria; os comandos `taskbar`, `dock` e `launcher:*` da [busca](../search/spec.md) também chegam ao JARVIS por `jvos_run` |
 | Target Platforms | Windows 11 com WebView2; no navegador (modo web), Browser, VS Code e Claude Code dizem "Disponível no app desktop", a migração da barra não roda e `data-tauri-drag-region` não move nada |
 | Language | PT-BR no conteúdo e nas falas; inglês nos títulos das seções e em Given / When / Then. Os nomes dos itens da dock ("Browser", "Settings", "Quick actions") ficam em inglês, como no código |
-| Last Editorial Revision | 2026-11-05 |
+| Last Editorial Revision | 2026-11-19 |
 | Verification Scope | Conferida com o código em 2026-11-05: `src/components/QuickDock.tsx`, `src/hooks/useDockNotice.ts`, `src/lib/dock.ts`, `src/components/Taskbar.tsx`, `src/lib/taskbar.ts`, `src/hooks/useMinuteClock.ts`, `src/hooks/useBattery.ts`, `src/lib/storage.ts`, `src/lib/settings.ts`, `src/hooks/useSettings.ts`, `src/lib/commands.ts`, `src/lib/search.ts`, `src/App.tsx`, `src/components/desktop/AdvancedMenu.tsx`, `src/components/SettingsPanel.tsx`, `src-tauri/src/settings.rs`, `src-tauri/src/lib.rs` (`launch_app`), `tests/ui.spec.ts`, `tests/dock.spec.ts`, `tests/taskbar.spec.ts`, `tests/shell.spec.ts`, `tests/settings.spec.ts` e `tests/voice.spec.ts`. Os testes não foram executados nesta revisão |
 
 Especificação no formato inspirado no GitHub Spec Kit, com seções de desenho técnico ([ADR-0025](../../arch/adr/0025-features-formato-feature-specification.md)). Os identificadores US1–US4, RF-001–RF-009, RNF-001–RNF-003, SC-001–SC-003 e T001–T026 são os mesmos da versão anterior. Os critérios de aceite AC-001–AC-021 são os antigos "Critério 1" a "Critério 21", na mesma ordem. KL-* registra limitações conhecidas; OQ-*, decisões de produto em aberto. Nenhum dos dois acrescenta escopo.
@@ -131,7 +131,7 @@ As duas entram depois do boot. As partes vazias da barra arrastam a janela nativ
 | RF-003 | Um aviso (`DockNotice`) DEVE ocupar o lugar da dica do item-alvo, com tom `info` ou `error`, e um novo substitui o anterior. | US1, US2 |
 | RF-004 | A ampliação DEVE seguir o ponteiro: escala 1,32 no ícone sob ele, 1,1 a 70 px e 1 a 150 px, com mola e elevação. | US1, US2 |
 | RF-005 | A luz de cada item DEVE refletir o estado: `active`, `loading`, `armed`, `selected`, `error`. O item Voice mostra `MicOff` em erro. | US1 |
-| RF-006 | A barra superior DEVE ter à esquerda "Buscar (/)", Voz e as janelas abertas; no centro, o título da janela em foco; à direita, Pomodoro, Música, Bateria, Qualidade, "Data e hora" e "Configurações". | US3 |
+| RF-006 | A barra superior DEVE ter à esquerda "Buscar (/)", o botão do modo ("Modo chat" no desktop, "Modo desktop" no chat; fixo, sem módulo; [chat-mode](../chat-mode/spec.md) RF-002), Voz e as janelas abertas; no centro, o título da janela em foco; à direita, Pomodoro, Música, Bateria, Qualidade, "Data e hora" e "Configurações". | US3 |
 | RF-007 | Clicar num ícone de janela, no Pomodoro, na Bateria ou em "Data e hora" DEVE abrir a janela correspondente ou trazê-la para a frente. | US3 |
 | RF-008 | Ligar ou desligar a barra DEVE ser um setting (`taskbar` em `settings.json`); os módulos DEVEM ser uma preferência local (`jarvis.taskbar`). | US3, US4 |
 | RF-009 | O relógio da barra DEVE atualizar só na virada de cada minuto (`useMinuteClock`) e parar com a janela oculta. | US3 |

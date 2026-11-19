@@ -162,6 +162,10 @@ O holograma 3D é a assinatura visual do jvOS, mas é o que mais gasta GPU e mem
 - [ADR-0015 — Remoção dos fundos animados](../../../arch/adr/0015-remocao-do-fundo-shader.md)
 - [ADR-0022 — Núcleo com relógio de quadros limitado, canvas 3D recortado e UI em D3D11](../../../arch/adr/0022-nucleo-relogio-quadros-limitado-canvas-3.md)
 
+## Uso fora do núcleo (2026-11-19)
+
+O grafo de notas do modo chat (`src/components/chat/NotesGraph.tsx`, [notes-graph](../../../features/notes-graph/spec.md)) usa o `three` direto, sem `@react-three/fiber` nem pós-processamento: `WebGLRenderer`, `InstancedMesh` e `LineSegments`, num chunk próprio que só carrega ao abrir o grafo. O contexto WebGL dele vive só enquanto o grafo está na tela ([ADR-0027](../../../arch/adr/0027-grafo-notas-pode-criar-contexto-web.md)). O Critério 1 continua valendo: com o núcleo 2D e o grafo fechado, nenhum pedido carrega o `three`.
+
 ## Dependências
 
 - **Vendor:** [react](../react/spec.md) (o fiber limita o React a `<19.4`), [vite-typescript](../vite-typescript/spec.md) (o chunk lazy), [tauri](../tauri/spec.md) (a WebView2 e o ANGLE).

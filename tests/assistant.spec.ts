@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { PLAIN_SETTINGS, SCREENS, waitForFrames } from "./helpers";
+import { activeConversation, PLAIN_SETTINGS, SCREENS, waitForFrames } from "./helpers";
 
 // JARVIS is Claude Code in the desktop app; here a scripted stand-in streams the answers
 // (src/lib/assistant.ts), and `__JARVIS__.ask` stands in for a question said to the core.
@@ -7,7 +7,7 @@ const REPLY = "Às suas ordens. Os sistemas estão operacionais e prontos para o
 
 const reply = (page: Page) => page.getByTestId("jarvis-reply");
 const shownWords = (page: Page) => reply(page).locator("[data-testid=jarvis-reply-words] .superhot-word").count();
-const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem("jarvis.assistant") ?? "null"));
+const stored = activeConversation;
 const log = (page: Page) => page.evaluate(() => window.__JARVIS_ASSISTANT_LOG__!);
 const ask = (page: Page, text: string) => page.evaluate((question) => window.__JARVIS__!.ask(question), text);
 const history = (page: Page) => page.getByRole("dialog", { name: "Histórico do JARVIS" });
@@ -21,6 +21,7 @@ async function start(page: Page, assistant: unknown = { reply: REPLY, delayMs: 3
   await page.evaluate((settings) => {
     localStorage.removeItem("jarvis.desktop");
     localStorage.removeItem("jarvis.assistant");
+    localStorage.removeItem("jarvis.conversations");
     localStorage.setItem("jarvis.settings", settings);
     localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));
   }, PLAIN_SETTINGS);
@@ -54,8 +55,8 @@ test("the core answers SUPERHOT style, word by word, and the answer lands in the
 
   await expect.poll(async () => (await stored(page))?.items.length).toBe(1);
   const memory = await stored(page);
-  expect(memory.sessionId).toBe("fake-session-1");
-  expect(memory.items[0]).toMatchObject({ question: "Status dos sistemas?", answer: REPLY });
+  expect(memory!.sessionId).toBe("fake-session-1");
+  expect(memory!.items[0]).toMatchObject({ question: "Status dos sistemas?", answer: REPLY });
 
   await page.getByRole("button", { name: "Histórico do JARVIS" }).click();
   await expect(history(page)).toBeVisible();
@@ -76,21 +77,24 @@ test("a follow-up continues the conversation; Nova conversa starts another", asy
 
   await page.getByRole("button", { name: "Histórico do JARVIS" }).click();
   await expect(history(page).getByTestId("assistant-entry")).toHaveCount(2);
+  // Another conversation takes the screen, empty; the first one is kept (the chat lists them).
   await history(page).getByRole("button", { name: "Nova conversa" }).click();
-  await expect(history(page).getByText(/Nova conversa ·/)).toBeVisible();
-  await expect.poll(async () => (await stored(page)).sessionId).toBeNull();
-  expect((await log(page)).resets).toBe(1);
+  await expect(history(page).getByTestId("assistant-entry")).toHaveCount(0);
+  await expect.poll(async () => (await stored(page))?.sessionId).toBeNull();
+  // It has a Claude Code of its own from now on: the first one's is left as it was.
+  expect((await log(page)).resets).toBe(0);
 
   await ask(page, "Terceira pergunta");
-  await expect(history(page).getByTestId("assistant-entry")).toHaveCount(3, { timeout: 15_000 });
+  await expect(history(page).getByTestId("assistant-entry")).toHaveCount(1, { timeout: 15_000 });
   expect((await log(page)).asks[2].sessionId).toBeNull();
-  await expect.poll(async () => (await stored(page)).sessionId).toBe("fake-session-3");
+  await expect.poll(async () => (await stored(page))?.sessionId).toBe("fake-session-3");
 
-  // Limpar empties it all.
+  // Limpar deletes the conversation on screen, with its session; an empty one takes its place.
   await answered(page);
   await history(page).getByRole("button", { name: "Limpar histórico" }).click();
   await expect(history(page).getByText("Clique no núcleo e fale com o JARVIS.", { exact: false })).toBeVisible();
-  await expect.poll(async () => (await stored(page)).items).toEqual([]);
+  await expect.poll(async () => (await stored(page))?.items).toEqual([]);
+  expect((await log(page)).forgets).toEqual(["fake-session-3"]);
 });
 
 test("a click on the core or Esc interrupts the answer, which is kept as interrupted", async ({ page }) => {

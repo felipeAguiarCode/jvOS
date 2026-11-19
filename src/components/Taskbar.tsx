@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
-import { BatteryCharging, BatteryMedium, BatteryWarning, Gauge, Mic, MicOff, Plug, Search, Settings, Timer } from "lucide-react";
+import { BatteryCharging, BatteryMedium, BatteryWarning, Gauge, MessagesSquare, Mic, MicOff, Monitor, Plug, Search, Settings, Timer } from "lucide-react";
 import { isPlugged, LOW_BATTERY, useBattery } from "../hooks/useBattery";
 import { useMinuteClock } from "../hooks/useMinuteClock";
 import type { DesktopWindow } from "../hooks/useDesktop";
@@ -29,6 +29,9 @@ interface TaskbarProps {
   onQuality: () => void;
   onSearch: () => void;
   onSettings: () => void;
+  /** The chat is on screen instead of the desktop; the button next to the search switches. */
+  chat: boolean;
+  onMode: () => void;
   /** The app window is hidden: the clock stops ticking. */
   paused: boolean;
   /** Which modules to show (Advanced menu → Barra superior). */
@@ -53,6 +56,8 @@ export function Taskbar({
   onQuality,
   onSearch,
   onSettings,
+  chat,
+  onMode,
   paused,
   modules,
 }: TaskbarProps) {
@@ -74,6 +79,9 @@ export function Taskbar({
       <div className="flex items-center gap-0.5">
         <BarButton label="Buscar (/)" onClick={onSearch}>
           <Search size={13} strokeWidth={1.8} />
+        </BarButton>
+        <BarButton label={chat ? "Modo desktop" : "Modo chat"} onClick={onMode}>
+          {chat ? <Monitor size={13} strokeWidth={1.8} /> : <MessagesSquare size={13} strokeWidth={1.8} />}
         </BarButton>
         {modules.voice && (
           <BarButton label={voiceLabel} onClick={onVoice} active={voice === "active"}>

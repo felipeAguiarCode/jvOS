@@ -25,6 +25,7 @@ async function start(page: Page, { msPerWord = 700, speech = null as null | Reco
   await page.goto("/");
   await page.evaluate((settings) => {
     localStorage.removeItem("jarvis.assistant");
+    localStorage.removeItem("jarvis.conversations");
     localStorage.setItem("jarvis.settings", settings);
   }, PLAIN_SETTINGS);
   await page.reload();

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Aceito |
+| **Status** | Aceito; em parte substituído pelo [ADR-0028](0028-processo-claude-code-conversa-ate-cinco.md) (o processo único e "uma pergunta por vez" passaram a valer por conversa, até 5 respondendo ao mesmo tempo) |
 | **Data** | 2026-10-27 |
 | **Origem** | commits `750ebd0`, `048a254`; memória `claude-cli-bridge` (comportamento verificado no claude.exe 2.1.310) |
 

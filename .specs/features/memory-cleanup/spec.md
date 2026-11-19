@@ -537,6 +537,7 @@ cargo test --lib the_memory_cleanup_is_not_the_long_term_memory
 | KL-001 | `freed` mede só o working set do `claude.exe` principal (`process_memory(running.child.id())` em `src-tauri/src/assistant.rs`), embora `kill_tree` encerre a árvore inteira com `taskkill /T /F`; a RAM dos processos filhos não entra na conta. | O número dito fica abaixo do real |
 | KL-002 | O caminho `Stopped` contra um processo real não tem teste: o teste Rust cobre só `Idle` e a serialização, e o Playwright usa o fake `__JARVIS_CLEANUP__`. | Lacuna de verificação |
 | KL-003 | A fala `cleanupIdle` (AC-004), o resumo `busy` no botão (AC-006), o estado "Limpando…" e o caminho `freed` = 0 não têm teste. | Lacuna de verificação |
+| KL-004 | Desde 2026-11-19 ([agent-contacts](../agent-contacts/spec.md) RF-007) pode haver vários `claude.exe`, um por conversa: `assistant_sleep` encerra todos os ociosos e soma a memória, e só devolve `busy` (RF-001) quando nada pôde ser encerrado e alguma conversa responde. Os RF-001 a RF-003 acima foram escritos para um processo só. | Mudança de 2026-11-19; o teste Rust `conversations_have_their_own_slots` cobre `busy` e `idle` |
 
 ## Open Questions
 

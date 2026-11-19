@@ -9,7 +9,7 @@
 | Feature Status | Implementado |
 | Document Status | Reescrita em 2026-11-05 no formato Feature Specification; sem decisões em aberto |
 | Source Commit | `42e671a` (2026-10-23); evoluída em `c4ccc57` (2026-10-26: menu de opções, arrastar pelo corpo) e `750ebd0` (2026-10-27: canal `requests`); `lazyApps.tsx`, a geometria ao vivo no `Desktop` e os kinds `stocks`, `weather`, `agenda` e `tasks` entraram em `e7151cf` (2026-11-05) |
-| Uncommitted Changes | Nenhuma |
+| Uncommitted Changes | 2026-11-19: mover por `translate` (RF-014) e conteúdo memoizado por kind (RNF-004), em `Desktop.tsx` e `Window.tsx` |
 | Voice Shortcut | `window:<kind>` (17), `group:widgets`, `group:apps`, `group:all`, `verbs:open`, `verbs:close` |
 | Assistant Tool | `jvos_run` (abre, fecha e arranja pela lista da [busca](../search/spec.md)) |
 | Target Platforms | Windows 11 com WebView2; no navegador (modo web) tudo funciona igual, menos a faixa `data-tauri-drag-region`, que só move a janela nativa no app |
@@ -158,6 +158,7 @@ Esta spec cobre o "chrome" e as regras comuns. O conteúdo de cada janela fica n
 | RF-010 | Os 6 apps DEVEM carregar sob demanda (`lazyApp`), com `preload()` para abrir já carregados. Os widgets entram no pacote principal. | US1, US5 |
 | RF-011 | A geometria DEVE suavizar em 300 ms quando ninguém arrasta (soltar o encaixe, arranjar). A entrada leva 0,2 s. | US2, US4 |
 | RF-013 | Durante o gesto, a geometria DEVE ficar no próprio `Desktop`, já encaixada e recortada como o `setRect` faria: cada movimento do ponteiro re-renderiza só a camada das janelas, não o app inteiro. Ao soltar, o `setRect` grava a posição final. | US2 |
+| RF-014 | Enquanto uma janela é movida (mesmo tamanho), ela DEVE ser desenhada na posição guardada mais um `translate` com a diferença, numa camada própria (`will-change: translate`): o compositor a desliza, sem layout nem repintura do conteúdo. Redimensionar continua por `left`, `top`, `width` e `height`. Ao soltar, a posição final entra sem suavização. | US2 |
 
 ### Non-Functional Requirements
 
@@ -166,6 +167,7 @@ Esta spec cobre o "chrome" e as regras comuns. O conteúdo de cada janela fica n
 | RNF-001 | `jarvis.desktop` é gravado com debounce de 250 ms e salvo de novo no `beforeunload` (e ao desmontar) se houver gravação pendente. | Persistência do desktop |
 | RNF-002 | A opacidade do painel fica entre 0,6 e 1. Maximizado, ela é no mínimo 0,95. | Todas as janelas |
 | RNF-003 | Com a janela do app oculta ou minimizada, o `paused` repassado faz o Relógio, a Fita, o Sistema, o jv_ide e o jv_T4p3 pararem timers e consultas. Ações e Clima seguram as próprias consultas com `document.hidden`. | Widgets e apps que fazem trabalho periódico |
+| RNF-004 | O conteúdo de uma janela só renderiza de novo quando muda o que ele lê (`CONTENT_INPUTS`, por kind): arrastar uma janela ou o JARVIS escrevendo uma resposta não refaz o conteúdo das outras. Medido no build de release em 2026-11-19 (i7-13700, arrastando o jv_ide com cinco janelas abertas): a thread principal caiu de 164 para 91 ms por segundo, e o script de 71 para 28 ms por segundo. | Conteúdo de todas as janelas |
 
 ### Operational Constraints
 
@@ -407,7 +409,8 @@ A camada das janelas sobre o núcleo, com as guias de encaixe.
 - **Behavior:**
   - Desenha um `Window` por kind aberto, na ordem de `$desktop`, com o conteúdo de `WindowContent`.
   - Um `pointerdown` em `[data-desktop-surface]` (o núcleo 2D ou 3D, o núcleo desligado, o botão do núcleo) chama `blur`. Nada se move. A dock, a barra e os menus não são superfície, então clicar neles não tira o foco.
-  - Durante o gesto, aplica `snapRect` e `clampRect` à geometria proposta, guarda-a em `live` e mostra as guias (RF-013). Ao soltar, chama `setRect` com a geometria final e apaga as guias.
+  - Durante o gesto, aplica `snapRect` e `clampRect` à geometria proposta, guarda-a em `live` e mostra as guias (RF-013). A janela do gesto recebe a geometria guardada em `rect` e a do gesto em `live`. Ao soltar, chama `setRect` com a geometria final e apaga as guias.
+  - `WindowContent` é memoizado e compara só as entradas do seu kind (`CONTENT_INPUTS`): `paused`, o timer, a música, o feed do widget, a conversa (jv_agent) ou `close` (jv_sh) (RNF-004).
   - Repassa `paused` ao Relógio, à Fita, ao Sistema, ao jv_ide e ao jv_T4p3 (RNF-003).
   - O jv_sh recebe `onClose` e fecha a própria janela quando a última aba sai.
   - No estilo TUI, todas as janelas recebem a superfície de terminal (`tuiSurface`); no Holográfico, só os apps.
@@ -429,11 +432,13 @@ O chrome de uma janela: barra de título, corpo, alças e botões.
   - O arrasto pelo corpo ignora `input, textarea, select, [contenteditable], [role=slider]` (`usePointerDrag`). O corpo dos apps não tem arrasto.
   - As 8 alças redimensionam respeitando o mínimo do tipo; somem com a janela maximizada.
   - A geometria suaviza em 300 ms quando ninguém arrasta, com a curva `cubic-bezier(0.22, 1, 0.36, 1)` (RF-011).
+  - Com `live` do mesmo tamanho de `rect` (um movimento), desenha `rect` e aplica `translate` com a diferença e `will-change: translate`; com outro tamanho (redimensionar), desenha `live` direto (RF-014).
+  - Ao soltar, grava a geometria com `flushSync` e lê o layout antes de religar a suavização: `left` e `top` não suavizam a partir de onde o movimento começou.
   - Os botões da barra ("Maximizar <título>", "Restaurar <título>", "Fechar <título>") param o `pointerdown` e o duplo clique: não arrastam nem maximizam.
   - `Ctrl+W` (ou `Meta+W`) dentro da janela a fecha, a menos que o evento já tenha `defaultPrevented` ou venha de `[data-terminal]`.
   - Com um app, a barra tem a dica "Duplo clique para maximizar ou restaurar".
 - **Layout:**
-  - Uma `section` com `role="dialog"`, `aria-label` igual ao título, `tabIndex=-1` e `data-window`, `data-chrome` e `data-focused`; posicionada por `left`, `top`, `width` e `height`, com `zIndex` = posição na ordem + 1.
+  - Uma `section` com `role="dialog"`, `aria-label` igual ao título, `tabIndex=-1` e `data-window`, `data-chrome` e `data-focused`; posicionada por `left`, `top`, `width` e `height` (mais um `translate` enquanto é movida; o `transform` é do motion, para a entrada e a saída), com `zIndex` = posição na ordem + 1.
   - TUI: barra de 24 px (`h-6`) com o nome do app à esquerda e os botões à direita.
   - Holográfico: barra de 32 px (`h-8`) com ícone, título e os botões, e uma borda inferior `hud-cyan/10`.
   - O corpo ocupa o resto e é um container query (`@container`).
@@ -916,6 +921,12 @@ cargo test --lib default_voice_commands_are_valid
 - [x] T038 Playwright `tests/widgets.spec.ts` — "sliders inside a widget, and the apps' content, keep the pointer"
 - [x] T039 Rust `src-tauri/src/settings.rs` — `default_voice_commands_are_valid` (toda `WINDOW_KINDS` tem frases)
 
+### Phase 6 — Fluidez (2026-11-19)
+
+- [x] T040 [US2] Mover por `translate` numa camada própria e soltar sem suavização (RF-014) — `src/components/desktop/Window.tsx`, `src/components/desktop/Desktop.tsx`
+- [x] T041 [US2] `WindowContent` memoizado por kind (RNF-004) — `src/components/desktop/Desktop.tsx`
+- [x] T042 Conferir com `tests/desktop.spec.ts`, `tests/widgets.spec.ts`, `tests/taskbar.spec.ts` e `tests/shell.spec.ts` (33 testes) e medir o arrasto no build de release por CDP
+
 ## Rollback Plan
 
 1. O gerenciador é a base de todos os widgets e apps: não sai sem eles. O que se desfaz sozinho são as partes.
@@ -944,6 +955,7 @@ cargo test --lib default_voice_commands_are_valid
 | KL-002 | "Lado a lado" divide a área útil em células iguais, mas `clampRect` não deixa uma célula menor que o mínimo do tipo. Com muitas janelas ou uma tela pequena, as células crescem e se sobrepõem. | Comportamento atual |
 | KL-003 | `clampRect` aceita y até `altura − 48`, e a dock (`z-[16]`) fica acima das janelas (`z-[15]`). Um app estreitado para caber na largura da dock e estacionado atrás dela fica com a barra de título coberta; o corpo de um app não arrasta. "Centralizar", "Lado a lado" ou ocultar a dock o devolvem. | Comportamento atual; contornável |
 | KL-004 | "Alinhar à grade" (AC-020), a opacidade (AC-021), "Cascata" (AC-019) e o menu pelo teclado não têm teste automatizado. | Lacuna de verificação |
+| KL-005 | O custo do arrasto (RF-014, RNF-004) não tem teste automatizado: foi medido à mão no app real, por CDP (`Performance.getMetrics` e intervalos de `requestAnimationFrame`). | Lacuna de verificação |
 
 ## Open Questions
 

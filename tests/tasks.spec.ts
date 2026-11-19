@@ -4,7 +4,7 @@ import { greetingLines, HOMECOMING } from "../src/lib/greetings";
 import { dayLine, fill, LINES, tasksLine, type LineKey, type LineValues } from "../src/lib/jarvisLines";
 import { cleanTask, leadingNumber, mentionsWhen, type ShortcutEvent } from "../src/lib/shortcuts";
 import { findByWords, idOf, smallestFreeId, tasksReport, type Task } from "../src/lib/tasks";
-import { SCREENS, waitForFrames } from "./helpers";
+import { activeConversation, SCREENS, waitForFrames } from "./helpers";
 
 // The day's to-do list (the Tarefas widget), the agenda read back with it, and "acorda, querido,
 // papai chegou". The engine (Rust, tested by cargo) decides what was said; here
@@ -57,7 +57,7 @@ test("task helpers: numbers said, appointments spotted, words tidied, the lowest
 });
 
 const stored = (page: Page, key: string) => page.evaluate((name) => JSON.parse(localStorage.getItem(name) ?? "null"), key);
-const lastAnswer = (page: Page) => stored(page, "jarvis.assistant").then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
+const lastAnswer = (page: Page) => activeConversation(page).then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
 const say = (page: Page, event: ShortcutEvent) => page.evaluate((shortcut) => window.__JARVIS__!.voiceShortcut(shortcut), event);
 const action = (page: Page, tool: string, args: Record<string, unknown>) => page.evaluate(([name, input]) => window.__JARVIS__!.action(name, input), [tool, args] as const);
 const answered = (page: Page) => expect(page.getByTestId("jarvis-reply")).toBeHidden({ timeout: 30_000 });
@@ -75,7 +75,7 @@ async function start(page: Page, tasks?: Task[]) {
   await waitForFrames(page, 10);
   await page.evaluate(
     ([settings, list]) => {
-      ["jarvis.desktop", "jarvis.assistant", "jarvis.tasks", "jarvis.agenda", "jarvis.reminders"].forEach((key) => localStorage.removeItem(key));
+      ["jarvis.desktop", "jarvis.assistant", "jarvis.conversations", "jarvis.tasks", "jarvis.agenda", "jarvis.reminders"].forEach((key) => localStorage.removeItem(key));
       if (list) localStorage.setItem("jarvis.tasks", list);
       localStorage.setItem("jarvis.settings", settings);
       localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));

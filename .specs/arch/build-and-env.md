@@ -76,3 +76,4 @@ A máquina de desenvolvimento tem particularidades conhecidas: o microfone do no
 - [x] ~~`scripts/tauri.mjs` prepara o `VULKAN_SDK`, mas o `whisper-rs` não ativa a feature `vulkan`.~~ A feature `vulkan` existe e o script a liga quando acha o SDK (2026-11-04).
 - [x] Vulkan SDK 1.4.363.0 instalado nesta máquina e CPU × Intel × NVIDIA medidos ([ADR-0021](adr/0021-reconhecimento-voz-gpu-via-vulkan-porteiro.md)).
 - [ ] O build do instalador (`npm run tauri build`) ainda não foi verificado com as DLLs do sherpa ao lado do `jarvis.exe`. Nenhum código do repositório faz essa cópia. Ver [tts](../features/tts/spec.md#known-limitations).
+  - Conferido em 2026-11-19 só para o build sem instalador (`npm run tauri build -- --no-bundle`): o build do crate deixa `sherpa-onnx-c-api.dll`, `sherpa-onnx-cxx-api.dll`, `onnxruntime.dll` e `onnxruntime_providers_shared.dll` em `t\release`, ao lado do `jarvis.exe`, e o app abre de lá. A síntese de voz e o instalador não foram testados.

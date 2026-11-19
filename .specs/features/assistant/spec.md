@@ -7,14 +7,14 @@
 | Feature ID | `feature/assistant` |
 | Product | JARVIS OS (jvOS) |
 | Feature Status | Implementado |
-| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; sem decisões em aberto |
+| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; alterada em 2026-11-19 pela feature [chat-mode](../chat-mode/spec.md): o histórico único virou várias conversas e a pergunta também pode ser digitada (no modo chat); sem decisões em aberto |
 | Source Commit | `750ebd0` (2026-10-27); evoluída em `048a254` (2026-10-27); o nome do usuário no perfil, o passo crescente dos arquivos (`FILE_STEP_SHARE`) e a renderização a cada 32 ms entraram em `e7151cf` (2026-11-05) |
-| Uncommitted Changes | Nenhuma |
+| Uncommitted Changes | 2026-11-19: conversas (`jarvis.conversations`), `assistant_forget`, passos e arquivos no `turn` — ver [chat-mode](../chat-mode/spec.md) |
 | Voice Shortcut | `voice:shortcut` com `action: "ask"` (frase sem comando dita ao Voice) |
 | Assistant Tool | Nenhuma própria; as ferramentas do JARVIS são do [assistant-tools](../assistant-tools/spec.md) |
 | Target Platforms | Windows 11 com WebView2 e o `claude.exe` do usuário; no navegador (modo web) não há conversa, só o fake de DEV dos testes |
 | Language | PT-BR no conteúdo e nas falas; inglês nos títulos das seções e em Given / When / Then |
-| Last Editorial Revision | 2026-11-05 |
+| Last Editorial Revision | 2026-11-19 |
 | Verification Scope | Conferida com o código em 2026-11-05: `src-tauri/src/assistant.rs`, `src-tauri/src/lib.rs` (`assistant_*`, `voice_ask`, `AppState::assistant_profile`, `setup`, `RunEvent::Exit`), `src-tauri/src/voice/mod.rs` (`Buttons`, `Recording`, `dictation_prompt`), `src-tauri/src/git/mod.rs` (`kill_tree`), `src-tauri/src/settings.rs` (`ASSISTANT_MODELS`, `MAX_NAME`), `src/lib/assistant.ts`, `src/lib/storage.ts`, `src/hooks/useAssistant.ts`, `src/components/CoreButton.tsx`, `src/components/JarvisReply.tsx`, `src/components/AssistantDrawer.tsx`, `src/components/AssistantHistory.tsx`, `src/styles/globals.css` (`superhot-*`), `src/App.tsx`, `tests/assistant.spec.ts`, `tests/agent.spec.ts` e `tests/shortcuts.spec.ts`. Os testes não foram executados nesta revisão |
 
 Especificação no formato inspirado no GitHub Spec Kit, com seções de desenho técnico ([ADR-0025](../../arch/adr/0025-features-formato-feature-specification.md)). Os identificadores US1–US6, RF-001–RF-010, RNF-001–RNF-002, SC-001–SC-002 e T001–T032 são os mesmos da versão anterior. Os critérios de aceite AC-001–AC-013 são os antigos "Critério 1" a "Critério 13", na mesma ordem. KL-* registra limitações conhecidas; OQ-*, decisões de produto em aberto. Nenhum dos dois acrescenta escopo.
@@ -71,7 +71,7 @@ Quem responde é o Claude Code local do usuário (`claude.exe`), com a conta del
 
 - As ferramentas do jvOS (MCP): ver [assistant-tools](../assistant-tools/spec.md).
 - Os atalhos de voz que viram prompts: ver [voice-shortcuts](../voice-shortcuts/spec.md).
-- Digitar a pergunta: só por voz (núcleo ou Voice) ou pelos atalhos.
+- Digitar a pergunta **no desktop**: ali é só por voz (núcleo ou Voice) ou pelos atalhos. Desde 2026-11-19, o [modo chat](../chat-mode/spec.md) tem um campo de mensagem.
 - A memória inteira: ela entra pela linha de comando (limite de 32 767 caracteres do Windows), então só os primeiros 8000 caracteres de `Memória.md` chegam ao JARVIS (KL-003).
 - A anotação rápida (`assistant_note`), em [quick-notes](../quick-notes/spec.md), e a limpeza de memória (`assistant_sleep`), em [memory-cleanup](../memory-cleanup/spec.md).
 
@@ -160,9 +160,9 @@ Quem responde é o Claude Code local do usuário (`claude.exe`), com a conta del
 | RF-003 | O prompt de sistema DEVE somar a persona (`src-tauri/assistant-persona.md`, embutida com `include_str!`), o nome do usuário (ou a instrução de não usar nome) e até 8000 caracteres de `Memória.md`. | US1 |
 | RF-004 | O modelo DEVE vir de `assistantModel` (`haiku`, `sonnet`, `opus` ou `default`, que não passa `--model`); padrão `sonnet`. | US1 |
 | RF-005 | O sistema DEVE pré-aquecer o processo ao abrir o app, ao começar a gravar uma pergunta e depois de cancelar ou resetar. `assistant_warm` é ignorado com uma resposta em curso. | US1, US2, US3 |
-| RF-006 | A resposta DEVE chegar por `ipc::Channel` como eventos `session`, `delta`, `tool`, `file` e `done`, e sempre terminar com `done`. | US1, US4, US5 |
+| RF-006 | A resposta DEVE chegar por `ipc::Channel` como eventos `session`, `delta`, `tool`, `source` (um arquivo lido com Read; desde 2026-11-19, [notes-graph](../notes-graph/spec.md) RF-017), `file` e `done`, e sempre terminar com `done`. | US1, US4, US5 |
 | RF-007 | Durante uma ferramenta, o núcleo DEVE mostrar o status em PT-BR (`describeTool`: "Pesquisando na web", "Lendo uma página", "Escrevendo"…). | US1 |
-| RF-008 | O histórico DEVE guardar no máximo 200 itens e o id da sessão em `jarvis.assistant`, validados ao ler. | US2 |
+| RF-008 | O histórico DEVE guardar no máximo 200 itens por conversa e o id da sessão de cada uma em `jarvis.conversations` (até 50 conversas), validados ao ler. Até 2026-11-05 era um histórico único em `jarvis.assistant`, que agora só é lido para a migração ([chat-mode](../chat-mode/spec.md) RF-017). | US2 |
 | RF-009 | Respostas locais (hora, lembretes, confirmações de voz) DEVEM entrar no núcleo e no histórico como qualquer resposta, sem o Claude Code (`say`), e só quando ele está ocioso. | US1 |
 | RF-010 | Ao fechar o app, nenhum `claude.exe` DEVE sobreviver (`taskkill /T /F`). | US3 |
 
@@ -235,7 +235,7 @@ Quem responde é o Claude Code local do usuário (`claude.exe`), com a conta del
 
 - **Given** "Nova conversa" no histórico
 - **When** o usuário clica
-- **Then** a sessão é esquecida, uma marca "Nova conversa · <hora>" entra no histórico e a próxima pergunta abre outra sessão.
+- **Then** a sessão é esquecida, uma conversa nova e vazia toma o lugar no histórico (a anterior fica guardada, na lista do modo chat) e a próxima pergunta abre outra sessão. Até 2026-11-05 a conversa continuava na mesma lista, depois de uma marca "Nova conversa · <hora>".
 
 ### AC-007 — Clear the History
 
@@ -243,7 +243,7 @@ Quem responde é o Claude Code local do usuário (`claude.exe`), com a conta del
 
 - **Given** "Limpar histórico"
 - **When** o usuário clica
-- **Then** o histórico fica vazio ("Clique no núcleo e fale com o JARVIS. As respostas ficam guardadas aqui.") e a sessão também é esquecida.
+- **Then** a conversa na tela é apagada, com a sessão dela (`assistant_forget`), e o histórico fica vazio ("Clique no núcleo e fale com o JARVIS. As respostas ficam guardadas aqui."). As outras conversas ficam.
 
 ### AC-008 — Interrupt an Answer
 
@@ -347,7 +347,7 @@ O hook que controla as fases do núcleo, o microfone do núcleo e o histórico.
   - `ask(question, prompt?)` chama `assistant_ask` com o id salvo. O histórico guarda `question`; o Claude Code recebe `prompt`, se houver (um atalho com instruções). O evento `session` grava o id novo.
   - Ao chegar `done`, grave o par pergunta/resposta no histórico. Uma resposta cancelada fica como "Interrompida", com o que já tinha sido mostrado. Se `assistant_ask` for rejeitado, a entrada fica com o erro.
   - RF-009: `say(question, answer)` mostra uma resposta local como qualquer outra e a guarda no histórico. Devolve falso fora da fase `idle`; quem chamou manda a fala para a dock (`reply` em `App.tsx`).
-  - `reset` ("Nova conversa") esquece a sessão e põe a marca "Nova conversa" no histórico, se o último item já não for uma. `clear` ("Limpar histórico") esvazia a lista e também esquece a sessão. Os dois pré-aquecem um processo novo.
+  - `reset` ("Nova conversa") é o `create` das conversas: esquece a sessão no backend, pré-aquece um processo novo e põe na tela uma conversa vazia (uma vazia que já esteja na tela é reaproveitada). `clear` ("Limpar histórico") apaga a conversa da tela, com a sessão dela, e deixa uma vazia no lugar. O resto (`select`, `rename`, `remove`, os passos e os arquivos do `turn`) está em [chat-mode](../chat-mode/spec.md).
   - Uma frase sem comando dita ao Voice chega como `ask(said)`; um atalho de pesquisa, como `ask(said, shortcutPrompt(…))`.
   - Esc cancela o que o núcleo estiver fazendo; com o núcleo ocioso, tira da tela uma resposta pronta (`dismiss`).
 
@@ -427,7 +427,7 @@ O histórico do JARVIS, numa gaveta ao lado do núcleo.
   - O botão é um círculo `size-9` com o ícone `History`, abaixo e à direita do núcleo (37% da composição em cada eixo).
   - A gaveta fica à direita (`top-10 right-4 bottom-4`, `z-[23]`), com 420 px de largura (no máximo `calc(100vw - 2rem)`). No cabeçalho, "JARVIS · Histórico" e os botões "Nova conversa", "Limpar histórico" e "Fechar histórico".
   - Cada item tem a pergunta numa linha (com `›` e a hora à direita) e, embaixo, a resposta com uma borda à esquerda. "Interrompida" e o erro vêm depois da resposta.
-  - A marca de nova conversa é uma linha "Nova conversa · <hora>" entre dois traços.
+  - A marca de nova conversa (uma linha "Nova conversa · <hora>" entre dois traços) só aparece em dados de antes de 2026-11-19: as conversas novas não criam marcas.
 - **Style:**
   - Botão `bg-hud-panel/70` (sem desfoque: fica sempre na tela, sobre o núcleo), `border-hud-cyan/25 text-hud-text/60`; aberto ou no hover, `border-hud-light/50 text-hud-light`.
   - Gaveta `rounded-2xl border border-hud-cyan/20 bg-hud-panel/82 backdrop-blur-xl`, com um fio de luz no topo e o texto selecionável. Entra deslizando 32 px em 0,35 s e sai em 0,18 s.
@@ -543,7 +543,7 @@ Ver o [glossário](../../domain/glossary.md) e a [persistência](../../domain/pe
 |---|---|
 | State | `$histórico` (`AssistantMemory`) |
 | Storage | `localStorage` |
-| Key | `jarvis.assistant` |
+| Key | `jarvis.assistant` até 2026-11-05; desde 2026-11-19, `jarvis.conversations` (a forma está em [chat-mode](../chat-mode/spec.md#data-model-and-persistence)) e esta chave só é lida para a migração |
 | Write Debounce | 250 ms (`useStoredState`), com `flush` no `beforeunload` |
 | Maximum Items | 200 (`MAX_ITEMS`): ficam os 200 últimos |
 | Reader | `parseMemory`/`parseItem`: descartam itens sem `id` e `at` numéricos, ou sem `question` e `answer` texto (a marca só precisa de `newConversation: true`); `sessionId` só se for texto não vazio |
@@ -836,6 +836,7 @@ cargo test --lib settings::tests::the_name_is_one_short_line
 | KL-002 | O microfone do núcleo (`voice_ask`) não tem teste Playwright: `tests/assistant.spec.ts` usa `window.__JARVIS__.ask` no lugar da fala (AC-002, AC-009). | Lacuna de verificação |
 | KL-003 | Só os primeiros 8000 caracteres de `Memória.md` chegam ao JARVIS, porque a memória vai na linha de comando (limite de 32 767 caracteres do Windows). O resto é ignorado sem aviso. | Limite do desenho |
 | KL-004 | Os eventos `file` de um `Write` saem antes do resultado. Se o `Write` falhar, o Jarvis Mark já mostrou o conteúdo, que nunca chegou ao disco, e não recebe `done`. | Comportamento atual |
+| KL-005 | As seções Data Model, Technical Design e Rollback desta spec ainda descrevem o histórico único (`AssistantMemory`); o modelo atual, por conversa, está em [chat-mode](../chat-mode/spec.md). | Documentação parcial (2026-11-19) |
 
 ## Open Questions
 

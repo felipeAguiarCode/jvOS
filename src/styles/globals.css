@@ -14,6 +14,11 @@
   --color-hud-alert: #ff5c6c;
   /* The 2D reactor's bracket: the same amber in every theme. */
   --color-hud-amber: #ffb02e;
+  /* The chat mode's own surfaces (see .chat-skin): the bubbles and the conversation on screen. */
+  --color-chat-mine: #2b5278;
+  --color-chat-theirs: #182533;
+  --color-chat-active: #2b5278;
+  --color-chat-field: #242f3d;
 
   --font-hud: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   /* Local fonts only: the production CSP allows no remote ones. */
@@ -41,6 +46,47 @@ body {
 canvas {
   display: block;
   outline: none;
+}
+
+/*
+ * The chat mode's look: a messenger (the reference is .inspo/chat.png), not the holographic
+ * desktop. Inside it the HUD tokens take the messenger's palette, so every component of the
+ * chat (and the editors it hosts) follows without naming a colour of its own: slate blue
+ * surfaces, a soft blue accent, white text. The same in every theme of the desktop.
+ */
+.chat-skin {
+  --color-hud-void: #0e1621;
+  --color-hud-abyss: #0b121b;
+  --color-hud-panel: #17212b;
+  --color-hud-cyan: #5eb5f7;
+  --color-hud-holo: #6ab3f3;
+  --color-hud-light: #ffffff;
+  --color-hud-line: #060b11;
+  --color-hud-glow: #a8d4ff;
+  --color-hud-text: #dfe7ef;
+  --color-hud-alert: #ec6a6a;
+  --color-hud-amber: #e8b45a;
+  color-scheme: dark;
+}
+
+/* The chat's search fields: a pill, as in a messenger. */
+.chat-search {
+  width: 100%;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--color-chat-field);
+  padding: 0.45rem 0.9rem 0.45rem 2.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-hud-light);
+  outline: none;
+
+  &::placeholder {
+    color: color-mix(in oklab, var(--color-hud-text) 45%, transparent);
+  }
+
+  &:focus {
+    box-shadow: 0 0 0 1px var(--color-hud-cyan);
+  }
 }
 
 /* The 2D core (FlatCore): each ring is its own layer, turned by the compositor. */

@@ -7,14 +7,14 @@
 | Feature ID | `feature/keyboard-shortcuts` |
 | Product | JARVIS OS (jvOS) |
 | Feature Status | Implementado |
-| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; sem decisões em aberto |
+| Document Status | Reescrita em 2026-11-05 no formato Feature Specification; `Ctrl+Shift+J` acrescentado em 2026-11-19 ([chat-mode](../chat-mode/spec.md)); sem decisões em aberto |
 | Source Commit | `42e671a` (2026-10-23); evoluída em `c4ccc57` (2026-10-26); `useWindowControls.ts` mudou de novo em `e7151cf` (2026-11-05), sem mudar as teclas |
-| Uncommitted Changes | Nenhuma |
+| Uncommitted Changes | 2026-11-19: `Ctrl+Shift+J` em `useWindowControls.ts` |
 | Voice Shortcut | — |
 | Assistant Tool | — |
 | Target Platforms | Windows 11 com WebView2; no navegador (modo web), `Ctrl+Q`, `Ctrl+M`, `F11` e `Ctrl+Shift+D` são ignorados pelo jvOS, e os demais funcionam igual |
 | Language | PT-BR no conteúdo e nas falas; inglês nos títulos das seções e em Given / When / Then |
-| Last Editorial Revision | 2026-11-05 |
+| Last Editorial Revision | 2026-11-19 |
 | Verification Scope | Conferida com o código em 2026-11-05: `src/hooks/useWindowControls.ts`, `src/App.tsx`, `src/components/BootSequence.tsx`, `src/components/Spotlight.tsx`, `src/components/SettingsPanel.tsx`, `src/components/desktop/AdvancedMenu.tsx`, `src/components/desktop/Launcher.tsx`, `src/components/desktop/Window.tsx`, `src/components/desktop/widgets/WidgetMenu.tsx`, `src/components/QuickDock.tsx`, `src/components/CoreButton.tsx`, `src/hooks/useAssistant.ts`, `src/components/AssistantDrawer.tsx`, `src/components/desktop/apps/ide/IdeApp.tsx`, `src/components/desktop/apps/terminal/TerminalView.tsx`, `src/lib/commands.ts`, `src/lib/quality.ts`, `src-tauri/tauri.conf.json`, `tests/search.spec.ts`, `tests/settings.spec.ts`, `tests/voice.spec.ts`, `tests/boot.spec.ts`, `tests/ide.spec.ts`, `tests/shell.spec.ts` e `tests/widgets.spec.ts`. Os testes não foram executados nesta revisão |
 
 Especificação no formato inspirado no GitHub Spec Kit, com seções de desenho técnico ([ADR-0025](../../arch/adr/0025-features-formato-feature-specification.md)). Os identificadores US1–US4, RF-001–RF-005, RNF-001, SC-001–SC-002 e T001–T026 são os mesmos da versão anterior. Os critérios de aceite AC-001–AC-015 são os antigos "Critério 1" a "Critério 15", na mesma ordem. KL-* registra limitações conhecidas; OQ-*, decisões de produto em aberto. Nenhum dos dois acrescenta escopo.
@@ -123,7 +123,7 @@ Esta spec é o mapa único dos atalhos globais. Ela aponta para as teclas própr
 
 | ID | Requirement | Related Stories |
 |---|---|---|
-| RF-001 | Os atalhos globais DEVEM ser tratados num único listener de `keydown` em `useWindowControls`, nesta ordem: (1) terminal → sai, salvo `F11`; (2) `Ctrl+Shift+Q`; (3) `Ctrl+Shift+,`; (4) `Ctrl+,`; (5) `/`; (6) `M`; (7) `Esc` com `M` segurado; (8) só no Tauri: `Ctrl+Q`, `Ctrl+M`, `F11`, `Ctrl+Shift+D`. | US1, US2, US3 |
+| RF-001 | Os atalhos globais DEVEM ser tratados num único listener de `keydown` em `useWindowControls`, nesta ordem: (1) terminal → sai, salvo `F11`; (2) `Ctrl+Shift+Q`; (2a) `Ctrl+Shift+J` (alterna entre o modo desktop e o modo chat, [chat-mode](../chat-mode/spec.md); acrescentado em 2026-11-19); (3) `Ctrl+Shift+,`; (4) `Ctrl+,`; (5) `/`; (6) `M`; (7) `Esc` com `M` segurado; (8) só no Tauri: `Ctrl+Q`, `Ctrl+M`, `F11`, `Ctrl+Shift+D`. | US1, US2, US3 |
 | RF-002 | `/` e `M` NÃO DEVEM disparar com Ctrl, Alt ou com o foco num lugar de digitar (`isTyping`). | US2 |
 | RF-003 | No segurar-para-falar, `M` DEVE iniciar no `keydown` e enviar no `keyup` ou no `blur` da janela; `Esc` cancela. Nos modos "Hey Jarvis" e "Sempre ouvindo", `M` alterna a escuta. | US1 |
 | RF-004 | Os atalhos que aparecem na busca DEVEM mostrar a tecla à direita: `Ctrl ,`, `Ctrl Shift ,`, `Ctrl W`, `M`, `Ctrl Shift Q`, `F11`, `Ctrl M`, `Ctrl Q`. | US1, US4 |
@@ -351,6 +351,7 @@ Onde o usuário vê as teclas.
 | `Ctrl+,` | Configurações | Fora de terminais | `settings.spec.ts` |
 | `Ctrl+Shift+,` | Menu avançado | Fora de terminais | `boot`, `core`, `desktop`, `dock`, `taskbar`, `tui`, `voicetab` specs |
 | `Ctrl+Shift+Q` | Gira a qualidade gráfica | Fora de terminais | — |
+| `Ctrl+Shift+J` | Alterna entre o modo desktop e o modo chat | Fora de terminais | [chat-mode](../chat-mode/spec.md) |
 | `Ctrl+Q` | Fecha o JARVIS | Só Tauri, fora de terminais | — |
 | `Ctrl+M` | Minimiza | Só Tauri, fora de terminais | — |
 | `F11` | Tela cheia | Só Tauri, também em terminais | — |

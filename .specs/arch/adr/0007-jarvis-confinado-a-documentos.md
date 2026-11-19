@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Aceito |
+| **Status** | Aceito; em parte substituído pelo [ADR-0028](0028-processo-claude-code-conversa-ate-cinco.md) (um agente também pode responder no chat, com o confinamento do JARVIS; com ferramentas próprias continua só no jv_sh) |
 | **Data** | 2026-10-27 |
 | **Origem** | commit `750ebd0` ("JARVIS only writes under Documentos\JARVIS"); doc de `assistant.rs`; memória `claude-cli-bridge` |
 

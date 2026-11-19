@@ -9,8 +9,8 @@ Este diretório registra as decisões que moldam o código. O formato está em [
 | [0003](0003-motor-de-voz-thread-rust.md) | Motor de voz numa thread Rust independente da WebView | Aceito |
 | [0004](0004-catalogo-de-voz-compartilhado-e-fallback.md) | Catálogo de voz compartilhado em JSON, com fallback para o JARVIS | Aceito |
 | [0005](0005-tts-sherpa-onnx-1-13-8.md) | Voz do JARVIS com sherpa-onnx fixado em 1.13.8 | Aceito |
-| [0006](0006-jarvis-via-claude-cli.md) | O cérebro do JARVIS é o `claude.exe` local em stream-json | Aceito |
-| [0007](0007-jarvis-confinado-a-documentos.md) | JARVIS confinado a `Documentos\JARVIS`, sem shell | Aceito |
+| [0006](0006-jarvis-via-claude-cli.md) | O cérebro do JARVIS é o `claude.exe` local em stream-json | Aceito; em parte substituído pelo ADR-0028 (um processo por conversa) |
+| [0007](0007-jarvis-confinado-a-documentos.md) | JARVIS confinado a `Documentos\JARVIS`, sem shell | Aceito; em parte substituído pelo ADR-0028 (agentes confinados no chat) |
 | [0008](0008-mcp-http-in-process.md) | Servidor MCP HTTP dentro do app; a UI executa as tools | Aceito |
 | [0009](0009-tipos-espelhados-ts-rust.md) | Tipos espelhados TS ↔ Rust por convenção | Aceito |
 | [0010](0010-persistencia-settings-vs-localstorage.md) | `settings.json` (Rust) vs `localStorage` (UI), parsers tolerantes | Aceito |
@@ -25,11 +25,13 @@ Este diretório registra as decisões que moldam o código. O formato está em [
 | [0019](0019-specs-arquivo-unico-formato-spec-lang.md) | Specs em arquivo único no formato SpecLang | Aceito · em parte substituído pelo 0023 |
 | [0020](0020-videos-demo-gravados-playwright-modo-web.md) | Vídeos de demo gravados pelo Playwright no modo web | Aceito |
 | [0021](0021-reconhecimento-voz-gpu-via-vulkan-porteiro.md) | Reconhecimento de voz na GPU via Vulkan, com porteiro Silero e volta para a CPU | Aceito |
-| [0022](0022-nucleo-relogio-quadros-limitado-canvas-3.md) | Núcleo com relógio de quadros limitado, canvas 3D recortado e UI em D3D11 | Aceito |
+| [0022](0022-nucleo-relogio-quadros-limitado-canvas-3.md) | Núcleo com relógio de quadros limitado, canvas 3D recortado e UI em D3D11 | Aceito; em parte substituído pelo ADR-0027 (WebGL fora do núcleo) |
 | [0023](0023-specs-formato-spec-coding-dev.md) | Specs e templates no formato do spec-coding.dev | Aceito · em parte substituído pelo 0025 (features) |
 | [0024](0024-specs-de-fundamentos-e-vendor.md) | Specs de fundamentos: arquitetura, stack e vendor | Aceito |
 | [0025](0025-features-formato-feature-specification.md) | Features no formato "Feature Specification" | Aceito |
 | [0026](0026-feature-comeca-pela-spec.md) | Toda feature começa pela spec (skill `feature`) | Aceito |
+| [0027](0027-grafo-notas-pode-criar-contexto-web.md) | O grafo de notas pode criar um contexto WebGL enquanto está na tela | Aceito |
+| [0028](0028-processo-claude-code-conversa-ate-cinco.md) | Um processo do Claude Code por conversa, até cinco respondendo, e agentes confinados no chat | Aceito |
 
 ## Regras
 

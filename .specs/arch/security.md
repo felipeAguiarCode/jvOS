@@ -25,6 +25,14 @@ O princípio está em [P10](constitution.md#p10--segurança-por-confinamento).
 | **Memória** | persona | Nada de senhas, documentos ou dados sensíveis em `Memória.md` |
 | **Fakes** | `src/lib/*` | Os stand-ins `window.__JARVIS_*__` só existem com `import.meta.env.DEV` |
 
+## Vários processos e agentes no chat
+
+Desde 2026-11-19 ([ADR-0028](adr/0028-processo-claude-code-conversa-ate-cinco.md)) cada conversa do chat tem o seu `claude.exe`, e um agente instalado pode responder numa delas. A linha de comando é a mesma para todos (`Assistant::arguments`): `--restricted`, `--tools` com a lista do JARVIS, `--permission-mode dontAsk`, `--strict-mcp-config` e a pasta `Documentos\JARVIS`. Só o prompt muda, e o prompt não dá acesso a nada: o `tools` e o `model` do rascunho do agente são ignorados. O teste `every_conversation_starts_confined` trava isso. O nome do agente passa por `agents::valid_name` e precisa estar no registro `.instalados.json` antes de qualquer arquivo ser lido. Um agente com ferramentas próprias continua rodando só numa aba visível do jv_sh.
+
+## Sessões do Claude Code
+
+`assistant_forget` é o único comando que apaga algo fora de `Documentos\JARVIS` e do workspace aberto. Ele só aceita um id de sessão feito de dígitos hexadecimais e `-` (até 64 caracteres), procura `<id>.jsonl` diretamente dentro de cada pasta de `<config do Claude>\projects\` e manda o que achar para a Lixeira (`workspace::recycle`), de onde dá para restaurar. Nenhum caminho vem da UI. Ver [chat-mode](../features/chat-mode/spec.md).
+
 ## Lacunas conhecidas
 
 - [ ] `read_text_file` / `write_text_file` (`src-tauri/src/files.rs`) aceitam **qualquer caminho absoluto**: não há raiz. Hoje só o Jarvis Mark os chama, com caminhos vindos do diálogo nativo ou do canal de notas. Mesmo assim, qualquer código da WebView pode ler ou escrever até 2 MB em qualquer lugar. Ver [jarvis-mark](../apps/jarvis-mark/spec.md#pendências).

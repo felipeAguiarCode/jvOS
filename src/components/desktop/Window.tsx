@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { motion } from "motion/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { usePointerDrag, type PointerDragHandlers } from "../../hooks/usePointerDrag";
@@ -9,6 +10,8 @@ export interface WindowProps {
   kind: WindowKind;
   /** Where it is drawn (the work area while maximised). */
   rect: Rect;
+  /** While it is dragged or resized: where the gesture has it now, not stored until it ends. */
+  live?: Rect;
   /** Its own size, which a drag out of the maximised state goes back to. */
   restore: Rect;
   z: number;
@@ -68,11 +71,14 @@ const HANDLES: Handle[] = [
 /**
  * A desktop window: title bar that drags (a widget's whole body too), edges that resize, Ctrl+W closes. Positioned with
  * left/top (motion owns the transform for the enter/exit animation); while nobody is dragging,
- * geometry changes (snap release, arranging) ease into place.
+ * geometry changes (snap release, arranging) ease into place. A move in progress is drawn with
+ * `translate` on a layer of its own: the compositor slides it, with no layout and no repaint of
+ * the content (the TUI glow blurs every glyph it repaints).
  */
 export function Window({
   kind,
   rect,
+  live,
   restore,
   z,
   focused,
@@ -105,9 +111,15 @@ export function Window({
     return rect;
   };
   const end = () => {
+    // The stored geometry replaces the gesture's first, and the browser takes it in (reading the
+    // layout) before the easing comes back: left/top must not ease from where the move started.
+    flushSync(onDragEnd);
+    void root.current?.offsetLeft;
     setInteracting(false);
-    onDragEnd();
   };
+  // Same size: a move. The stored position stays where it was and the difference is a translate.
+  const sliding = live !== undefined && live.w === rect.w && live.h === rect.h;
+  const drawn = sliding ? rect : (live ?? rect);
 
   const moveGesture: PointerDragHandlers<MoveGesture> = {
     onStart: (event) => {
@@ -177,7 +189,16 @@ export function Window({
         if (!focused) onFocus();
       }}
       onKeyDown={onKeyDown}
-      style={{ ...surface?.style, left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: z + 1 }}
+      style={{
+        ...surface?.style,
+        left: drawn.x,
+        top: drawn.y,
+        width: drawn.w,
+        height: drawn.h,
+        zIndex: z + 1,
+        translate: sliding ? `${live.x - rect.x}px ${live.y - rect.y}px` : undefined,
+        willChange: sliding ? "translate" : undefined,
+      }}
       className={`pointer-events-auto absolute outline-none select-none ${surface?.className ?? ""} ${
         interacting ? "" : "transition-[left,top,width,height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
       }`}

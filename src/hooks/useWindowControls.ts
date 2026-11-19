@@ -13,6 +13,8 @@ interface WindowControlsOptions {
   onOpenAdvanced: () => void;
   /** `/` outside a text field opens the search bar. */
   onOpenSearch: () => void;
+  /** Ctrl+Shift+J: the desktop or the chat. */
+  onToggleMode: () => void;
 }
 
 /** Shortcuts without modifiers must not fire while typing in a field, or in an app that takes plain keys (jv_ide). */
@@ -41,6 +43,7 @@ export function useWindowControls({
   onOpenSettings,
   onOpenAdvanced,
   onOpenSearch,
+  onToggleMode,
 }: WindowControlsOptions) {
   const [paused, setPaused] = useState(false);
   // Another app in front: the core keeps moving at a lower frame rate (lib/frameClock).
@@ -48,8 +51,8 @@ export function useWindowControls({
   const revealed = useRef(false);
   const decorated = useRef(false);
   const holdingVoice = useRef(false);
-  const handlers = useRef({ onToggleVoice, pushToTalk, onHoldVoice, onCycleQuality, onOpenSettings, onOpenAdvanced, onOpenSearch });
-  handlers.current = { onToggleVoice, pushToTalk, onHoldVoice, onCycleQuality, onOpenSettings, onOpenAdvanced, onOpenSearch };
+  const handlers = useRef({ onToggleVoice, pushToTalk, onHoldVoice, onCycleQuality, onOpenSettings, onOpenAdvanced, onOpenSearch, onToggleMode });
+  handlers.current = { onToggleVoice, pushToTalk, onHoldVoice, onCycleQuality, onOpenSettings, onOpenAdvanced, onOpenSearch, onToggleMode };
 
   const reveal = useCallback(() => {
     if (revealed.current || !isTauri()) return;
@@ -82,6 +85,12 @@ export function useWindowControls({
       if (ctrl && event.shiftKey && key === "q") {
         event.preventDefault();
         handlers.current.onCycleQuality();
+        return;
+      }
+      // The desktop and the chat, back and forth.
+      if (ctrl && event.shiftKey && key === "j") {
+        event.preventDefault();
+        handlers.current.onToggleMode();
         return;
       }
       // With Shift the key reads "<" on US and ABNT2 layouts alike, so match the physical key.

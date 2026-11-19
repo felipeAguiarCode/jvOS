@@ -4,7 +4,7 @@ import { describeWeather, formatChange, formatPrice, normalizeSymbol, spokenChan
 import { agendaLine, fill, LINES, spokenClock, stockAlertLine, weatherLine, type LineKey, type LineValues } from "../src/lib/jarvisLines";
 import { placeIn } from "../src/lib/shortcuts";
 import { crossed } from "../src/hooks/useWatchlist";
-import { SCREENS, waitForFrames } from "./helpers";
+import { activeConversation, SCREENS, waitForFrames } from "./helpers";
 
 // What JARVIS watches for the user: stocks and FIIs (Yahoo Finance), the weather (Open-Meteo)
 // and the agenda. In the browser `__JARVIS_QUOTES__` and `__JARVIS_WEATHER__` stand in for the
@@ -87,7 +87,7 @@ test("JARVIS's lines for the weather, the agenda and a price alert", () => {
 });
 
 const stored = (page: Page, key: string) => page.evaluate((name) => JSON.parse(localStorage.getItem(name) ?? "null"), key);
-const lastAnswer = (page: Page) => stored(page, "jarvis.assistant").then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
+const lastAnswer = (page: Page) => activeConversation(page).then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
 const action = (page: Page, tool: string, args: Record<string, unknown>) => page.evaluate(([name, input]) => window.__JARVIS__!.action(name, input), [tool, args] as const);
 const shortcut = (page: Page, action: string, text: string, said: string) =>
   page.evaluate((event) => window.__JARVIS__!.voiceShortcut(event as Parameters<NonNullable<typeof window.__JARVIS__>["voiceShortcut"]>[0]), { action, text, said });
@@ -105,7 +105,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.evaluate((settings) => {
-    ["jarvis.desktop", "jarvis.assistant", "jarvis.watchlist", "jarvis.weather", "jarvis.agenda", "jarvis.tasks"].forEach((key) => localStorage.removeItem(key));
+    ["jarvis.desktop", "jarvis.assistant", "jarvis.conversations", "jarvis.watchlist", "jarvis.weather", "jarvis.agenda", "jarvis.tasks"].forEach((key) => localStorage.removeItem(key));
     localStorage.setItem("jarvis.settings", settings);
     localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));
   }, JSON.stringify({ taskbar: false, assistantName: NAME }));

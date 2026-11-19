@@ -21,6 +21,7 @@ import { VoiceCaption } from "./components/VoiceCaption";
 import { useAgenda } from "./hooks/useAgenda";
 import { useAssistant } from "./hooks/useAssistant";
 import { useAssistantActions } from "./hooks/useAssistantActions";
+import { useChatSpeech } from "./hooks/useChatSpeech";
 import { useAudioAnalyzer, type VoiceStatus } from "./hooks/useAudioAnalyzer";
 import { readBattery } from "./hooks/useBattery";
 import { useDesktop } from "./hooks/useDesktop";
@@ -45,11 +46,13 @@ import {
   type WindowGroup,
 } from "./hooks/useVoiceAssistant";
 import { useWindowControls } from "./hooks/useWindowControls";
-import { agentProfile, setAgentLauncher, type ToolReply } from "./lib/agents";
+import { agentProfile, launchAgent, setAgentLauncher, type ToolReply } from "./lib/agents";
 import { assistantFolder, type AssistantFolder } from "./lib/assistant";
 import { beep } from "./lib/beep";
 import { describeBoot, useBootPrefs } from "./lib/boot";
 import { cleanMemory, cleanupLine, cleanupSummary, formatBytes, type Cleanup } from "./lib/cleanup";
+import type { NoteRequest } from "./components/chat/ChatView";
+import { useChatModePrefs, type AppMode } from "./lib/chatMode";
 import { buildCommands, type AdvancedTab, type CommandContext, type SettingsSection } from "./lib/commands";
 import { useCorePrefs } from "./lib/core";
 import { addDays, agendaReport, dateKey } from "./lib/agenda";
@@ -100,6 +103,8 @@ import { applyTheme, DEFAULT_HUE } from "./lib/theme";
 
 // The WebGL hologram (three.js and its effects) only loads with the 3D core.
 const JarvisScene = lazy(() => import("./components/JarvisScene").then((module) => ({ default: module.JarvisScene })));
+// The chat (and its Markdown) only loads with the chat mode.
+const ChatView = lazy(() => import("./components/chat/ChatView").then((module) => ({ default: module.ChatView })));
 
 declare global {
   interface Window {
@@ -123,6 +128,8 @@ declare global {
       ask: (text: string) => void;
       /** One of JARVIS's tool calls (`jvos_run`, `agent_review`…), as its MCP server hands it over. */
       action: (tool: string, args: Record<string, unknown>) => Promise<ToolReply>;
+      /** Stands in for `voice:dictation`: words dictated into the editor on screen. */
+      dictate: (text: string) => void;
     };
   }
 }
@@ -175,6 +182,9 @@ const DOCK_LABEL: Record<EngineState, string> = {
   error: "Voice",
 };
 
+/** What the top bar lists in the chat mode. */
+const NO_WINDOWS: ReturnType<typeof useDesktop>["windows"] = [];
+
 /** Set once the saved "top bar off" of older installs has been turned on (see App). */
 const TASKBAR_MIGRATION = "jarvis.migrations.taskbarOn";
 
@@ -213,6 +223,9 @@ export default function App() {
   const [taskbarModules, setTaskbarModules] = useTaskbarModules();
   const [dockPrefs, setDockPrefs] = useDockPrefs();
   const [corePrefs, setCorePrefs] = useCorePrefs();
+  // The app's two faces: the holographic desktop, or the agent's chat over it.
+  const [chatPrefs, setChatPrefs] = useChatModePrefs();
+  const chat = chatPrefs.mode === "chat";
   // The GPU is only probed for a quality level once the 3D hologram is in use.
   const { preset, cycle, decline } = useQuality(corePrefs.mode === "3d");
   /** jv_sh profiles, for the search ("Nova aba: Git Bash"). */
@@ -433,6 +446,20 @@ export default function App() {
   );
   const assistant = useAssistant({ voice: coreVoice, notify: notifyVoice, onModelMissing: showModelMissing, onFile: onAssistantFile });
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** An answer already on screen (in the core) as the chat comes in: it is not said again there. */
+  const heardInCore = useRef<number | null>(null);
+  const answered = useRef(assistant.turn);
+  answered.current = assistant.turn;
+  const setMode = useCallback(
+    (mode: AppMode) => {
+      heardInCore.current = mode === "chat" && answered.current?.done ? answered.current.id : null;
+      setChatPrefs((current) => (current.mode === mode ? current : { ...current, mode }));
+    },
+    [setChatPrefs],
+  );
+  const toggleMode = useCallback(() => setMode(chat ? "desktop" : "chat"), [chat, setMode]);
+  /** A note a conversation's card asked to see, for the chat's notes section. */
+  const [noteRequest, setNoteRequest] = useState<NoteRequest | null>(null);
   // What jv_agent shows as the interview.
   const { items: conversationItems, turn: conversationTurn, phase: conversationPhase } = assistant;
   const conversation = useMemo(() => ({ items: conversationItems, turn: conversationTurn, phase: conversationPhase }), [conversationItems, conversationTurn, conversationPhase]);
@@ -626,6 +653,12 @@ export default function App() {
       }
       case "homecoming":
         return comeHome(said);
+      case "chatMode":
+        setMode("chat");
+        return reply(said, line("chatMode", userName));
+      case "desktopMode":
+        setMode("desktop");
+        return reply(said, line("desktopMode", userName));
       case "cleanup":
         return void runCleanup().then(
           (result) => reply(said, result ? cleanupLine(result, userName) : line("desktopOnly", userName)),
@@ -675,6 +708,28 @@ export default function App() {
   const speech = useSpeechStatus();
   const replyVoice = speechPrefs.enabled && voiceReady(speech.status, speechPrefs.voice) ? { voice: speechPrefs.voice, speed: speechPrefs.speed } : null;
   const { setVoiceSource } = audio;
+  // In the chat his voice has a switch of its own, and any answer can be heard: a voice is enough.
+  const chatVoice = useMemo(
+    () => (voiceReady(speech.status, speechPrefs.voice) ? { voice: speechPrefs.voice, speed: speechPrefs.speed } : null),
+    [speech.status, speechPrefs.voice, speechPrefs.speed],
+  );
+  const chatSpeech = useChatSpeech(chatVoice, setVoiceSource);
+  // In the chat there is no core to show an answer and send it away: once it ends it is spoken
+  // (with the chat's voice on) and leaves the stage; it is in its conversation by then.
+  const { turn: lastTurn, dismiss: dismissTurn } = assistant;
+  const { speak: speakInChat, stop: stopChatSpeech } = chatSpeech;
+  useEffect(() => {
+    if (!chat) return stopChatSpeech();
+    if (!lastTurn?.done) return;
+    if (chatPrefs.speak && lastTurn.id !== heardInCore.current && !lastTurn.cancelled && !lastTurn.error) speakInChat(lastTurn.id, lastTurn.text);
+    dismissTurn();
+  }, [chat, lastTurn, chatPrefs.speak, speakInChat, stopChatSpeech, dismissTurn]);
+  /** A note or an agent JARVIS wrote: the app of the desktop that shows it. */
+  const fileWindow = useCallback(
+    (path: string): WindowKind | null =>
+      !jarvisFolder ? null : isInside(path, jarvisFolder.notes) ? "markdown" : isInside(path, jarvisFolder.agents) && /\.md$/i.test(path) ? "agent" : null,
+    [jarvisFolder],
+  );
   const previewVoice = useCallback(async () => {
     const player = createSpeechPlayer({ voice: speechPrefs.voice, speed: speechPrefs.speed }, setVoiceSource);
     if (!player) return;
@@ -726,15 +781,29 @@ export default function App() {
     },
     [desktop, engine, showModelMissing],
   );
+  /** Development-only: words "dictated" by the browser tests, which have no voice engine. */
+  const [dictatedInTest, setDictatedInTest] = useState<{ id: number; text: string } | null>(null);
+  const dictatedText = dictatedInTest ?? engine.dictation;
   const dictation = useMemo<DictationApi>(
     () => ({
       available: desktop,
       state: engineState === "dictating" ? "listening" : engine.dictationPending ? "transcribing" : "idle",
       hold: (down) => void holdDictation(down),
-      text: engine.dictation,
+      text: dictatedText,
     }),
-    [desktop, engineState, engine.dictationPending, engine.dictation, holdDictation],
+    [desktop, engineState, engine.dictationPending, dictatedText, holdDictation],
   );
+  // The words go to the editor that was on screen when they were said, and only to it: a note of
+  // the chat does not get what was dictated into Jarvis Mark, nor the other way round, whichever
+  // comes on screen later.
+  const dictatedWhere = useRef<{ id: number; chat: boolean } | null>(null);
+  if (dictatedText && dictatedWhere.current?.id !== dictatedText.id) dictatedWhere.current = { id: dictatedText.id, chat };
+  const dictatedInChat = dictatedWhere.current?.chat ?? false;
+  const desktopDictation = useMemo<DictationApi>(
+    () => (chat ? { ...dictation, state: "idle", text: null } : dictatedInChat ? { ...dictation, text: null } : dictation),
+    [chat, dictation, dictatedInChat],
+  );
+  const chatDictation = useMemo<DictationApi>(() => (dictatedInChat ? dictation : { ...dictation, text: null }), [dictation, dictatedInChat]);
 
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
@@ -785,6 +854,7 @@ export default function App() {
       setSearchSession((session) => session + 1);
       setSearchOpen(true);
     },
+    onToggleMode: toggleMode,
   });
 
   // The window shows on the hologram's first frame; the boot screen starts typing then.
@@ -981,6 +1051,7 @@ export default function App() {
         voiceShortcut: onShortcut,
         ask,
         action: runAction,
+        dictate: (text) => setDictatedInTest({ id: Date.now(), text }),
       };
     }
   }, [audio.signals, audio.status, preset.level, hear, onWindowCommand, onCloseGroup, onMusic, onPomodoro, onShortcut, ask, runAction]);
@@ -1019,8 +1090,10 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
       <main className="fixed inset-0 overflow-hidden bg-hud-void">
-        {/* Hidden or minimised, or behind a maximised app: nothing to draw. The first frame is
-            always drawn: it reveals the window and starts the boot screen. */}
+        {/* The desktop: under the chat it stays as it was, still (nothing ticks) and out of reach. */}
+        <div data-testid="desktop-layer" inert={chat}>
+        {/* Hidden or minimised, behind a maximised app or under the chat: nothing to draw. The
+            first frame is always drawn: it reveals the window and starts the boot screen. */}
         {corePrefs.mode === "3d" ? (
           <Suspense fallback={null}>
             <JarvisScene
@@ -1028,7 +1101,7 @@ export default function App() {
               ignition={booting || coreDark ? "standby" : ignitedAt}
               signals={audio.signals}
               sample={audio.sample}
-              paused={paused || (covered && firstFrame)}
+              paused={paused || ((covered || chat) && firstFrame)}
               focused={focused}
               onFirstFrame={onFirstFrame}
               onQualityFallback={decline}
@@ -1039,7 +1112,7 @@ export default function App() {
             ignition={booting || coreDark ? "standby" : ignitedAt}
             signals={audio.signals}
             sample={audio.sample}
-            paused={paused || (covered && firstFrame)}
+            paused={paused || ((covered || chat) && firstFrame)}
             focused={focused}
             onFirstFrame={onFirstFrame}
           />
@@ -1051,21 +1124,67 @@ export default function App() {
         {corePrefs.mode !== "off" && !booting && greeting === null && (
           <CoreButton phase={assistant.phase} onPress={assistant.press} onRelease={assistant.release} />
         )}
-        {assistant.turn && greeting === null && (
+        {assistant.turn && greeting === null && !chat && (
           <JarvisReply key={assistant.turn.id} turn={assistant.turn} sound={bootPrefs.sound} speech={replyVoice} onVoice={setVoiceSource} onFinished={assistant.dismiss} />
         )}
-        <DictationContext.Provider value={dictation}>
-          <Desktop desktop={workspace} paused={paused} timer={pomodoro} tui={tuiLook} music={music} feeds={{ stocks, weather, agenda, tasks }} conversation={conversation} />
+        <DictationContext.Provider value={desktopDictation}>
+          <Desktop desktop={workspace} paused={paused || chat} timer={pomodoro} tui={tuiLook} music={music} feeds={{ stocks, weather, agenda, tasks }} conversation={conversation} />
         </DictationContext.Provider>
         {homecoming !== null && <Homecoming key={homecoming} onDone={lightsOn} />}
+        </div>
         {/* Invisible strip to move the frameless window (double click toggles maximise). */}
         <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-20 h-7" />
+        {chat && !booting && (
+          <DictationContext.Provider value={chatDictation}>
+          <Suspense fallback={null}>
+            <ChatView
+              assistant={assistant}
+              top={taskbar ? 28 : 0}
+              speak={chatPrefs.speak}
+              onSpeak={(speak) => setChatPrefs((current) => ({ ...current, speak }))}
+              speech={chatSpeech}
+              onDesktop={() => setMode("desktop")}
+              notice={dock.notice}
+              canOpen={(path) => fileWindow(path) !== null}
+              onOpenFile={(path) => {
+                const kind = fileWindow(path);
+                if (!kind) return;
+                // A note stays in the chat, in its notes; an agent's draft is the desktop's jv_agent.
+                if (kind === "markdown") {
+                  setNoteRequest({ path, key: Date.now() });
+                  return setChatPrefs((current) => ({ ...current, section: "notes" }));
+                }
+                setMode("desktop");
+                workspace.open(kind);
+                onAssistantFile({ path, content: null, done: true });
+              }}
+              section={chatPrefs.section}
+              onSection={(section) => setChatPrefs((current) => ({ ...current, section }))}
+              noteRequest={noteRequest}
+              paused={paused}
+              focused={focused}
+              collapsed={chatPrefs.collapsed}
+              onCollapsed={(collapsed) => setChatPrefs((current) => ({ ...current, collapsed }))}
+              onRunAgent={(name, task) => {
+                // With its own tools and wherever it works: that is the desktop's terminal (ADR-0007).
+                if (!jarvisFolder) return notifyVoice("Disponível no app desktop");
+                setMode("desktop");
+                void launchAgent({ name, folder: `${jarvisFolder.agents}\\${name}`, task }).then(
+                  (text) => notifyVoice(text),
+                  (error: unknown) => notifyVoice(String(error), "error"),
+                );
+              }}
+            />
+          </Suspense>
+          </DictationContext.Provider>
+        )}
         {/* Like the dock, the bar comes in after the boot screen. */}
         <AnimatePresence>
           {taskbar && !booting && (
             <Taskbar
-              windows={workspace.windows}
-              focused={workspace.focused}
+              // Under the chat the desktop's windows are out of reach: the bar does not offer them.
+              windows={chat ? NO_WINDOWS : workspace.windows}
+              focused={chat ? null : workspace.focused}
               onWindow={workspace.open}
               voice={voiceIndicator}
               voiceLabel={voiceLabel}
@@ -1079,11 +1198,14 @@ export default function App() {
                 setSearchOpen(true);
               }}
               onSettings={() => setSettingsOpen(true)}
+              chat={chat}
+              onMode={toggleMode}
               paused={paused}
               modules={taskbarModules}
             />
           )}
         </AnimatePresence>
+        <div inert={chat}>
         <QuickDock
           voice={voiceIndicator}
           voiceLabel={voiceLabel}
@@ -1120,7 +1242,7 @@ export default function App() {
           }
         />
         <AssistantDrawer
-          open={historyOpen}
+          open={historyOpen && !chat}
           onOpenChange={setHistoryOpen}
           showToggle={corePrefs.mode !== "off" && !booting}
           items={assistant.items}
@@ -1130,6 +1252,7 @@ export default function App() {
           onNewConversation={assistant.reset}
           onClear={assistant.clear}
         />
+        </div>
         <SettingsPanel
           open={settingsOpen}
           onClose={closeSettings}

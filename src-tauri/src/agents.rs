@@ -5,6 +5,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::assistant::Folder;
 
 /// Which agents JARVIS installed: only those it may replace.
@@ -114,6 +116,43 @@ fn install_into(folder: &Folder, name: &str, agents: &Path) -> Result<PathBuf, S
     Ok(target)
 }
 
+/// An agent the user can talk to in the chat.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Contact {
+    pub name: String,
+    pub description: String,
+}
+
+/// The chat's contacts: the agents JARVIS installed whose draft is still there and valid, by name.
+pub fn contacts(folder: &Folder) -> Vec<Contact> {
+    read_record(folder)
+        .into_iter()
+        .filter_map(|name| {
+            let text = std::fs::read_to_string(draft_path(folder, &name)).ok()?;
+            if !problems(&name, &text).is_empty() {
+                return None;
+            }
+            let description = frontmatter(&text)?.into_iter().find(|(key, _)| key == "description")?.1;
+            Some(Contact { name, description })
+        })
+        .collect()
+}
+
+/// A contact's instructions: its draft, without the header. Its `tools` and `model` are not
+/// used: in the chat an agent works with JARVIS's (ADR-0028).
+pub fn prompt(folder: &Folder, name: &str) -> Result<String, String> {
+    let unavailable = || format!("O agente \"{name}\" não está disponível");
+    if !valid_name(name) || !read_record(folder).contains(name) {
+        return Err(unavailable());
+    }
+    let text = std::fs::read_to_string(draft_path(folder, name)).map_err(|_| unavailable())?;
+    if !problems(name, &text).is_empty() {
+        return Err(unavailable());
+    }
+    Ok(text.splitn(3, "---").nth(2).unwrap_or_default().trim().to_string())
+}
+
 /// Whether the user's Claude Code has the subagent.
 pub fn installed(name: &str) -> bool {
     valid_name(name) && user_agents_dir().is_some_and(|dir| dir.join(format!("{name}.md")).is_file())
@@ -122,6 +161,31 @@ pub fn installed(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contacts_are_the_installed_agents_with_a_valid_draft() {
+        let root = std::env::temp_dir().join(format!("jarvis-contacts-test-{}", std::process::id()));
+        let folder = Folder::new(root.clone());
+        std::fs::create_dir_all(&folder.agents).unwrap();
+        let draft = |name: &str, description: &str| format!("---\nname: {name}\ndescription: {description}\n---\nInstruções de {name}.\n");
+        std::fs::write(draft_path(&folder, "revisor-pr"), draft("revisor-pr", "Revisa PRs")).unwrap();
+        std::fs::write(draft_path(&folder, "analista"), draft("analista", "\"Analisa planilhas\"")).unwrap();
+        // Installed but its draft is broken, installed but gone, and a draft never installed.
+        std::fs::write(draft_path(&folder, "quebrado"), "sem cabeçalho").unwrap();
+        std::fs::write(draft_path(&folder, "rascunho"), draft("rascunho", "Só um rascunho")).unwrap();
+        std::fs::write(folder.agents.join(RECORD), r#"["revisor-pr", "quebrado", "sumiu", "analista"]"#).unwrap();
+
+        assert_eq!(
+            contacts(&folder),
+            [Contact { name: "analista".into(), description: "Analisa planilhas".into() }, Contact { name: "revisor-pr".into(), description: "Revisa PRs".into() }]
+        );
+        assert_eq!(serde_json::to_value(&contacts(&folder)[0]).unwrap(), serde_json::json!({ "name": "analista", "description": "Analisa planilhas" }));
+        assert_eq!(prompt(&folder, "revisor-pr"), Ok("Instruções de revisor-pr.".into()));
+        for name in ["quebrado", "sumiu", "rascunho", "Revisor", "../x", ""] {
+            assert_eq!(prompt(&folder, name), Err(format!("O agente \"{name}\" não está disponível")), "{name}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     const GOOD: &str = "---\nname: revisor-pr\ndescription: \"Revisa pull requests\"\ntools: Read, Grep\nmodel: sonnet\n---\nVocê revisa PRs com cuidado.\n";
 

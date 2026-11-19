@@ -139,7 +139,7 @@ const GROUP_TARGETS: [&str; 3] = ["widgets", "apps", "all"];
 const MUSIC_TARGETS: [&str; 6] = ["resume", "pause", "next", "previous", "nextPlaylist", "previousPlaylist"];
 const POMODORO_TARGETS: [&str; 6] = ["start", "pause", "reset", "skip", "longer", "shorter"];
 /// Mirrors `ShortcutAction` in src/lib/shortcuts.ts.
-pub const SHORTCUT_TARGETS: [&str; 18] = [
+pub const SHORTCUT_TARGETS: [&str; 20] = [
     "research",
     "note",
     "reminder",
@@ -158,6 +158,8 @@ pub const SHORTCUT_TARGETS: [&str; 18] = [
     "taskRemove",
     "cleanup",
     "homecoming",
+    "chatMode",
+    "desktopMode",
 ];
 const DEFAULT_VOICE_COMMANDS: &str = include_str!("../voice-commands.json");
 

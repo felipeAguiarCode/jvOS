@@ -10,7 +10,7 @@ import {
 } from "../src/lib/shortcuts";
 import { cleanupSummary, formatBytes } from "../src/lib/cleanup";
 import { fill, LINES, type LineKey, type LineValues } from "../src/lib/jarvisLines";
-import { SCREENS, waitForFrames } from "./helpers";
+import { activeConversation, SCREENS, waitForFrames } from "./helpers";
 
 // JARVIS's voice shortcuts. The engine (Rust, tested by cargo) decides which one was said; here
 // `__JARVIS__.voiceShortcut` stands in for its `voice:shortcut` event, and a scripted JARVIS
@@ -84,7 +84,7 @@ const reply = (page: Page) => page.getByTestId("jarvis-reply");
 const log = (page: Page) => page.evaluate(() => window.__JARVIS_ASSISTANT_LOG__!);
 const stored = (page: Page, key: string) => page.evaluate((name) => JSON.parse(localStorage.getItem(name) ?? "null"), key);
 /** The last answer, as the history keeps it (on screen it is cut into pages of words). */
-const lastAnswer = (page: Page) => stored(page, "jarvis.assistant").then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
+const lastAnswer = (page: Page) => activeConversation(page).then((memory) => (memory?.items.at(-1)?.answer as string | undefined) ?? "");
 const say = (page: Page, event: ShortcutEvent) => page.evaluate((shortcut) => window.__JARVIS__!.voiceShortcut(shortcut), event);
 /** Waits for the answer on screen to be over. */
 const answered = (page: Page) => expect(reply(page)).toBeHidden({ timeout: 30_000 });
@@ -98,7 +98,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.evaluate((settings) => {
-    ["jarvis.desktop", "jarvis.assistant", "jarvis.reminders", "jarvis.pomodoro"].forEach((key) => localStorage.removeItem(key));
+    ["jarvis.desktop", "jarvis.assistant", "jarvis.conversations", "jarvis.reminders", "jarvis.pomodoro"].forEach((key) => localStorage.removeItem(key));
     localStorage.setItem("jarvis.settings", settings);
     localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));
   }, JSON.stringify({ taskbar: false, assistantName: NAME }));
@@ -118,7 +118,7 @@ test("a question said to Voice goes to JARVIS; a research goes with its instruct
   expect(asks[0]).toBe("Qual a capital da França?");
   expect(asks[1]).toMatch(/^\[Atalho: pesquisa\] O usuário disse: "Pesquisa sobre a fusão nuclear"\. Assunto: a fusão nuclear\./);
   // The history keeps what was said, not the instructions.
-  await expect.poll(async () => (await stored(page, "jarvis.assistant"))?.items.map((item: { question: string }) => item.question)).toEqual([
+  await expect.poll(async () => (await activeConversation(page))?.items.map((item: { question: string }) => item.question)).toEqual([
     "Qual a capital da França?",
     "Pesquisa sobre a fusão nuclear",
   ]);
@@ -145,7 +145,7 @@ test("the time, the date and the status are answered at once, without Claude Cod
   await answered(page);
   expect((await log(page)).asks).toEqual([]);
   // They land in the history like any answer.
-  await expect.poll(async () => (await stored(page, "jarvis.assistant"))?.items.length).toBe(3);
+  await expect.poll(async () => (await activeConversation(page))?.items.length).toBe(3);
 });
 
 test("reminders: a timer said to Voice, and one JARVIS sets that goes off", async ({ page }) => {

@@ -1,7 +1,7 @@
 # Intents de voz
 
 Este é o catálogo do que a voz entende e de como uma frase vira uma ação. Na fonte há duas peças:
-- o catálogo `src-tauri/voice-commands.json`, com 53 entradas, embutido no binário (`settings.rs`) e importado pela UI (`src/lib/settings.ts`);
+- o catálogo `src-tauri/voice-commands.json`, com 55 entradas, embutido no binário (`settings.rs`) e importado pela UI (`src/lib/settings.ts`);
 - o algoritmo `src-tauri/src/voice/matcher.rs`.
 
 Specs relacionadas:
@@ -76,7 +76,7 @@ A frase de janela combina com um verbo de `verbs:open` ou `verbs:close`. Exemplo
 
 São `start`, `pause`, `reset`, `skip`, `longer` (+5 min) e `shorter` (−5 min), com frases como "inicia o pomodoro" e "mais cinco minutos". Ver [widgets/pomodoro](../widgets/pomodoro/spec.md).
 
-### `shortcut` (18): ações do JARVIS
+### `shortcut` (20): ações do JARVIS
 
 Espelham `SHORTCUT_TARGETS` (`settings.rs`) e `ShortcutAction` (`src/lib/shortcuts.ts`).
 
@@ -100,6 +100,8 @@ Espelham `SHORTCUT_TARGETS` (`settings.rs`) e `ShortcutAction` (`src/lib/shortcu
 | `shortcut:taskRemove` | Remover tarefa | "remove a tarefa …" | sim | widgets/tasks |
 | `shortcut:cleanup` | Limpeza de memória | "limpa a memória" | não | [memory-cleanup](../features/memory-cleanup/spec.md) |
 | `shortcut:homecoming` | Acorda, querido, papai chegou | "acorda, querido, papai chegou" | não; e **não precisa do nome do JARVIS** | [greeting-homecoming](../features/greeting-homecoming/spec.md) |
+| `shortcut:chatMode` | Modo chat | "modo chat" | não | [chat-mode](../features/chat-mode/spec.md) |
+| `shortcut:desktopMode` | Modo desktop | "modo desktop" | não | [chat-mode](../features/chat-mode/spec.md) |
 
 ## Como o matcher decide (`matcher.rs`)
 

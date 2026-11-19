@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import type { Agenda } from "../../hooks/useAgenda";
 import type { Desktop as DesktopApi } from "../../hooks/useDesktop";
@@ -101,7 +101,8 @@ export function Desktop({ desktop, paused, timer, tui, music, feeds, conversatio
           <Window
             key={kind}
             kind={kind}
-            rect={live?.kind === kind ? live.rect : rect}
+            rect={rect}
+            live={live?.kind === kind ? live.rect : undefined}
             restore={restore}
             z={z}
             focused={desktop.focused === kind}
@@ -118,7 +119,7 @@ export function Desktop({ desktop, paused, timer, tui, music, feeds, conversatio
             onDrag={(candidate, edges) => drag(kind, candidate, edges)}
             onDragEnd={endDrag}
           >
-            <WindowContent kind={kind} paused={paused} timer={timer} music={music} feeds={feeds} conversation={conversation} onClose={() => desktop.close(kind)} />
+            <WindowContent kind={kind} paused={paused} timer={timer} music={music} feeds={feeds} conversation={conversation} close={desktop.close} />
           </Window>
         ))}
       </AnimatePresence>
@@ -143,10 +144,47 @@ interface ContentProps {
   feeds: Feeds;
   conversation: AgentConversation;
   /** jv_sh closes its window when its last tab exits. */
-  onClose: () => void;
+  close: (kind: WindowKind) => void;
 }
 
-function WindowContent({ kind, paused, timer, music, feeds, conversation, onClose }: ContentProps) {
+/** What each window's content reads, besides its kind: a change anywhere else leaves it alone. */
+const CONTENT_INPUTS: Record<WindowKind, (props: ContentProps) => unknown[]> = {
+  clock: ({ paused }) => [paused],
+  pomodoro: ({ timer }) => [timer],
+  battery: () => [],
+  calculator: () => [],
+  tape: ({ music, paused }) => [music, paused],
+  miniplayer: ({ music }) => [music],
+  system: ({ paused }) => [paused],
+  stocks: ({ feeds }) => [feeds.stocks],
+  weather: ({ feeds }) => [feeds.weather],
+  agenda: ({ feeds }) => [feeds.agenda],
+  tasks: ({ feeds }) => [feeds.tasks],
+  markdown: () => [],
+  ide: ({ paused }) => [paused],
+  music: ({ music, paused }) => [music, paused],
+  shell: ({ close }) => [close],
+  lab: () => [],
+  agent: ({ conversation }) => [conversation],
+};
+
+/**
+ * A window's content only renders again when what it reads changed: dragging one window (a
+ * state change per pointer move) or JARVIS streaming an answer does not redo the others.
+ */
+const WindowContent = memo(
+  function WindowContent({ kind, paused, timer, music, feeds, conversation, close }: ContentProps) {
+    return content({ kind, paused, timer, music, feeds, conversation, close });
+  },
+  (before, after) => {
+    if (before.kind !== after.kind) return false;
+    const was = CONTENT_INPUTS[before.kind](before);
+    return CONTENT_INPUTS[after.kind](after).every((value, index) => value === was[index]);
+  },
+);
+
+function content({ kind, paused, timer, music, feeds, conversation, close }: ContentProps) {
+  const onClose = () => close(kind);
   switch (kind) {
     case "clock":
       return <Clock paused={paused} />;

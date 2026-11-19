@@ -16,6 +16,18 @@ export const PLAIN_SETTINGS = JSON.stringify({ taskbar: false });
 export const useToggleMode = (page: Page) =>
   page.addInitScript(() => localStorage.setItem("jarvis.settings", JSON.stringify({ activation: "wakeWord", taskbar: false })));
 
+/** The conversation on screen, as `jarvis.conversations` keeps it (null before its first write). */
+export const activeConversation = (page: Page) =>
+  page.evaluate(() => {
+    const store = JSON.parse(localStorage.getItem("jarvis.conversations") ?? "null");
+    return (store?.conversations.find((conversation: { id: string }) => conversation.id === store.activeId) ?? null) as {
+      id: string;
+      title: string;
+      sessionId: string | null;
+      items: { question: string; answer: string; steps?: string[]; files?: string[]; error?: string; cancelled?: boolean }[];
+    } | null;
+  });
+
 export const frames = (page: Page) => page.evaluate(() => window.__JARVIS__?.signals.frames ?? 0);
 export const voiceStatus = (page: Page) => page.evaluate(() => window.__JARVIS__?.status);
 

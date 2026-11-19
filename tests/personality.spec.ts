@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { greetingLines, GREETINGS, HOMECOMING } from "../src/lib/greetings";
 import { fill, line, LINES, statusLine, timeLine, type LineKey, type LineValues } from "../src/lib/jarvisLines";
-import { waitForFrames } from "./helpers";
+import { activeConversation, waitForFrames } from "./helpers";
 
 // JARVIS's own lines (no Claude Code): the user's name as a vocative, his voice, and the
 // confirmation of voice commands. Claude Code's side lives in src-tauri/assistant-persona.md.
@@ -92,14 +92,14 @@ test("the time comes with a remark in the small hours, the status with what need
 });
 
 const stored = (page: Page, key: string) => page.evaluate((name) => JSON.parse(localStorage.getItem(name) ?? "null"), key);
-const history = (page: Page) => stored(page, "jarvis.assistant").then((memory) => (memory?.items ?? []) as { question: string; answer: string }[]);
+const history = (page: Page) => activeConversation(page).then((memory) => (memory?.items ?? []) as { question: string; answer: string }[]);
 const variants = (key: LineKey, values: LineValues = {}) => LINES[key].map((template) => fill(template, NAME, values));
 
 test("voice commands get a short spoken confirmation, under what was said, and the dock still says it", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.evaluate((settings) => {
-    ["jarvis.desktop", "jarvis.assistant"].forEach((key) => localStorage.removeItem(key));
+    ["jarvis.desktop", "jarvis.assistant", "jarvis.conversations"].forEach((key) => localStorage.removeItem(key));
     localStorage.setItem("jarvis.settings", settings);
     localStorage.setItem("jarvis.core", JSON.stringify({ mode: "2d" }));
   }, JSON.stringify({ taskbar: false, assistantName: NAME }));

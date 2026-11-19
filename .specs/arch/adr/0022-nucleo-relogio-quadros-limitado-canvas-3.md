@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Aceito |
+| **Status** | Aceito; em parte substituído pelo [ADR-0027](0027-grafo-notas-pode-criar-contexto-web.md) (a regra "nada fora do 3D cria contexto WebGL" ganhou a exceção do grafo de notas, enquanto ele está na tela) |
 | **Data** | 2026-11-04 |
 | **Origem** | otimização de 2026-11-04 (`scripts/perf.mjs`, medições antes e depois) |
 

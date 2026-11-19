@@ -35,6 +35,8 @@ export const LINES = {
     "Feito. Tudo fechado e {minutes} minutos de foco. Eu seguro as pontas.",
   ],
   noted: ["Anotado{n}.", "Registrado nas notas de hoje.", "Feito. Está nas anotações do dia."],
+  chatMode: ["Modo chat ativado{n}.", "Passando para o chat{n}.", "Chat na tela. Pode escrever."],
+  desktopMode: ["De volta ao desktop{n}.", "Desktop restaurado{n}.", "Modo desktop. O núcleo está às ordens."],
   desktopOnly: ["Receio que isso só funcione no app desktop{n}."],
   // Voice commands. Names keep their case ("jv_sh"), so they never open a sentence.
   launch: ["Abrindo {app}{n}.", "A caminho: {app}.", "Pois não. Abrindo {app}."],

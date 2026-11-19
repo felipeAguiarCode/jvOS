@@ -965,6 +965,26 @@ mod tests {
     }
 
     #[test]
+    fn the_chat_and_the_desktop_by_voice() {
+        let apps = default_apps();
+        let commands = default_voice_commands();
+        let mut session = Session::default();
+        let mut at = Instant::now();
+        let mut say = |text: &str, activation: Activation| {
+            at += RELAUNCH_COOLDOWN;
+            session.decide(text, activation, &apps, &commands, at)
+        };
+        let push = Activation::PushToTalk;
+        // The two faces of the app (feature chat-mode), as Whisper writes them.
+        assert_eq!(say("Modo chat.", push), shortcut("chatMode", ""));
+        assert_eq!(say("Jarvis, modo chat", Activation::WakeWord), shortcut("chatMode", ""));
+        assert_eq!(say("Abre o chat", push), shortcut("chatMode", ""));
+        assert_eq!(say("Modo desktop.", push), shortcut("desktopMode", ""));
+        assert_eq!(say("Jarvis, volta para o desktop.", Activation::WakeWord), shortcut("desktopMode", ""));
+        assert_eq!(say("Fecha o chat", push), shortcut("desktopMode", ""));
+    }
+
+    #[test]
     fn the_memory_cleanup_is_not_the_long_term_memory() {
         let apps = default_apps();
         let commands = default_voice_commands();

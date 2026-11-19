@@ -245,6 +245,7 @@ Leva o botão ao motor e o texto de volta ao editor.
 - `holdDictation(down)` chama `dictate(down)`, que invoca `voice_dictate` na mesma `pushQueue` do push-to-talk e da pergunta ao núcleo (RF-006). Fora do Tauri, `holdDictation` não faz nada.
 - `model-missing` abre as Configurações e mostra "Baixe um modelo de voz" na dock.
 - Só `voice:dictation` com `target: "editor"` chega ao `DictationContext`; `assistant` vai para o [assistant](../assistant/spec.md).
+- Desde 2026-11-19 há dois editores que consomem o ditado: o Jarvis Mark, no desktop, e a nota aberta na [área de notas](../notes-area/spec.md) do modo chat (RF-013 a RF-015 de lá), com o mesmo botão (`desktop/apps/DictationButton.tsx`). O `App` entrega o texto só ao que está na tela: no modo chat, ao chat; no desktop, ao Jarvis Mark.
 - Um evento final com texto vira um `DictationText` com `id` novo; o texto vazio é ignorado. O mesmo texto ditado duas vezes é inserido duas vezes.
 
 | Engine State or Event | `DictationApi.state` | Editor Status | Dock Label |

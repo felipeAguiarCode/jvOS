@@ -98,7 +98,7 @@ export function FlatCore({ ignition, signals, sample, paused, focused, onFirstFr
         {/* The glow behind the heart, breathing with the voice. */}
         <div
           ref={halo}
-          className="absolute inset-[24%] rounded-full opacity-40"
+          className="absolute inset-[24%] rounded-full opacity-40 will-change-[transform,opacity]"
           style={{ background: "radial-gradient(circle, color-mix(in oklab, var(--color-hud-holo) 34%, transparent), transparent 68%)" }}
         />
         <Layer spin={150}>

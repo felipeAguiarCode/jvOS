@@ -7,7 +7,9 @@ Os erros chegam como `string`, quase sempre em PT-BR. Alguns códigos sentinela 
 - `voice-missing`: falta a voz TTS;
 - `file-changed`: o arquivo mudou desde a leitura.
 
-## Comandos (77)
+Um comando que lê ou grava em disco, sobe um processo ou usa a rede é `async fn` e roda o trabalho em `blocking()` (`spawn_blocking`): um comando `fn` comum roda na thread principal e segura a janela enquanto não volta. Desde 2026-11-19 isso vale também para `launch_app`, `read_text_file`, `write_text_file`, `agent_drafts`, `terminal_profiles`, `terminal_open` e `terminal_open_agent`; nomes, argumentos e retornos não mudaram. Continuam síncronos só os que respondem da memória ou repassam a chamada (`get_settings`, `voice_status`, `terminal_write`, `terminal_resize`, `terminal_close`, `webview_background`…).
+
+## Comandos (79)
 
 ### Configurações e modelos (5) · [settings](../features/settings/spec.md), [voice-engine](../features/voice-engine/spec.md)
 
@@ -46,24 +48,26 @@ Os erros chegam como `string`, quase sempre em PT-BR. Alguns códigos sentinela 
 | `speech_download` | `id` | `()`; progresso via `speech:progress` / `speech:done` |
 | `speech_synthesize` | `text`, `voice`, `speed` (0,5–2,0) | `ipc::Response` (WAV mono 16-bit, bytes crus) |
 
-### Assistente (8) · [assistant](../features/assistant/spec.md), [assistant-tools](../features/assistant-tools/spec.md), [quick-notes](../features/quick-notes/spec.md), [memory-cleanup](../features/memory-cleanup/spec.md)
+### Assistente (9) · [assistant](../features/assistant/spec.md), [assistant-tools](../features/assistant-tools/spec.md), [quick-notes](../features/quick-notes/spec.md), [memory-cleanup](../features/memory-cleanup/spec.md), [chat-mode](../features/chat-mode/spec.md)
 
 | Comando | Argumentos | Retorno |
 |---|---|---|
-| `assistant_ask` | `text`, `sessionId?`, `onEvent: Channel<AssistantEvent>` | `()` |
-| `assistant_warm` | `sessionId?` | `()` (pré-aquece o `claude.exe`) |
-| `assistant_cancel` | — | `()` |
-| `assistant_reset` | — | `()` |
-| `assistant_sleep` | — | `Sleep`: `stopped{freed}` · `busy` · `idle` |
-| `assistant_folder` | — | `Folder` (caminhos de `Documentos\JARVIS`) |
+| `assistant_ask` | `text`, `sessionId?`, `conversationId?`, `agent?`, `onEvent: Channel<AssistantEvent>` | `()`. Cada `conversationId` tem o seu `claude.exe` (sem id: `"main"`); `agent` faz um contato responder ali, com o confinamento do JARVIS. Erros: "Ainda estou respondendo." (a conversa já responde), "Já estou respondendo em 5 conversas. Espere uma terminar." ([agent-contacts](../features/agent-contacts/spec.md)) |
+| `assistant_warm` | `sessionId?`, `conversationId?`, `agent?` | `()` (pré-aquece o `claude.exe` da conversa e encerra os ociosos das outras) |
+| `assistant_cancel` | `conversationId?` | `()` (só essa conversa) |
+| `assistant_reset` | `conversationId?` | `()` (só essa conversa) |
+| `assistant_forget` | `sessionId` (só dígitos hexadecimais e `-`) | `bool`: a transcrição da sessão foi para a Lixeira. Se o processo está nessa sessão, ele para e a sessão é esquecida antes. Id inválido: erro "Sessão inválida" |
+| `assistant_sleep` | — | `Sleep`: `stopped{freed}` · `busy` · `idle`. Age sobre todos os processos: encerra os ociosos e soma a memória; `busy` só se nada pôde ser encerrado e algum responde |
+| `assistant_folder` | — | `Folder` (caminhos de `Documentos\JARVIS`). Desde 2026-11-19 cria `Notas\` e `Agentes\` se faltarem ([notes-area](../features/notes-area/spec.md) RF-012) |
 | `assistant_note` | `text`, `date`, `time` | caminho da nota do dia |
 | `assistant_action_result` | `id`, `ok`, `text` | `()`: resposta da UI a um `assistant:action` |
 
-### Agentes (4) · [jv_agent](../apps/jv_agent/spec.md)
+### Agentes (5) · [jv_agent](../apps/jv_agent/spec.md), [agent-contacts](../features/agent-contacts/spec.md)
 
 | Comando | Argumentos | Retorno |
 |---|---|---|
 | `agent_drafts` | — | nomes em `Agentes\` |
+| `agent_contacts` | — | `AgentContact[]` (`name`, `description`): os agentes que o JARVIS instalou, com rascunho válido |
 | `agent_problems` | `name`, `text` | lista de problemas do rascunho |
 | `agent_install` | `name` | caminho instalado em `~/.claude/agents` |
 | `terminal_open_agent` | `name`, `task`, `cwd`, `cols`, `rows` | id do terminal (`claude --agent …`) |
@@ -164,7 +168,7 @@ Os nomes ficam em constantes `domínio:evento` (`lib.rs`, `voice/mod.rs`).
 
 | Comando | Eventos do Channel |
 |---|---|
-| `assistant_ask` | `session{id}` → `delta{text}`* · `tool{name}`* · `file{path, content?, done}`* → `done{text, error?, cancelled}` |
+| `assistant_ask` | `session{id}` → `delta{text}`* · `tool{name}`* · `source{path}`* (um arquivo lido com Read: a fonte de uma resposta, [notes-graph](../features/notes-graph/spec.md)) · `file{path, content?, done}`* → `done{text, error?, cancelled}` |
 | `workspace_search` | resultados incrementais (`SearchEvent`) até o fim ou `workspace_search_cancel` |
 
 ## Ferramentas MCP (18)

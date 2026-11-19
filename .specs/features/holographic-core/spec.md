@@ -177,7 +177,7 @@ O 3D tem perfis de qualidade e rebaixa sozinho quando o monitor de FPS desiste. 
 | RNF-001 | O three.js e os efeitos só carregam no modo 3D (`lazy(() => import("./components/JarvisScene"))`). As cores do 3D ficam em `sceneColors.ts`, fora de `theme.ts`. | Carregamento do app |
 | RNF-002 | No modo 2D, um recarregamento não baixa nenhum chunk do 3D. | Rede, na abertura em 2D |
 | RNF-003 | Com o 3D a 1080p, o holograma ocupa de 40% a 60% da altura útil, centrado com até 3% de desvio, e nunca encosta na dock. | `tests/ui.spec.ts`, 4 resoluções, `?quality=high` |
-| RNF-004 | No modo 2D e desligado, nenhum contexto WebGL é criado fora da tela de boot (que lê o nome da GPU). | `useQuality(false)` e os modos sem canvas |
+| RNF-004 | No modo 2D e desligado, nenhum contexto WebGL é criado fora da tela de boot (que lê o nome da GPU). Desde 2026-11-19 há uma segunda exceção, fora do núcleo: o grafo de notas do modo chat, só enquanto está na tela ([ADR-0027](../../arch/adr/0027-grafo-notas-pode-criar-contexto-web.md)). | `useQuality(false)` e os modos sem canvas |
 | RNF-005 | Custo ocioso dentro do orçamento de [Performance Budget](#performance-budget): 2D ocioso ≤ 100 ms de CPU por segundo; 3D ocioso ≤ 170 ms/s e ≤ 30% da iGPU. | Build de release a 1920×1080, janela em foco, `npm run perf` |
 
 ### Operational Constraints
@@ -451,7 +451,7 @@ O reator do HUD do JARVIS em vetor, o modo padrão (RF-003).
   - Tudo em tokens do tema: corpo em `fill-hud-abyss/85`, linhas em `stroke-hud-cyan` (de /15 a /80) e `stroke-hud-holo`, anel interno em `stroke-hud-light`, triângulo em `stroke-hud-glow` sobre `fill-hud-cyan/10`.
   - O colchete à esquerda fica em `stroke-hud-amber`, o mesmo em todos os temas.
   - O brilho vem de dois filtros SVG: `flat-core-glow` (desfoque de 1,2) e `flat-core-bloom` (desfoque de 3,5, no triângulo).
-  - O halo é um gradiente radial de `--color-hud-holo` a 34% até transparente em 68%.
+  - O halo é um gradiente radial de `--color-hud-holo` a 34% até transparente em 68%, numa camada própria (`will-change: transform, opacity`), como os colchetes de mira e o brilho do triângulo: a voz muda a escala e a opacidade sem repintar o gradiente.
   - As rotações usam `@keyframes core-spin` com `--spin` em segundos e `will-change: transform`.
 
 ### `JarvisScene` (3D)

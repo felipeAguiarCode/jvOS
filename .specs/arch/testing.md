@@ -73,7 +73,7 @@ cargo test --lib -- files:: settings::
 cargo test --lib -- --ignored speech --nocapture
 ```
 
-- As fixtures WAV ficam em `src-tauri/tests/fixtures/`: `claude`, `command_vscode`, `terminal`, `unrelated`, `wake_command`, `wake_only`, `window_open` e `window_close`.
+- As fixtures WAV ficam em `src-tauri/tests/fixtures/`: `claude`, `command_vscode`, `terminal`, `unrelated`, `wake_command`, `wake_only`, `window_open`, `window_close`, e as do modo chat: `mode_chat`, `mode_desktop` e `wake_mode_chat` (teste `speech_chat_and_desktop_modes`). São gravações da voz do Windows (Microsoft Maria, 16 kHz, mono). A fixture `claude` foi regravada em 2026-11-19 ("Jarvis, abre o Cloud Code", que o Whisper escreve "Cloudcode"): com o modelo padrão de hoje (`large-v3-turbo`) a gravação antiga virava "Clodikud" e `speech_wake_word_mode` falhava, com ou sem as frases do modo chat. Os cinco testes `voice::speech_tests` passam.
 - `JARVIS_TEST_MODEL=<id>` escolhe o modelo Whisper dos testes de fala.
 - `JARVIS_TEST_DEVICE=cpu|auto|<nome da GPU>` escolhe onde ele roda (builds com `--features vulkan`); `speech_lists_gpus` imprime os nomes, e cada teste imprime o tempo de carga e o dispositivo.
 - `speech_gate` roda o Silero VAD de verdade: as fixtures de fala passam, ruído branco, zumbido e silêncio não.

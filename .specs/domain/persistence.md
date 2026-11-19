@@ -52,7 +52,11 @@ Como funciona o helper:
 | `jarvis.tui` | `src/lib/tui.ts` | `{aberration, glow, accent}` | 250 ms |
 | `jarvis.boot` | `src/lib/boot.ts` | `{enabled, sound}` | 250 ms |
 | `jarvis.greeting.recent` | `src/lib/greetings.ts` | Índices das últimas saudações, para não repetir | imediato |
-| `jarvis.assistant` | `src/hooks/useAssistant.ts` | Histórico (até 200 itens) e sessão | 250 ms |
+| `jarvis.assistant` | `src/lib/assistant.ts` | **Só leitura desde 2026-11-19:** o histórico único de antes das conversas (até 200 itens e a sessão). É lido uma vez, por `migrateMemory`, quando `jarvis.conversations` ainda não existe; nunca é regravado nem apagado | — |
+| `jarvis.conversations` | `src/hooks/useAssistant.ts` | `{activeId, conversations[]}`: até 50 conversas, cada uma com título, `sessionId` do Claude Code, até 200 perguntas (com `steps`, `files` e `sources`, os arquivos lidos para responder), `agent` (o contato que responde nela, [agent-contacts](../features/agent-contacts/spec.md)) e `unread`. Ver [chat-mode](../features/chat-mode/spec.md) | 250 ms |
+| `jarvis.chatMode` | `src/lib/chatMode.ts` | `{mode: "desktop" \| "chat", section: "conversations" \| "notes" \| "agents", speak, collapsed}`: o modo do app, a seção do chat, a fala automática e a barra lateral recolhida | 250 ms |
+| `jarvis.notesGraph` | `src/lib/notesGraph.ts` | `{open}`: o grafo de notas está na tela no lugar do editor. Links e tags vivem no texto das notas | 250 ms |
+| `jarvis.notesArea` | `src/lib/notesArea.ts` | `{view: "write" \| "split" \| "read"}`: como a área de notas mostra uma nota. As notas em si são arquivos em `Documentos\JARVIS\Notas` | 250 ms |
 | `jarvis.speech` | `src/lib/speech.ts` | Voz e velocidade do JARVIS | 250 ms |
 | `jarvis.reminders` | `src/hooks/useReminders.ts` | Lembretes e timers pendentes | **0** |
 | `jarvis.agenda` | `src/hooks/useAgenda.ts` | Compromissos (até 500) | **0** |

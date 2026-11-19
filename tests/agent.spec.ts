@@ -33,6 +33,7 @@ async function start(page: Page, content = AGENT) {
   await page.evaluate((settings) => {
     localStorage.removeItem("jarvis.desktop");
     localStorage.removeItem("jarvis.assistant");
+    localStorage.removeItem("jarvis.conversations");
     localStorage.setItem("jarvis.settings", settings);
   }, PLAIN_SETTINGS);
   await page.reload();
