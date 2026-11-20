@@ -334,7 +334,7 @@ test("folders fold, are made, renamed and deleted; a right click shows a note in
   // A right click on a note: Esc closes the menu, the item shows the file in the system's explorer.
   await item(page, "velha").click({ button: "right" });
   const noteMenu = page.getByRole("menu", { name: "Ações da nota" });
-  await expect(noteMenu.getByRole("menuitem")).toHaveText(["Abrir no Explorer"]);
+  await expect(noteMenu.getByRole("menuitem")).toHaveText(["Renomear", "Abrir no Explorer"]);
   await page.keyboard.press("Escape");
   await expect(noteMenu).toHaveCount(0);
   expect((await log()).revealed).toEqual([]);
@@ -453,4 +453,101 @@ test("a right click on an answer saves it as a new note or adds it to one", asyn
   // They are notes like any other.
   await page.getByRole("tab", { name: "Notas" }).click();
   await expect(item(page, "O que é RAG 2")).toHaveCount(1);
+});
+
+test("a note is dragged to another folder, and renamed where it is", async ({ page }) => {
+  await start(page, { files: { ...FILES, "Arquivo/2025/antiga.md": "bem antiga", "Arquivo/Ideias.md": "outra, com o mesmo nome" } });
+  const alert = page.getByTestId("notes-list").getByRole("alert");
+  const centre = async (target: ReturnType<typeof item>) => {
+    const box = (await target.boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  /** Held and carried, as a person does it, in a few moves; letting go is the caller's. */
+  const carry = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 4, from.y + 8, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+  };
+  await expect(titles(page)).toHaveText(["antiga", "Ideias", "velha", "2026-11-17 Reunião", "2026-11-19 Anotações", "Ideias"]);
+
+  // Carried over a folder: its name follows the pointer and the folder is lit; let go, it is there.
+  await carry(await centre(item(page, "2026-11-17 Reunião")), await centre(folder(page, "2025")));
+  await expect(page.getByTestId("note-drag")).toHaveText("2026-11-17 Reunião");
+  await expect(folder(page, "2025")).toHaveAttribute("data-over", "true");
+  await page.mouse.up();
+  await expect(page.getByTestId("note-drag")).toHaveCount(0);
+  await expect(titles(page)).toHaveText(["2026-11-17 Reunião", "antiga", "Ideias", "velha", "2026-11-19 Anotações", "Ideias"]);
+  expect(await onDisk(page, "Arquivo\\2025\\2026-11-17 Reunião.md")).toBe(FILES["2026-11-17 Reunião.md"]);
+  expect(await onDisk(page, "2026-11-17 Reunião.md")).toBeNull();
+  // The drag opened nothing: the note that was open (the newest, Arquivo/Ideias) still is.
+  await expect(titleField(page)).toHaveValue("Ideias");
+
+  // Let go over a note of another folder, it goes to that note's folder; the open note follows its file.
+  await item(page, "antiga").getByRole("button").click();
+  await expect(titleField(page)).toHaveValue("antiga");
+  await carry(await centre(item(page, "antiga")), await centre(item(page, "velha")));
+  await page.mouse.up();
+  await expect.poll(() => onDisk(page, "Arquivo\\antiga.md")).toBe("bem antiga");
+  expect(await onDisk(page, "Arquivo\\2025\\antiga.md")).toBeNull();
+  await expect(item(page, "antiga")).toHaveAttribute("data-active", "true");
+  await expect(titleField(page)).toHaveValue("antiga");
+
+  // To the empty room of the list: the notes folder itself.
+  const list = (await page.getByTestId("notes-list").boundingBox())!;
+  await carry(await centre(item(page, "velha")), { x: list.x + list.width / 2, y: list.y + list.height - 30 });
+  await expect(page.getByTestId("notes-list")).toHaveAttribute("data-over", "true");
+  await page.mouse.up();
+  await expect.poll(() => onDisk(page, "velha.md")).toBe("numa subpasta");
+  expect(await onDisk(page, "Arquivo\\velha.md")).toBeNull();
+
+  // A folder that already has a note of that name takes nothing, and says why; Esc lets go of a drag.
+  await carry(await centre(items(page).filter({ hasText: /^Ideias$/ }).last()), await centre(folder(page, "Arquivo")));
+  await page.mouse.up();
+  await expect(alert).toHaveText("Já existe uma nota com esse nome nessa pasta");
+  expect(await onDisk(page, "Ideias.md")).toBe(FILES["Ideias.md"]);
+  expect(await onDisk(page, "Arquivo\\Ideias.md")).toBe("outra, com o mesmo nome");
+  await carry(await centre(item(page, "velha")), await centre(folder(page, "Arquivo")));
+  await expect(page.getByTestId("note-drag")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("note-drag")).toHaveCount(0);
+  await page.mouse.up();
+  expect(await onDisk(page, "velha.md")).toBe("numa subpasta");
+  // A short press is still a click.
+  await item(page, "velha").getByRole("button").click();
+  await expect(titleField(page)).toHaveValue("velha");
+
+  // Renamed where it is by a double click: it keeps its folder, and stays open.
+  const name = page.getByRole("textbox", { name: "Nome da nota" });
+  await item(page, "antiga").getByRole("button").dblclick();
+  await expect(name).toHaveValue("antiga");
+  await name.fill("Bem antiga: 2025?");
+  await name.press("Enter");
+  await expect(item(page, "Bem antiga 2025")).toHaveAttribute("data-active", "true");
+  expect(await onDisk(page, "Arquivo\\Bem antiga 2025.md")).toBe("bem antiga");
+  expect(await onDisk(page, "Arquivo\\antiga.md")).toBeNull();
+  await expect(titleField(page)).toHaveValue("Bem antiga 2025");
+  // …or by the menu; Esc gives up, and a name taken in that folder is refused.
+  const noteMenu = page.getByRole("menu", { name: "Ações da nota" });
+  await item(page, "velha").click({ button: "right" });
+  await noteMenu.getByRole("menuitem", { name: "Renomear" }).click();
+  await expect(name).toHaveValue("velha");
+  await name.fill("Outro nome");
+  await name.press("Escape");
+  await expect(name).toHaveCount(0);
+  expect(await onDisk(page, "velha.md")).toBe("numa subpasta");
+  await item(page, "velha").click({ button: "right" });
+  await noteMenu.getByRole("menuitem", { name: "Renomear" }).click();
+  await name.fill("ideias");
+  await name.press("Enter");
+  await expect(alert).toHaveText("Já existe uma nota com esse nome");
+  expect(await onDisk(page, "velha.md")).toBe("numa subpasta");
+  // A folder's name opens with a double click too.
+  await folder(page, "2025").getByRole("button").dblclick();
+  const folderName = page.getByRole("textbox", { name: "Nome da pasta" });
+  await expect(folderName).toHaveValue("2025");
+  await folderName.fill("Antigas");
+  await folderName.press("Enter");
+  await expect(folderNames(page)).toHaveText(["Arquivo", "Antigas"]);
+  expect(await onDisk(page, "Arquivo\\Antigas\\2026-11-17 Reunião.md")).toBe(FILES["2026-11-17 Reunião.md"]);
 });

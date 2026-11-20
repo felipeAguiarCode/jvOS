@@ -177,7 +177,8 @@ export function ChatView({ assistant, top, speak, onSpeak, speech, onDesktop, no
             }}
             onCreate={createNote}
             onMoved={(from, to) => {
-              // The note open in a folder renamed goes on from its new place; in one deleted, it is gone.
+              // The open note renamed or moved, or in a folder renamed, goes on from its new place; in a folder deleted, it is gone.
+              if (notePath === from) return setNotePath(to);
               if (notePath === null || !notePath.startsWith(`${from}/`)) return;
               setNotePath(to === null ? null : to + notePath.slice(from.length));
             }}

@@ -205,6 +205,26 @@ export function useNotes(enabled: boolean) {
     [refresh],
   );
 
+  /** A note goes to another folder ("" is the notes folder), with its name. */
+  const move = useCallback(
+    async (path: string, folder: string): Promise<RenameResult> => {
+      const current = session.current;
+      if (!current) return { ok: false, reason: "Disponível no app desktop" };
+      if (noteFolder(path) === folder) return { ok: true, path };
+      const name = path.slice(path.lastIndexOf("/") + 1);
+      const target = `${folder ? `${folder}/` : ""}${name}`;
+      if (latest.current.some((note) => note.path.toLowerCase() === target.toLowerCase())) return { ok: false, reason: "Já existe uma nota com esse nome nessa pasta" };
+      try {
+        await current.backend.rename(current.root, path, target);
+      } catch (failure) {
+        return { ok: false, reason: String(failure) };
+      }
+      await refresh([target]);
+      return { ok: true, path: target };
+    },
+    [refresh],
+  );
+
   /** "Nova pasta" (2, 3…) in a folder ("" is the notes folder). Returns its path. */
   const createFolder = useCallback(
     async (parent = "") => {
@@ -263,8 +283,8 @@ export function useNotes(enabled: boolean) {
   }, []);
 
   return useMemo(
-    () => ({ status, error, notes, folders, folder, read, save, create, rename, remove, reveal, reload, createFolder, renameFolder }),
-    [status, error, notes, folders, folder, read, save, create, rename, remove, reveal, reload, createFolder, renameFolder],
+    () => ({ status, error, notes, folders, folder, read, save, create, rename, move, remove, reveal, reload, createFolder, renameFolder }),
+    [status, error, notes, folders, folder, read, save, create, rename, move, remove, reveal, reload, createFolder, renameFolder],
   );
 }
 

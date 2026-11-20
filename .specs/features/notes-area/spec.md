@@ -157,6 +157,8 @@ Segunda fase do [modo chat](../chat-mode/spec.md). O JARVIS já guarda notas em 
 | RF-020 | Com texto na busca, a árvore DEVE dar lugar à lista das notas encontradas em qualquer pasta, cada uma com a sua pasta ao lado do título. | US1 |
 | RF-021 | "Nova nota" e "Nova pasta" (botões no topo) DEVEM criar na pasta da nota aberta (na raiz, se ela está na raiz); o menu do botão direito numa pasta tem "Nova nota aqui", "Nova pasta aqui", "Renomear", "Abrir no Explorer" e "Apagar pasta" (que pede confirmação no próprio menu e manda a pasta, com o que tem dentro, para a Lixeira). Uma pasta nova se chama "Nova pasta" (2, 3…) e entra já com o nome em edição. Renomear a nota pelo título mantém a pasta dela. | US4 |
 | RF-022 | Renomear ou apagar uma pasta DEVE acompanhar a nota aberta: se ela está dentro, passa a apontar para o caminho novo, ou sai da tela se foi apagada. | US4 |
+| RF-023 | Uma nota DEVE poder ser arrastada para outra pasta (pedido do usuário em 2026-11-19): segurando o botão do mouse sobre a nota e andando mais de 5 px, um rótulo com o título acompanha o ponteiro e o destino fica destacado; soltar sobre uma pasta, ou sobre qualquer linha dentro dela, move a nota para lá; soltar sobre uma nota da raiz ou sobre o espaço vazio da lista move para a raiz. Uma pasta fechada que recebe a nota se abre. Soltar na pasta em que a nota já está, fora da lista, ou apertar Esc não move nada. Se a pasta de destino já tem uma nota com esse nome, nada é movido e o motivo aparece no topo da lista. A nota aberta continua aberta no caminho novo. O arrasto é feito com eventos de ponteiro (o arrastar-e-soltar do HTML não funciona na janela do Tauri no Windows com o padrão `dragDropEnabled`). Com a busca preenchida não há arrasto. | US4 |
+| RF-024 | Uma nota e uma pasta DEVEM poder ser renomeadas na própria lista: "Renomear" no menu do botão direito (agora também nas notas) ou um duplo clique na linha trocam o nome por um campo com o nome selecionado; Enter ou sair do campo confirmam, Esc desiste. A nota mantém a pasta e as regras do título (RF-009): sem o que o Windows recusa, e um nome que outra nota da pasta já tem é recusado com o motivo no topo da lista. A nota aberta continua aberta com o nome novo. | US4 |
 | RF-012 | `assistant_folder` DEVE garantir que `Notas\` e `Agentes\` existem antes de devolver os caminhos (até aqui elas só eram criadas na primeira subida do Claude Code). | US1 |
 
 ### Non-Functional Requirements
@@ -347,6 +349,26 @@ Segunda fase do [modo chat](../chat-mode/spec.md). O JARVIS já guarda notas em 
 
 **Coverage Status:** coberto — `tests/notes-area.spec.ts` — "folders fold, are made, renamed and deleted; a right click shows a note in the Explorer".
 
+### AC-018 — Drag a Note to Another Folder
+
+**Related Story:** US4.
+
+- **Given** a nota Ideias na raiz e a pasta Arquivo
+- **When** o usuário arrasta Ideias e solta sobre Arquivo
+- **Then** existe `Arquivo\Ideias.md` com o mesmo texto e não existe mais `Ideias.md`; arrastada de volta para o espaço vazio da lista, ela volta para a raiz; soltar numa pasta que já tem uma nota com o mesmo nome não move e mostra o motivo.
+
+**Coverage Status:** coberto — `tests/notes-area.spec.ts` — "a note is dragged to another folder, and renamed where it is".
+
+### AC-019 — Rename in the List
+
+**Related Story:** US4.
+
+- **Given** a lista de notas
+- **When** o usuário dá um duplo clique numa nota (ou escolhe "Renomear" no botão direito), digita outro nome e aperta Enter
+- **Then** o arquivo tem o nome novo, na mesma pasta, e a nota continua aberta; Esc no campo não renomeia; um duplo clique numa pasta também abre o campo do nome dela.
+
+**Coverage Status:** coberto — `tests/notes-area.spec.ts` — "a note is dragged to another folder, and renamed where it is".
+
 ## Behavior and Flows
 
 ### Regras (`src/lib/notesArea.ts`)
@@ -524,6 +546,7 @@ Ver [persistência](../../domain/persistence.md).
 | `tests/chat-mode.spec.ts` — "a typed question is answered in a bubble, with the agent's steps and the file it wrote" | "Abrir" do cartão mostra a nota na seção Notas | RF-011 |
 | `tests/notes-area.spec.ts` — "folders fold, are made, renamed and deleted; a right click shows a note in the Explorer" | A árvore com subpastas; fechar uma pasta, e isso mantido ao recarregar; a busca dentro de pastas fechadas, com a pasta ao lado; o menu da nota (Esc fecha, "Abrir no Explorer" chama o sistema); "Nova pasta" e "Nova nota" ao lado da nota aberta; renomear a nota mantém a pasta; o menu da pasta; renomear a pasta leva a nota aberta junto; nome repetido recusado; apagar só depois de confirmar; "Recolher pastas" e "Atualizar notas" | AC-015, AC-016, AC-017 |
 | `tests/notes-area.spec.ts` — "notes-area helpers" | `noteFolder`, `noteRows` (ordem, pastas fechadas, pasta conhecida só pela nota, busca plana), `closed` no parser | RF-018 a RF-020 |
+| `tests/notes-area.spec.ts` — "a note is dragged to another folder, and renamed where it is" | O rótulo que segue o ponteiro e a pasta destacada; soltar numa pasta, numa nota de outra pasta e no espaço vazio (raiz); a nota aberta segue o arquivo; nome repetido na pasta recusado; Esc larga o arrasto; um toque curto ainda é um clique; duplo clique e "Renomear" do menu na nota (Esc desiste, nome repetido recusado); duplo clique na pasta | AC-018, AC-019 |
 | `tests/notes-area.spec.ts` — "dictated words land at the cursor of the open note and are saved" | Botão desabilitado no navegador; ditado no cursor, no meio da linha e no fim (visão Ler); salvo sozinho; nada dito não insere; o Jarvis Mark não recebe o ditado do chat, nem o contrário | AC-013, AC-014 |
 | `tests/notes-area.spec.ts` — "a note opens, is edited and saves itself; the preview renders it" | Editor, salvar sozinho, visões, salvar ao trocar | AC-004 a AC-006 |
 | `tests/notes-area.spec.ts` — "notes are created, renamed by their title and deleted to the Recycle Bin" | Criar, renomear, apagar | AC-007 a AC-009 |
@@ -628,6 +651,16 @@ Pedido do usuário: "as notas podem permitir pastas e subpasta, a esquerda ele d
   - Arquivos permitidos: `tests/notes-area.spec.ts`, `tests/notes-graph.spec.ts`
   - Comando de teste: `npx playwright test tests/notes-area.spec.ts tests/notes-graph.spec.ts --project ui`
 
+### Phase 8 — Arrastar entre pastas e renomear na lista (2026-11-19)
+
+- [x] T023 [US4] `move` no `useNotes`; arrasto por ponteiro, campo de nome para notas, "Renomear" no menu e duplo clique
+  - Aceite: AC-018, AC-019
+  - Arquivos permitidos: `src/hooks/useNotes.ts`, `src/components/chat/NotesList.tsx`, `src/components/chat/ChatView.tsx`
+- [x] T024 Playwright do arrasto e do renomear
+  - Aceite: AC-018, AC-019
+  - Arquivos permitidos: `tests/notes-area.spec.ts`
+  - Comando de teste: `npx playwright test tests/notes-area.spec.ts --project ui`
+
 ## Rollback Plan
 
 1. Tire o seletor de seção e as notas do `ChatView` e do `ChatSidebar`; o "Abrir" do cartão volta a levar ao Jarvis Mark.
@@ -649,19 +682,19 @@ Pedido do usuário: "as notas podem permitir pastas e subpasta, a esquerda ele d
 | P8 — Linguagem visual | Atendido | Tokens `hud-*`, `hudTheme` |
 | P9 — Desktop leve | Atendido | Painel lazy; leitura em segundo plano; a pasta só é observada com a seção aberta |
 | P10 — Confinamento | Atendido | Raiz fixa em `Notas\`, vinda do Rust; guardas do workspace |
-| P11 — Testes | Atendido | `tests/notes-area.spec.ts` no `testMatch`, 9 testes; lacunas em Coverage Gaps |
+| P11 — Testes | Atendido | `tests/notes-area.spec.ts` no `testMatch`, 10 testes; lacunas em Coverage Gaps |
 | P12 — README mínimo | Atendido | Tudo em `.specs` |
 
 ## Known Limitations
 
 | ID | Limitation | Status |
 |---|---|---|
-| KL-001 | Conferido no app real em 2026-11-19 (build de release, por CDP): `assistant_folder` devolvendo `Documentos\JARVIS\Notas`, "Nova nota", renomear pelo título, salvar sozinho (o arquivo no disco com o texto) e apagar (o arquivo some da pasta). Não conferidos no app: a atualização por mudança externa e o conflito. Numa rodada posterior no mesmo dia, com o build final e 18 notas em 5 pastas: a árvore mostrou as pastas antes das notas da raiz, uma pasta fechou e abriu, uma nota dentro de pasta abriu, e o botão direito numa nota mostrou "Abrir no Explorer". Em seguida, no disco de verdade: "Abrir no Explorer" numa nota abriu uma janela do Explorer em `Documentos\JARVIS\Notas` (fechada depois), sem erro na lista; "Nova pasta" criou a pasta e, com o nome digitado, renomeou-a; "Nova nota aqui" e "Nova pasta aqui" criaram dentro dela; "Renomear" levou a nota e a subpasta junto; "Apagar pasta" só apagou depois de "Sim, apagar a pasta", e a pasta foi para a Lixeira. A pasta de teste não ficou no disco. A aparência do explorador e do grafo foi conferida por captura de tela do build final. | Parcialmente verificado no app |
+| KL-001 | Conferido no app real em 2026-11-19 (build de release, por CDP): `assistant_folder` devolvendo `Documentos\JARVIS\Notas`, "Nova nota", renomear pelo título, salvar sozinho (o arquivo no disco com o texto) e apagar (o arquivo some da pasta). Não conferidos no app: a atualização por mudança externa e o conflito. Numa rodada posterior no mesmo dia, com o build final e 18 notas em 5 pastas: a árvore mostrou as pastas antes das notas da raiz, uma pasta fechou e abriu, uma nota dentro de pasta abriu, e o botão direito numa nota mostrou "Abrir no Explorer". Em seguida, no disco de verdade: "Abrir no Explorer" numa nota abriu uma janela do Explorer em `Documentos\JARVIS\Notas` (fechada depois), sem erro na lista; "Nova pasta" criou a pasta e, com o nome digitado, renomeou-a; "Nova nota aqui" e "Nova pasta aqui" criaram dentro dela; "Renomear" levou a nota e a subpasta junto; "Apagar pasta" só apagou depois de "Sim, apagar a pasta", e a pasta foi para a Lixeira. A pasta de teste não ficou no disco. A aparência do explorador e do grafo foi conferida por captura de tela do build final. O arrasto e o renomear na lista também foram conferidos no app real, no disco, com uma nota e uma pasta de teste (removidas depois): arrastada para a pasta, a nota mudou de lugar no disco e o rótulo acompanhou o ponteiro; o duplo clique e o "Renomear" do menu trocaram o nome do arquivo; arrastada sobre uma nota da raiz, voltou para a raiz com o mesmo texto. | Parcialmente verificado no app |
 | KL-002 | O Jarvis Mark e a área de notas não se coordenam: com a mesma nota aberta nos dois, o segundo a salvar recebe o conflito (área de notas) ou sobrescreve (Jarvis Mark, que não usa carimbo). | Comportamento atual |
 | KL-003 | Uma nota apagada por fora com edição pendente no editor: o salvamento ao sair falha com conflito e o texto digitado se perde, sem aviso. | Comportamento atual |
 | KL-004 | A busca só vê o texto já lido; nos primeiros instantes, com muitas notas, só os títulos. Notas não lidas contam como "pode conter". | Comportamento atual |
 | KL-005 | A pasta é observada só enquanto a seção Notas está aberta, e é fechada ao sair. Se o jv_ide estiver com a mesma pasta aberta, perde o observador dela até reabrir. | Risco conhecido |
-| KL-006 | Arquivos que não são `.md` não aparecem (as subpastas aparecem desde 2026-11-19, RF-018). Não dá para mover uma nota de pasta pela lista (arrastar): isso se faz pelo Explorer. Uma nota criada por um `[[link]]` nasce na raiz. | Fora de escopo |
+| KL-006 | Arquivos que não são `.md` não aparecem (as subpastas aparecem desde 2026-11-19, RF-018). Uma nota se move de pasta arrastando (RF-023); uma pasta não se arrasta para dentro de outra, nem várias notas de uma vez: isso se faz pelo Explorer. Renomear ou mover a nota aberta menos de 0,8 s depois de digitar nela pode perder o que ainda não foi salvo (o salvamento automático escreve no caminho antigo). Uma nota criada por um `[[link]]` nasce na raiz. | Fora de escopo |
 
 ## Open Questions
 
